@@ -37,9 +37,14 @@ const ApiConfigForm = () => {
   const fetchConfig = async () => {
     setIsLoading(true);
     try {
-      // Fixed: Using the correct signature for get - just needs a type parameter
       const data = await apiService.apiConfig.get('company');
-      setConfig(data);
+      // Map API response to our component state
+      setConfig({
+        apiKey: data.codigo || '',
+        apiSecret: data.chave || '',
+        baseUrl: data.baseUrl || 'https://api.soc.com.br',
+        isConfigured: !!data.chave,
+      });
     } catch (err) {
       console.error('Error fetching API config:', err);
       toast({
@@ -67,8 +72,15 @@ const ApiConfigForm = () => {
     setIsSaving(true);
     
     try {
-      // Fixed: Using the correct signature for save - needs type and config
-      await apiService.apiConfig.save('company', config);
+      // Map our component state to the API expected format
+      const apiConfig = {
+        empresa: '',
+        codigo: config.apiKey,
+        chave: config.apiSecret,
+        tipoSaida: 'json',
+      };
+      
+      await apiService.apiConfig.save('company', apiConfig);
       toast({
         title: 'Configurações salvas',
         description: 'As configurações da API foram salvas com sucesso.',
@@ -91,7 +103,6 @@ const ApiConfigForm = () => {
     setTestResult(null);
     
     try {
-      // Fixed: Using the correct signature for test - needs a type parameter
       const result = await apiService.apiConfig.test('company');
       setTestResult({
         success: true,
