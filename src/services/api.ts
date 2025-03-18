@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 import { query } from './dbService';
 import { User } from './authService';
@@ -155,33 +156,103 @@ export const apiService = {
             [userId, type]
           );
           
-          return {
-            empresa: newResult.rows[0].empresa_principal || '',
-            codigo: newResult.rows[0].codigo || '',
-            chave: newResult.rows[0].chave || '',
-            tipoSaida: 'json',
-            isConfigured: false,
-            ativo: newResult.rows[0].ativo || '',
-            inativo: newResult.rows[0].inativo || '',
-            afastado: newResult.rows[0].afastado || '',
-            pendente: newResult.rows[0].pendente || '',
-            ferias: newResult.rows[0].ferias || ''
-          };
+          if (type === 'company') {
+            return {
+              empresa: newResult.rows[0].empresa_principal || '',
+              codigo: newResult.rows[0].codigo || '',
+              chave: newResult.rows[0].chave || '',
+              tipoSaida: 'json',
+              baseUrl: 'https://api.soc.com.br', // Adicionando baseUrl para API de empresas
+              isConfigured: false,
+              // Campos adicionais
+              ativo: newResult.rows[0].ativo || '',
+              inativo: newResult.rows[0].inativo || '',
+              afastado: newResult.rows[0].afastado || '',
+              pendente: newResult.rows[0].pendente || '',
+              ferias: newResult.rows[0].ferias || ''
+            };
+          } else if (type === 'absenteeism') {
+            return {
+              empresa: newResult.rows[0].empresa_principal || '',
+              codigo: newResult.rows[0].codigo || '',
+              chave: newResult.rows[0].chave || '',
+              tipoSaida: 'json',
+              empresaTrabalho: '', // Adicionando campos específicos para Absenteismo
+              dataInicio: '',
+              dataFim: '',
+              isConfigured: false,
+              // Campos adicionais
+              ativo: newResult.rows[0].ativo || '',
+              inativo: newResult.rows[0].inativo || '',
+              afastado: newResult.rows[0].afastado || '',
+              pendente: newResult.rows[0].pendente || '',
+              ferias: newResult.rows[0].ferias || ''
+            };
+          } else {
+            return {
+              empresa: newResult.rows[0].empresa_principal || '',
+              codigo: newResult.rows[0].codigo || '',
+              chave: newResult.rows[0].chave || '',
+              tipoSaida: 'json',
+              isConfigured: false,
+              // Campos adicionais
+              ativo: newResult.rows[0].ativo || '',
+              inativo: newResult.rows[0].inativo || '',
+              afastado: newResult.rows[0].afastado || '',
+              pendente: newResult.rows[0].pendente || '',
+              ferias: newResult.rows[0].ferias || ''
+            };
+          }
         }
         
         // Mapear os campos do banco para os campos esperados pela UI
-        return {
-          empresa: result.rows[0].empresa_principal || '',
-          codigo: result.rows[0].codigo || '',
-          chave: result.rows[0].chave || '',
-          tipoSaida: 'json',
-          isConfigured: !!result.rows[0].chave,
-          ativo: result.rows[0].ativo || '',
-          inativo: result.rows[0].inativo || '',
-          afastado: result.rows[0].afastado || '',
-          pendente: result.rows[0].pendente || '',
-          ferias: result.rows[0].ferias || ''
-        };
+        if (type === 'company') {
+          return {
+            empresa: result.rows[0].empresa_principal || '',
+            codigo: result.rows[0].codigo || '',
+            chave: result.rows[0].chave || '',
+            tipoSaida: 'json',
+            baseUrl: 'https://api.soc.com.br', // Adicionando baseUrl para API de empresas
+            isConfigured: !!result.rows[0].chave,
+            // Campos adicionais
+            ativo: result.rows[0].ativo || '',
+            inativo: result.rows[0].inativo || '',
+            afastado: result.rows[0].afastado || '',
+            pendente: result.rows[0].pendente || '',
+            ferias: result.rows[0].ferias || ''
+          };
+        } else if (type === 'absenteeism') {
+          return {
+            empresa: result.rows[0].empresa_principal || '',
+            codigo: result.rows[0].codigo || '',
+            chave: result.rows[0].chave || '',
+            tipoSaida: 'json',
+            empresaTrabalho: result.rows[0].empresa_trabalho || '', // Adicionando campos específicos para Absenteismo
+            dataInicio: result.rows[0].data_inicio || '',
+            dataFim: result.rows[0].data_fim || '',
+            isConfigured: !!result.rows[0].chave,
+            // Campos adicionais
+            ativo: result.rows[0].ativo || '',
+            inativo: result.rows[0].inativo || '',
+            afastado: result.rows[0].afastado || '',
+            pendente: result.rows[0].pendente || '',
+            ferias: result.rows[0].ferias || ''
+          };
+        } else {
+          return {
+            empresa: result.rows[0].empresa_principal || '',
+            codigo: result.rows[0].codigo || '',
+            chave: result.rows[0].chave || '',
+            tipoSaida: 'json',
+            isConfigured: !!result.rows[0].chave,
+            // Campos adicionais
+            ativo: result.rows[0].ativo || '',
+            inativo: result.rows[0].inativo || '',
+            afastado: result.rows[0].afastado || '',
+            pendente: result.rows[0].pendente || '',
+            ferias: result.rows[0].ferias || ''
+          };
+        }
       } catch (error) {
         console.error(`Erro ao buscar configurações de API ${type}:`, error);
         throw error;
@@ -196,18 +267,38 @@ export const apiService = {
       
       try {
         // Mapear os campos da UI para os campos do banco
-        const values = [
-          userId,
-          type,
-          config.empresa || '',
-          config.codigo || '',
-          config.chave || '',
-          config.ativo || '',
-          config.inativo || '',
-          config.afastado || '',
-          config.pendente || '',
-          config.ferias || ''
-        ];
+        let values;
+        
+        if (type === 'absenteeism') {
+          values = [
+            userId,
+            type,
+            config.empresa || '',
+            config.codigo || '',
+            config.chave || '',
+            config.ativo || '',
+            config.inativo || '',
+            config.afastado || '',
+            config.pendente || '',
+            config.ferias || '',
+            config.empresaTrabalho || '', // Campo adicional para absenteeism
+            config.dataInicio || '',      // Campo adicional para absenteeism
+            config.dataFim || ''          // Campo adicional para absenteeism
+          ];
+        } else {
+          values = [
+            userId,
+            type,
+            config.empresa || '',
+            config.codigo || '',
+            config.chave || '',
+            config.ativo || '',
+            config.inativo || '',
+            config.afastado || '',
+            config.pendente || '',
+            config.ferias || ''
+          ];
+        }
         
         // Verificar se já existe configuração
         const checkResult = await query(
@@ -217,23 +308,46 @@ export const apiService = {
         
         if (checkResult.rows.length === 0) {
           // Inserir nova configuração
-          await query(
-            `INSERT INTO api_configurations (
-              user_id, api_type, empresa_principal, codigo, chave, 
-              ativo, inativo, afastado, pendente, ferias
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-            values
-          );
+          if (type === 'absenteeism') {
+            await query(
+              `INSERT INTO api_configurations (
+                user_id, api_type, empresa_principal, codigo, chave, 
+                ativo, inativo, afastado, pendente, ferias,
+                empresa_trabalho, data_inicio, data_fim
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+              values
+            );
+          } else {
+            await query(
+              `INSERT INTO api_configurations (
+                user_id, api_type, empresa_principal, codigo, chave, 
+                ativo, inativo, afastado, pendente, ferias
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+              values
+            );
+          }
         } else {
           // Atualizar configuração existente
-          await query(
-            `UPDATE api_configurations SET
-              empresa_principal = $3, codigo = $4, chave = $5,
-              ativo = $6, inativo = $7, afastado = $8, pendente = $9, ferias = $10,
-              updated_at = CURRENT_TIMESTAMP
-             WHERE user_id = $1 AND api_type = $2`,
-            values
-          );
+          if (type === 'absenteeism') {
+            await query(
+              `UPDATE api_configurations SET
+                empresa_principal = $3, codigo = $4, chave = $5,
+                ativo = $6, inativo = $7, afastado = $8, pendente = $9, ferias = $10,
+                empresa_trabalho = $11, data_inicio = $12, data_fim = $13,
+                updated_at = CURRENT_TIMESTAMP
+               WHERE user_id = $1 AND api_type = $2`,
+              values
+            );
+          } else {
+            await query(
+              `UPDATE api_configurations SET
+                empresa_principal = $3, codigo = $4, chave = $5,
+                ativo = $6, inativo = $7, afastado = $8, pendente = $9, ferias = $10,
+                updated_at = CURRENT_TIMESTAMP
+               WHERE user_id = $1 AND api_type = $2`,
+              values
+            );
+          }
         }
         
         return { 
