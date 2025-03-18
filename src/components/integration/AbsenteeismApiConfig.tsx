@@ -162,7 +162,7 @@ const AbsenteeismApiConfig = () => {
                 </TooltipTrigger>
                 <TooltipContent className="max-w-md">
                   <p>Esta API é utilizada para sincronizar os dados de absenteísmo do sistema SOC.</p>
-                  <p className="mt-1">Formato: {"empresa":"valor","codigo":"valor","chave":"valor","tipoSaida":"json","empresaTrabalho":"","dataInicio":"","dataFim":""}</p>
+                  <p className="mt-1">Formato: {`{"empresa":"valor","codigo":"valor","chave":"valor","tipoSaida":"json","empresaTrabalho":"","dataInicio":"","dataFim":""}`}</p>
                   <p className="mt-1">As datas de início e fim serão geradas automaticamente pelo sistema.</p>
                 </TooltipContent>
               </Tooltip>

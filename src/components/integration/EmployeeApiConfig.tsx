@@ -166,7 +166,7 @@ const EmployeeApiConfig = () => {
                 </TooltipTrigger>
                 <TooltipContent className="max-w-md">
                   <p>Esta API é utilizada para sincronizar os funcionários das empresas do sistema SOC.</p>
-                  <p className="mt-1">Formato: {"empresa":"valor","codigo":"valor","chave":"valor","tipoSaida":"json",...}</p>
+                  <p className="mt-1">Formato: {`{"empresa":"valor","codigo":"valor","chave":"valor","tipoSaida":"json",...}`}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
