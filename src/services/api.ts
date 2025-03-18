@@ -1,178 +1,405 @@
 
-import axios from 'axios';
+import { supabase } from '@/integrations/supabase/client';
 
-// This is a mock API service for demo purposes
-// In a real app, this would connect to your backend API
-
-// Create axios instance
-const api = axios.create({
-  baseURL: 'https://api.example.com', // This is a placeholder URL
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Add request interceptor for authentication
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('vitalis_auth_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+// API Service - Handles all API calls for data
+export const apiService = {
+  // Company API
+  companies: {
+    async getAll() {
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .order('corporate_name', { ascending: true });
+        
+      if (error) throw error;
+      return data || [];
+    },
+    
+    async getById(id: number) {
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', id)
+        .single();
+        
+      if (error) throw error;
+      return data;
+    },
+    
+    async create(company: any) {
+      const { data, error } = await supabase
+        .from('companies')
+        .insert([company])
+        .select();
+        
+      if (error) throw error;
+      return data[0];
+    },
+    
+    async update(id: number, company: any) {
+      const { data, error } = await supabase
+        .from('companies')
+        .update(company)
+        .eq('id', id)
+        .select();
+        
+      if (error) throw error;
+      return data[0];
+    },
+    
+    async delete(id: number) {
+      const { error } = await supabase
+        .from('companies')
+        .delete()
+        .eq('id', id);
+        
+      if (error) throw error;
+      return true;
+    },
+    
+    async sync(configId?: number) {
+      try {
+        const response = await fetch('/api/soc-api', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({
+            type: 'company',
+            params: {},
+            configId
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to sync companies');
+        }
+        
+        return await response.json();
+      } catch (error: any) {
+        console.error('Error syncing companies:', error);
+        throw new Error(error.message || 'Failed to sync companies');
+      }
     }
-    return config;
   },
-  (error) => Promise.reject(error)
-);
-
-// Mock function to simulate API calls
-const mockApiCall = async (data: any, delay = 800) => {
-  await new Promise(resolve => setTimeout(resolve, delay));
-  return data;
-};
-
-// Mock data for API configurations
-const mockApiConfigs = {
-  company: {
-    empresa: '423',
-    codigo: '183868',
-    chave: '6dff7b9a8a635edaddf5',
-    tipoSaida: 'json',
-    isConfigured: true
+  
+  // Employee API
+  employees: {
+    async getAll() {
+      const { data, error } = await supabase
+        .from('employees')
+        .select(`
+          *,
+          company:companies(id, corporate_name)
+        `)
+        .order('full_name', { ascending: true });
+        
+      if (error) throw error;
+      return data || [];
+    },
+    
+    async getByCompany(companyId: number) {
+      const { data, error } = await supabase
+        .from('employees')
+        .select(`
+          *,
+          company:companies(id, corporate_name)
+        `)
+        .eq('company_id', companyId)
+        .order('full_name', { ascending: true });
+        
+      if (error) throw error;
+      return data || [];
+    },
+    
+    async getById(id: number) {
+      const { data, error } = await supabase
+        .from('employees')
+        .select(`
+          *,
+          company:companies(id, corporate_name)
+        `)
+        .eq('id', id)
+        .single();
+        
+      if (error) throw error;
+      return data;
+    },
+    
+    async sync(configId?: number) {
+      try {
+        const response = await fetch('/api/soc-api', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({
+            type: 'employee',
+            params: {},
+            configId
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to sync employees');
+        }
+        
+        return await response.json();
+      } catch (error: any) {
+        console.error('Error syncing employees:', error);
+        throw new Error(error.message || 'Failed to sync employees');
+      }
+    }
   },
-  employee: {
-    empresa: '423',
-    codigo: '25722',
-    chave: 'b4c740208036d64c467b',
-    tipoSaida: 'json',
-    ativo: 'Sim',
-    inativo: '',
-    afastado: '',
-    pendente: '',
-    ferias: '',
-    isConfigured: true
-  },
+  
+  // Absenteeism API
   absenteeism: {
-    empresa: '423',
-    codigo: '183868',
-    chave: '6dff7b9a8a635edaddf5',
-    tipoSaida: 'json',
-    empresaTrabalho: '',
-    dataInicio: '',
-    dataFim: '',
-    isConfigured: true
+    async getAll() {
+      const { data, error } = await supabase
+        .from('absenteeism')
+        .select(`
+          *,
+          company:companies(id, corporate_name),
+          employee:employees(id, full_name)
+        `)
+        .order('start_date', { ascending: false });
+        
+      if (error) throw error;
+      return data || [];
+    },
+    
+    async getByCompany(companyId: number) {
+      const { data, error } = await supabase
+        .from('absenteeism')
+        .select(`
+          *,
+          company:companies(id, corporate_name),
+          employee:employees(id, full_name)
+        `)
+        .eq('company_id', companyId)
+        .order('start_date', { ascending: false });
+        
+      if (error) throw error;
+      return data || [];
+    },
+    
+    async getByEmployee(employeeId: number) {
+      const { data, error } = await supabase
+        .from('absenteeism')
+        .select(`
+          *,
+          company:companies(id, corporate_name),
+          employee:employees(id, full_name)
+        `)
+        .eq('employee_id', employeeId)
+        .order('start_date', { ascending: false });
+        
+      if (error) throw error;
+      return data || [];
+    },
+    
+    async sync(configId?: number) {
+      try {
+        const response = await fetch('/api/soc-api', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({
+            type: 'absenteeism',
+            params: {},
+            configId
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to sync absenteeism data');
+        }
+        
+        return await response.json();
+      } catch (error: any) {
+        console.error('Error syncing absenteeism data:', error);
+        throw new Error(error.message || 'Failed to sync absenteeism data');
+      }
+    },
+    
+    // Calculate absenteeism rate
+    calculateRate(totalHoursAbsent: number, period: 'day' | 'week' | 'month' = 'month'): number {
+      // Default to monthly rate (220 hours per month)
+      let totalWorkHours = 220;
+      
+      if (period === 'day') {
+        totalWorkHours = 8; // 8 hours per day
+      } else if (period === 'week') {
+        totalWorkHours = 44; // 44 hours per week
+      }
+      
+      return (totalHoursAbsent / totalWorkHours) * 100;
+    },
+    
+    // Calculate financial impact
+    calculateFinancialImpact(totalHoursAbsent: number, hourlyRate: number = 6.22): number {
+      // Default hourly rate based on minimum wage (R$ 1,370 / 220 hours = R$ 6.22)
+      return totalHoursAbsent * hourlyRate;
+    },
+    
+    // Convert HH:MM format to decimal hours
+    hoursToDecimal(hoursString: string): number {
+      if (!hoursString) return 0;
+      
+      const [hours, minutes] = hoursString.split(':').map(Number);
+      return hours + (minutes / 60);
+    }
+  },
+  
+  // API Configuration
+  apiConfig: {
+    async get(type: 'company' | 'employee' | 'absenteeism') {
+      const { data, error } = await supabase
+        .from('api_configs')
+        .select('*')
+        .eq('type', type)
+        .maybeSingle();
+        
+      if (error) throw error;
+      
+      // If we have no data, return a default config
+      if (!data) {
+        return {
+          type,
+          empresa: '',
+          codigo: '',
+          chave: '',
+          tipoSaida: 'json',
+          isConfigured: false
+        };
+      }
+      
+      return {
+        ...data,
+        isConfigured: true
+      };
+    },
+    
+    async save(type: 'company' | 'employee' | 'absenteeism', config: any) {
+      // Check if a config already exists for this type
+      const { data: existingConfig } = await supabase
+        .from('api_configs')
+        .select('id')
+        .eq('type', type)
+        .maybeSingle();
+        
+      if (existingConfig) {
+        // Update existing config
+        const { data, error } = await supabase
+          .from('api_configs')
+          .update({
+            ...config,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingConfig.id)
+          .select();
+          
+        if (error) throw error;
+        return data[0];
+      } else {
+        // Insert new config
+        const { data, error } = await supabase
+          .from('api_configs')
+          .insert([{
+            ...config,
+            type
+          }])
+          .select();
+          
+        if (error) throw error;
+        return data[0];
+      }
+    },
+    
+    async test(type: 'company' | 'employee' | 'absenteeism') {
+      // Get the config
+      const { data: configData } = await supabase
+        .from('api_configs')
+        .select('id')
+        .eq('type', type)
+        .maybeSingle();
+        
+      if (!configData) {
+        throw new Error('Configuração não encontrada');
+      }
+      
+      // Test the API by syncing a single record
+      try {
+        const response = await fetch('/api/soc-api', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({
+            type,
+            params: {},
+            configId: configData.id
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Falha ao testar API de ${type}`);
+        }
+        
+        return {
+          success: true,
+          message: `Conexão com a API de ${type} estabelecida com sucesso!`
+        };
+      } catch (error: any) {
+        console.error(`Error testing ${type} API:`, error);
+        throw new Error(error.message || `Falha ao testar API de ${type}`);
+      }
+    }
+  },
+  
+  // Sync Logs
+  syncLogs: {
+    async getAll() {
+      const { data, error } = await supabase
+        .from('sync_logs')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+      if (error) throw error;
+      return data || [];
+    },
+    
+    async getByType(type: 'company' | 'employee' | 'absenteeism') {
+      const { data, error } = await supabase
+        .from('sync_logs')
+        .select('*')
+        .eq('type', type)
+        .order('created_at', { ascending: false });
+        
+      if (error) throw error;
+      return data || [];
+    },
+    
+    async getLatest(type: 'company' | 'employee' | 'absenteeism') {
+      const { data, error } = await supabase
+        .from('sync_logs')
+        .select('*')
+        .eq('type', type)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+        
+      if (error) throw error;
+      return data;
+    }
   }
 };
-
-// API service with mock implementations
-export const apiService = {
-  // Company endpoints
-  companies: {
-    list: async () => mockApiCall([
-      { id: '1', name: 'Empresa ABC', employees: 120, syncStatus: 'synced', lastSync: '2023-06-15T14:30:00Z' },
-      { id: '2', name: 'Distribuidora XYZ', employees: 85, syncStatus: 'synced', lastSync: '2023-06-10T09:15:00Z' },
-      { id: '3', name: 'Indústria 123', employees: 210, syncStatus: 'pending', lastSync: null },
-    ]),
-    
-    getById: async (id: string) => mockApiCall({
-      id,
-      name: id === '1' ? 'Empresa ABC' : 'Outra Empresa',
-      employees: 120,
-      sectors: 8,
-      address: 'Rua Principal, 123',
-      city: 'São Paulo',
-      state: 'SP',
-      syncStatus: 'synced',
-      lastSync: '2023-06-15T14:30:00Z'
-    }),
-    
-    sync: async () => mockApiCall({ status: 'success', jobId: '12345' }),
-  },
-  
-  // Employees endpoints
-  employees: {
-    list: async () => mockApiCall([
-      { id: '101', name: 'João Silva', position: 'Analista', sector: 'TI', status: 'Ativo', absentDays: 3 },
-      { id: '102', name: 'Maria Santos', position: 'Gerente', sector: 'RH', status: 'Ativo', absentDays: 0 },
-      { id: '103', name: 'Pedro Costa', position: 'Desenvolvedor', sector: 'TI', status: 'Afastado', absentDays: 15 },
-      { id: '104', name: 'Ana Sousa', position: 'Analista', sector: 'Financeiro', status: 'Ativo', absentDays: 1 },
-    ]),
-    
-    getById: async (id: string) => mockApiCall({
-      id,
-      name: 'João Silva',
-      position: 'Analista',
-      sector: 'TI',
-      companyId: '1',
-      status: 'Ativo',
-      startDate: '2020-03-15',
-      absenceHistory: [
-        { id: 'a1', startDate: '2023-05-10', endDate: '2023-05-12', reason: 'Doença', cid: 'J00' },
-        { id: 'a2', startDate: '2023-02-22', endDate: '2023-02-22', reason: 'Consulta médica', cid: 'Z00.0' },
-      ]
-    }),
-    
-    sync: async () => mockApiCall({ status: 'success', jobId: '67890' }),
-  },
-  
-  // Absenteeism endpoints
-  absenteeism: {
-    getDashboardData: async () => mockApiCall({
-      absenteeismRate: 3.2,
-      trend: { value: 0.5, positive: false },
-      totalAbsenceDays: 147,
-      employeesAbsent: 12,
-      costImpact: 'R$ 28.500,00',
-      bySector: [
-        { name: 'Produção', value: 42 },
-        { name: 'Administrativo', value: 26 },
-        { name: 'Comercial', value: 18 },
-        { name: 'TI', value: 15 },
-        { name: 'RH', value: 7 }
-      ],
-      byReason: [
-        { name: 'Doença', value: 68 },
-        { name: 'Acidente', value: 22 },
-        { name: 'Familiar', value: 15 },
-        { name: 'Outros', value: 42 }
-      ],
-      monthlyTrend: [
-        { month: 'Jan', value: 2.8 },
-        { month: 'Fev', value: 3.1 },
-        { month: 'Mar', value: 2.9 },
-        { month: 'Abr', value: 3.5 },
-        { month: 'Mai', value: 3.2 },
-        { month: 'Jun', value: 2.7 }
-      ]
-    }),
-    
-    sync: async () => mockApiCall({ status: 'success', jobId: '24680' }),
-  },
-  
-  // API configuration endpoints
-  apiConfig: {
-    get: async (type = 'company') => {
-      // Return specific config based on type
-      return mockApiCall(mockApiConfigs[type as keyof typeof mockApiConfigs] || {});
-    },
-    
-    save: async (type: string, config: any) => {
-      // Save config based on type
-      return mockApiCall({ 
-        status: 'success', 
-        message: `Configurações da API de ${type === 'company' ? 'Empresas' : type === 'employee' ? 'Funcionários' : 'Absenteísmo'} salvas com sucesso`,
-        ...config
-      });
-    },
-    
-    test: async (type: string) => {
-      // Test connection based on type
-      return mockApiCall({ 
-        status: 'success', 
-        message: `Conexão com a API de ${type === 'company' ? 'Empresas' : type === 'employee' ? 'Funcionários' : 'Absenteísmo'} estabelecida com sucesso!` 
-      });
-    },
-  },
-};
-
-export default api;
