@@ -37,7 +37,7 @@ const ApiConfigForm = () => {
   const fetchConfig = async () => {
     setIsLoading(true);
     try {
-      const data = await apiService.apiConfig.get();
+      const data = await apiService.apiConfig.get('company', {}); // Fixed: Added empty config object as second argument
       setConfig(data);
     } catch (err) {
       console.error('Error fetching API config:', err);
@@ -89,7 +89,7 @@ const ApiConfigForm = () => {
     setTestResult(null);
     
     try {
-      const result = await apiService.apiConfig.test();
+      const result = await apiService.apiConfig.test('company'); // Fixed: Added 'company' as type parameter
       setTestResult({
         success: true,
         message: result.message || 'Conexão estabelecida com sucesso!'
