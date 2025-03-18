@@ -1,5 +1,6 @@
 
-// This is a simulated auth service - in a real app you would connect to your backend API
+import { query } from './dbService';
+import * as bcrypt from 'bcrypt';
 
 export interface User {
   id: string;
@@ -8,65 +9,115 @@ export interface User {
   plan: 'free' | 'premium';
 }
 
-// Simulated users for demo
-const DEMO_USERS = [
-  {
-    id: '1',
-    email: 'demo@example.com',
-    password: 'demo123',
-    companyName: 'Empresa Demo',
-    plan: 'free' as const,
-  }
-];
-
+// Token constants
 const TOKEN_KEY = 'vitalis_auth_token';
 const USER_KEY = 'vitalis_user';
+const SALT_ROUNDS = 10;
 
 export const authService = {
-  // Login with email and password
+  // Login com email e senha
   async login(email: string, password: string): Promise<User> {
-    await new Promise(resolve => setTimeout(resolve, 800)); // Simulate network delay
-    
-    const user = DEMO_USERS.find(u => u.email === email && u.password === password);
-    
-    if (!user) {
-      throw new Error('Credenciais inválidas');
+    try {
+      // Buscar usuário pelo email
+      const userResult = await query(
+        'SELECT id, email, company_name, password_hash FROM users WHERE email = $1',
+        [email]
+      );
+      
+      const user = userResult.rows[0];
+      
+      if (!user) {
+        throw new Error('Credenciais inválidas');
+      }
+      
+      // Verificar a senha
+      const passwordMatch = await bcrypt.compare(password, user.password_hash);
+      if (!passwordMatch) {
+        throw new Error('Credenciais inválidas');
+      }
+      
+      // Atualizar último login
+      await query(
+        'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
+        [user.id]
+      );
+      
+      // Criar token de autenticação
+      const token = btoa(JSON.stringify({ id: user.id, exp: Date.now() + 24 * 60 * 60 * 1000 }));
+      
+      // Salvar token no localStorage
+      localStorage.setItem(TOKEN_KEY, token);
+      
+      // Mapear dados do usuário para formato da interface
+      const userData: User = {
+        id: user.id.toString(),
+        email: user.email,
+        companyName: user.company_name,
+        plan: 'free' // Por padrão todos são 'free'
+      };
+      
+      // Salvar dados do usuário no localStorage
+      localStorage.setItem(USER_KEY, JSON.stringify(userData));
+      
+      return userData;
+    } catch (error) {
+      console.error('Erro no login:', error);
+      throw error;
     }
-    
-    const token = btoa(JSON.stringify({ id: user.id, exp: Date.now() + 24 * 60 * 60 * 1000 }));
-    
-    localStorage.setItem(TOKEN_KEY, token);
-    
-    // Store user without password
-    const { password: _, ...userWithoutPassword } = user;
-    localStorage.setItem(USER_KEY, JSON.stringify(userWithoutPassword));
-    
-    return userWithoutPassword;
   },
   
-  // Register new user
+  // Cadastrar novo usuário
   async register(email: string, password: string, companyName: string): Promise<User> {
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay
-    
-    // In a real app, this would make an API call
-    // For demo, simulate registration success
-    
-    const user = {
-      id: Math.random().toString(36).substring(2, 9),
-      email,
-      companyName,
-      plan: 'free' as const,
-    };
-    
-    const token = btoa(JSON.stringify({ id: user.id, exp: Date.now() + 24 * 60 * 60 * 1000 }));
-    
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
-    
-    return user;
+    try {
+      // Verificar se já existe usuário com este email
+      const checkResult = await query('SELECT id FROM users WHERE email = $1', [email]);
+      
+      if (checkResult.rows.length > 0) {
+        throw new Error('Este email já está cadastrado');
+      }
+      
+      // Hash da senha
+      const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+      
+      // Inserir novo usuário
+      const result = await query(
+        'INSERT INTO users (email, password_hash, company_name) VALUES ($1, $2, $3) RETURNING id',
+        [email, passwordHash, companyName]
+      );
+      
+      const userId = result.rows[0].id;
+      
+      // Criar configurações de API padrão para o novo usuário
+      await query(
+        'INSERT INTO api_configurations (user_id, api_type) VALUES ($1, $2), ($1, $3), ($1, $4)',
+        [userId, 'company', 'employee', 'absenteeism']
+      );
+      
+      // Criar token de autenticação
+      const token = btoa(JSON.stringify({ id: userId, exp: Date.now() + 24 * 60 * 60 * 1000 }));
+      
+      // Salvar token no localStorage
+      localStorage.setItem(TOKEN_KEY, token);
+      
+      // Mapear dados do usuário para formato da interface
+      const userData: User = {
+        id: userId.toString(),
+        email,
+        companyName,
+        plan: 'free'
+      };
+      
+      // Salvar dados do usuário no localStorage
+      localStorage.setItem(USER_KEY, JSON.stringify(userData));
+      
+      return userData;
+    } catch (error) {
+      console.error('Erro no cadastro:', error);
+      throw error;
+    }
   },
   
-  // Check if user is logged in
+  // Verificar se usuário está logado
   async getCurrentUser(): Promise<User | null> {
     const userJson = localStorage.getItem(USER_KEY);
     const token = localStorage.getItem(TOKEN_KEY);
@@ -78,26 +129,35 @@ export const authService = {
     try {
       const parsed = JSON.parse(atob(token));
       
-      // Check if token is expired
+      // Verificar se token expirou
       if (parsed.exp < Date.now()) {
+        this.logout();
+        return null;
+      }
+      
+      // Verificar se usuário ainda existe no banco
+      const userResult = await query('SELECT id FROM users WHERE id = $1', [parsed.id]);
+      
+      if (userResult.rows.length === 0) {
         this.logout();
         return null;
       }
       
       return JSON.parse(userJson) as User;
     } catch (error) {
+      console.error('Erro ao verificar autenticação:', error);
       this.logout();
       return null;
     }
   },
   
-  // Log out user
+  // Deslogar usuário
   logout() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
   },
   
-  // Check if token exists
+  // Verificar se token existe
   isAuthenticated(): boolean {
     return !!localStorage.getItem(TOKEN_KEY);
   }
