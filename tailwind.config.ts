@@ -1,3 +1,4 @@
+
 import type { Config } from "tailwindcss";
 
 export default {
@@ -61,6 +62,18 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
+				},
+				vitalis: {
+					50: '#f5f9ff',
+					100: '#e5f0ff',
+					200: '#d0e3ff',
+					300: '#a6c9ff',
+					400: '#79a8ff',
+					500: '#3b82f6',
+					600: '#2563eb',
+					700: '#1d4ed8',
+					800: '#1e40af',
+					900: '#1e3a8a'
 				}
 			},
 			borderRadius: {
@@ -70,25 +83,72 @@ export default {
 			},
 			keyframes: {
 				'accordion-down': {
-					from: {
-						height: '0'
-					},
-					to: {
-						height: 'var(--radix-accordion-content-height)'
-					}
+					from: { height: '0' },
+					to: { height: 'var(--radix-accordion-content-height)' }
 				},
 				'accordion-up': {
-					from: {
-						height: 'var(--radix-accordion-content-height)'
-					},
-					to: {
-						height: '0'
-					}
+					from: { height: 'var(--radix-accordion-content-height)' },
+					to: { height: '0' }
+				},
+				'fade-in': {
+					from: { opacity: '0' },
+					to: { opacity: '1' }
+				},
+				'fade-out': {
+					from: { opacity: '1' },
+					to: { opacity: '0' }
+				},
+				'slide-up': {
+					from: { transform: 'translateY(10px)', opacity: '0' },
+					to: { transform: 'translateY(0)', opacity: '1' }
+				},
+				'slide-down': {
+					from: { transform: 'translateY(-10px)', opacity: '0' },
+					to: { transform: 'translateY(0)', opacity: '1' }
+				},
+				'scale-in': {
+					from: { transform: 'scale(0.95)', opacity: '0' },
+					to: { transform: 'scale(1)', opacity: '1' }
+				},
+				'float': {
+					'0%, 100%': { transform: 'translateY(0)' },
+					'50%': { transform: 'translateY(-10px)' }
+				},
+				'pulse-soft': {
+					'0%, 100%': { opacity: '1' },
+					'50%': { opacity: '0.8' }
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out'
+				'accordion-up': 'accordion-up 0.2s ease-out',
+				'fade-in': 'fade-in 0.3s ease-out',
+				'fade-out': 'fade-out 0.3s ease-out',
+				'slide-up': 'slide-up 0.4s ease-out',
+				'slide-down': 'slide-down 0.4s ease-out',
+				'scale-in': 'scale-in 0.3s ease-out',
+				'float': 'float 6s ease-in-out infinite',
+				'pulse-soft': 'pulse-soft 3s ease-in-out infinite'
+			},
+			fontFamily: {
+				sans: [
+					'-apple-system',
+					'BlinkMacSystemFont',
+					'San Francisco',
+					'Segoe UI',
+					'Roboto',
+					'sans-serif'
+				]
+			},
+			boxShadow: {
+				'glass': '0 4px 30px rgba(0, 0, 0, 0.1)',
+				'glass-strong': '0 8px 32px rgba(0, 0, 0, 0.1)',
+				'subtle': '0 2px 10px rgba(0, 0, 0, 0.05)',
+				'elevated': '0 10px 30px rgba(0, 0, 0, 0.08)',
+				'button': '0 1px 2px rgba(0, 0, 0, 0.05)'
+			},
+			backdropBlur: {
+				'xs': '2px',
 			}
 		}
 	},
