@@ -37,7 +37,8 @@ const ApiConfigForm = () => {
   const fetchConfig = async () => {
     setIsLoading(true);
     try {
-      const data = await apiService.apiConfig.get('company', {}); // Fixed: Added empty config object as second argument
+      // Fixed: Using the correct signature for get - just needs a type parameter
+      const data = await apiService.apiConfig.get('company');
       setConfig(data);
     } catch (err) {
       console.error('Error fetching API config:', err);
@@ -66,7 +67,8 @@ const ApiConfigForm = () => {
     setIsSaving(true);
     
     try {
-      await apiService.apiConfig.save(config);
+      // Fixed: Using the correct signature for save - needs type and config
+      await apiService.apiConfig.save('company', config);
       toast({
         title: 'Configurações salvas',
         description: 'As configurações da API foram salvas com sucesso.',
@@ -89,7 +91,8 @@ const ApiConfigForm = () => {
     setTestResult(null);
     
     try {
-      const result = await apiService.apiConfig.test('company'); // Fixed: Added 'company' as type parameter
+      // Fixed: Using the correct signature for test - needs a type parameter
+      const result = await apiService.apiConfig.test('company');
       setTestResult({
         success: true,
         message: result.message || 'Conexão estabelecida com sucesso!'
