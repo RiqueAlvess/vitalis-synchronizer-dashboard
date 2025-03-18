@@ -31,6 +31,39 @@ const mockApiCall = async (data: any, delay = 800) => {
   return data;
 };
 
+// Mock data for API configurations
+const mockApiConfigs = {
+  company: {
+    empresa: '423',
+    codigo: '183868',
+    chave: '6dff7b9a8a635edaddf5',
+    tipoSaida: 'json',
+    isConfigured: true
+  },
+  employee: {
+    empresa: '423',
+    codigo: '25722',
+    chave: 'b4c740208036d64c467b',
+    tipoSaida: 'json',
+    ativo: 'Sim',
+    inativo: '',
+    afastado: '',
+    pendente: '',
+    ferias: '',
+    isConfigured: true
+  },
+  absenteeism: {
+    empresa: '423',
+    codigo: '183868',
+    chave: '6dff7b9a8a635edaddf5',
+    tipoSaida: 'json',
+    empresaTrabalho: '',
+    dataInicio: '',
+    dataFim: '',
+    isConfigured: true
+  }
+};
+
 // API service with mock implementations
 export const apiService = {
   // Company endpoints
@@ -118,16 +151,27 @@ export const apiService = {
   
   // API configuration endpoints
   apiConfig: {
-    get: async () => mockApiCall({
-      apiKey: '********',
-      apiSecret: '********',
-      baseUrl: 'https://api.soc.com.br',
-      isConfigured: true
-    }),
+    get: async (type = 'company') => {
+      // Return specific config based on type
+      return mockApiCall(mockApiConfigs[type as keyof typeof mockApiConfigs] || {});
+    },
     
-    save: async (config: any) => mockApiCall({ status: 'success', ...config }),
+    save: async (type: string, config: any) => {
+      // Save config based on type
+      return mockApiCall({ 
+        status: 'success', 
+        message: `Configurações da API de ${type === 'company' ? 'Empresas' : type === 'employee' ? 'Funcionários' : 'Absenteísmo'} salvas com sucesso`,
+        ...config
+      });
+    },
     
-    test: async () => mockApiCall({ status: 'success', message: 'Conexão estabelecida com sucesso!' }),
+    test: async (type: string) => {
+      // Test connection based on type
+      return mockApiCall({ 
+        status: 'success', 
+        message: `Conexão com a API de ${type === 'company' ? 'Empresas' : type === 'employee' ? 'Funcionários' : 'Absenteísmo'} estabelecida com sucesso!` 
+      });
+    },
   },
 };
 

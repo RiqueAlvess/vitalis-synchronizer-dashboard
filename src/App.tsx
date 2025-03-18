@@ -13,6 +13,7 @@ import Dashboard from "./pages/Dashboard";
 import Companies from "./pages/Companies";
 import Employees from "./pages/Employees";
 import ApiConfig from "./pages/ApiConfig";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 // Layout components
@@ -103,6 +104,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <ApiConfig />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/settings" 
+              element={
+                <ProtectedRoute>
+                  <Settings />
                 </ProtectedRoute>
               } 
             />

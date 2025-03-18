@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -26,7 +25,7 @@ const NavBar = () => {
     { path: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-5 w-5" /> },
     { path: '/companies', label: 'Empresas', icon: <Building2 className="h-5 w-5" /> },
     { path: '/employees', label: 'Funcionários', icon: <Users className="h-5 w-5" /> },
-    { path: '/api-config', label: 'Configuração API', icon: <Settings className="h-5 w-5" /> },
+    { path: '/settings', label: 'Configurações', icon: <Settings className="h-5 w-5" /> },
   ];
 
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
