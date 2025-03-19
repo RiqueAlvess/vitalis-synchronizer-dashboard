@@ -132,7 +132,7 @@ Deno.serve(async (req) => {
 
     console.log('Config saved successfully:', result);
 
-    // Return the saved config
+    // Return the saved config with CORS headers
     return new Response(
       JSON.stringify({
         ...result,
@@ -145,6 +145,7 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error('Unexpected error:', error);
+    // Ensure CORS headers are applied to error responses as well
     return new Response(
       JSON.stringify({ error: error.message || 'An unexpected error occurred' }),
       { 

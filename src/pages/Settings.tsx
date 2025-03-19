@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import ApiConfigTabs from '@/components/integration/ApiConfigTabs';
-import { Loader2, AlertTriangle, RefreshCcw } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCcw, Wifi, WifiOff } from 'lucide-react';
 import apiService from '@/services/api';
 import { useToast } from '@/components/ui/use-toast';
 import ErrorBoundary from '@/components/ui-custom/ErrorBoundary';
@@ -14,6 +14,7 @@ const Settings = () => {
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [apiConnectivity, setApiConnectivity] = useState<boolean | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -34,6 +35,33 @@ const Settings = () => {
     checkAuth();
   }, []);
 
+  // Check API connectivity
+  const checkApiConnectivity = async () => {
+    try {
+      console.log('Testing API connectivity...');
+      setApiConnectivity(null);
+      
+      const result = await apiService.testApiConnection({
+        type: 'company',
+        empresa: 'test',
+        codigo: 'test',
+        chave: 'test',
+        tipoSaida: 'json'
+      });
+      
+      console.log('API connectivity test result:', result);
+      
+      // Even if the test fails due to invalid credentials,
+      // as long as we got a response, the API is reachable
+      setApiConnectivity(true);
+      return true;
+    } catch (error) {
+      console.error('API connectivity test failed:', error);
+      setApiConnectivity(false);
+      return false;
+    }
+  };
+
   const loadAllConfigs = async () => {
     try {
       setIsLoading(true);
@@ -43,6 +71,15 @@ const Settings = () => {
       if (isAuthenticated === false) {
         setHasError(true);
         setErrorMessage('Você precisa estar autenticado para acessar as configurações');
+        setIsLoading(false);
+        return;
+      }
+      
+      // Check API connectivity first
+      const isConnected = await checkApiConnectivity();
+      if (!isConnected) {
+        setHasError(true);
+        setErrorMessage('Não foi possível conectar ao servidor API. Verifique sua conexão com a internet.');
         setIsLoading(false);
         return;
       }
@@ -116,6 +153,31 @@ const Settings = () => {
     );
   }
 
+  if (apiConnectivity === false) {
+    return (
+      <DashboardLayout 
+        title="Configurações" 
+        subtitle="Configure as integrações com APIs externas"
+      >
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-center">
+          <WifiOff className="mx-auto h-10 w-10 text-amber-400 mb-3" />
+          <h3 className="text-lg font-medium text-amber-800 mb-2">Problema de conectividade</h3>
+          <p className="text-amber-600 mb-4">
+            Não foi possível conectar ao servidor API. Verifique sua conexão com a internet e tente novamente.
+          </p>
+          <Button 
+            onClick={loadAllConfigs} 
+            variant="outline" 
+            className="flex mx-auto items-center gap-2 bg-white text-amber-700 border-amber-300"
+          >
+            <RefreshCcw className="h-4 w-4" />
+            Tentar novamente
+          </Button>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   if (isLoading) {
     return (
       <DashboardLayout 
@@ -162,6 +224,12 @@ const Settings = () => {
       title="Configurações" 
       subtitle="Configure as integrações com APIs externas"
     >
+      {apiConnectivity === true && (
+        <div className="mb-4 px-4 py-2 bg-green-50 border border-green-100 rounded-md flex items-center text-green-700">
+          <Wifi className="h-4 w-4 mr-2 text-green-500" />
+          <span className="text-sm">Conexão com o servidor API estabelecida</span>
+        </div>
+      )}
       <ErrorBoundary>
         <div className="max-w-5xl mx-auto">
           <ApiConfigTabs />

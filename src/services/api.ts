@@ -1,7 +1,27 @@
+
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
 import { DashboardData, MonthlyTrendData, SectorData } from '@/types/dashboard';
 import type { MockCompanyData, MockEmployeeData } from '@/types/dashboard';
+
+// Function to retry failed requests
+const retryRequest = async (fn, maxRetries = 3, delay = 1000) => {
+  let lastError;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      console.log(`Attempt ${i + 1} failed:`, error.message);
+      lastError = error;
+      if (i < maxRetries - 1) {
+        await new Promise(res => setTimeout(res, delay));
+        // Increase delay for next retry (exponential backoff)
+        delay *= 1.5;
+      }
+    }
+  }
+  throw lastError;
+};
 
 // Create a base axios instance that will be used for all API calls to Supabase Functions
 const supabaseAPI = axios.create({
@@ -11,7 +31,8 @@ const supabaseAPI = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000 // Set timeout to 10 seconds
+  timeout: 15000, // Set timeout to 15 seconds
+  withCredentials: false, // Don't include credentials by default as they can cause CORS issues
 });
 
 // Add request interceptor to include authentication
@@ -64,6 +85,16 @@ supabaseAPI.interceptors.response.use(
       console.error('Received HTML instead of JSON - possible auth or endpoint issue');
       error.isHtmlResponse = true;
       error.message = 'Authentication error. Please log in and try again.';
+    }
+    
+    // Add more context to the error for better debugging
+    if (error.message === 'Network Error') {
+      console.error('Network error details:', {
+        navigator: navigator?.onLine ? 'Online' : 'Offline',
+        url: error.config?.url,
+        method: error.config?.method,
+      });
+      error.message = 'Falha na conexão com o servidor. Verifique sua conexão de internet.';
     }
     
     return Promise.reject(error);
@@ -231,7 +262,8 @@ async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiRespon
       throw new Error('Invalid API type');
     }
 
-    const response = await supabaseAPI.get(url);
+    // Use retry logic for external API calls
+    const response = await retryRequest(() => supabaseAPI.get(url), 2);
 
     if (response.status !== 200) {
       throw new Error(`Request failed with status ${response.status}`);
@@ -243,6 +275,25 @@ async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiRespon
     return { data: null, error: error.message || 'Failed to fetch data from external API' };
   }
 }
+
+// Check API connectivity
+const checkApiConnectivity = async (): Promise<boolean> => {
+  try {
+    // Try a simple request to check connectivity
+    await supabaseAPI.get('/test-connection');
+    return true;
+  } catch (error) {
+    console.warn('API connectivity check failed:', error.message);
+    
+    // If it's not a network error, the API might still be reachable
+    // but returned an error response
+    if (error.response) {
+      return true;
+    }
+    
+    return false;
+  }
+};
 
 // API service
 const apiService = {
@@ -482,22 +533,53 @@ const apiService = {
     get: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
       try {
         console.log(`Fetching ${type} API config...`);
-        const response = await supabaseAPI.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api-config/${type}`);
         
-        // Ensure the response is valid
-        if (!response.data || typeof response.data !== 'object') {
-          console.warn(`Invalid response for ${type} API config:`, response.data);
-          return null;
+        // First check local storage for cached config (fallback if API is unreachable)
+        const cachedConfig = localStorage.getItem(`api_config_${type}`);
+        let localConfig = null;
+        
+        if (cachedConfig) {
+          try {
+            localConfig = JSON.parse(cachedConfig);
+            console.log(`Found cached ${type} config in localStorage:`, localConfig);
+          } catch (e) {
+            console.error('Failed to parse cached config:', e);
+          }
         }
         
-        console.log(`Successfully fetched ${type} API config:`, response.data);
-        
-        // Add isConfigured flag based on required fields
-        if (response.data) {
-          response.data.isConfigured = !!(response.data.empresa && response.data.codigo && response.data.chave);
+        // Try to get fresh data from API with retry logic
+        try {
+          const response = await retryRequest(() => supabaseAPI.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api-config/${type}`), 2);
+          
+          // Ensure the response is valid
+          if (!response.data || typeof response.data !== 'object') {
+            console.warn(`Invalid response for ${type} API config:`, response.data);
+            // Fall back to cached config if available
+            return localConfig || null;
+          }
+          
+          console.log(`Successfully fetched ${type} API config:`, response.data);
+          
+          // Add isConfigured flag based on required fields
+          if (response.data) {
+            response.data.isConfigured = !!(response.data.empresa && response.data.codigo && response.data.chave);
+            
+            // Update cache with fresh data
+            localStorage.setItem(`api_config_${type}`, JSON.stringify(response.data));
+          }
+          
+          return response.data;
+        } catch (err) {
+          console.error(`Error fetching ${type} API config from server:`, err);
+          
+          // Fall back to cached config if available
+          if (localConfig) {
+            console.log(`Using cached ${type} config due to API error`);
+            return localConfig;
+          }
+          
+          throw err; // Re-throw if no cached config
         }
-        
-        return response.data;
       } catch (error) {
         console.error(`Error fetching ${type} API config:`, error);
         
@@ -527,7 +609,7 @@ const apiService = {
           throw new Error('Authentication required to save configuration');
         }
         
-        // Ensure tipoSaida is always 'json'
+        // Ensure tipoSaida is always "json"
         const configToSave = {
           ...config,
           tipoSaida: 'json'
@@ -535,11 +617,45 @@ const apiService = {
         
         console.log('Saving API config:', configToSave);
         
-        const response = await supabaseAPI.post<ApiConfig>('/api-config', configToSave);
+        // Check API connectivity first
+        const isConnected = await checkApiConnectivity();
+        if (!isConnected) {
+          console.warn('API connectivity check failed, saving to localStorage only');
+          // Save to local storage as fallback
+          localStorage.setItem(`api_config_${config.type}`, JSON.stringify(configToSave));
+          throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
+        }
+        
+        // Use retry logic for the save operation
+        const response = await retryRequest(
+          async () => {
+            try {
+              return await supabaseAPI.post<ApiConfig>('/api-config', configToSave);
+            } catch (err) {
+              if (err.message.includes('Network Error')) {
+                // If direct call fails with network error, try an alternate endpoint
+                console.log("Network error, trying alternate endpoint format...");
+                return await axios.post(
+                  'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/save-api-config',
+                  configToSave,
+                  {
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${session.access_token}`
+                    }
+                  }
+                );
+              }
+              throw err; // Rethrow if it's not a network error
+            }
+          }, 
+          2
+        );
         
         // Ensure the response is valid
         if (!response.data || typeof response.data !== 'object') {
-          console.warn('Invalid response when saving API config:', response.data);
+          console.warn('Invalid response when saving API config:', 
+            typeof response.data === 'string' ? response.data.substring(0, 100) : response.data);
           throw new Error('Invalid response from server');
         }
         
@@ -549,6 +665,9 @@ const apiService = {
         const result = {...response.data};
         result.isConfigured = !!(result.empresa && result.codigo && result.chave);
         
+        // Update local storage cache
+        localStorage.setItem(`api_config_${config.type}`, JSON.stringify(result));
+        
         return result;
       } catch (error) {
         console.error('Error saving API config:', error);
@@ -556,6 +675,16 @@ const apiService = {
         // If we got HTML instead of JSON, show a more helpful error
         if ((error as any).isHtmlResponse) {
           throw new Error('Authentication error. Please log in and try again.');
+        }
+        
+        // Save to local storage as fallback if it was a network error
+        if (error.message.includes('Network Error') || error.message.includes('Não foi possível conectar')) {
+          localStorage.setItem(`api_config_${config.type}`, JSON.stringify({
+            ...config,
+            isConfigured: !!(config.empresa && config.codigo && config.chave),
+            _offline: true // Mark as saved offline
+          }));
+          throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
         }
         
         throw error;
@@ -584,7 +713,35 @@ const apiService = {
   testApiConnection: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<{success: boolean, message: string}> => {
     try {
       console.log('Testing API connection with config:', config);
-      const response = await supabaseAPI.post('/test-connection', config);
+      
+      // Use retry logic for connection testing
+      const response = await retryRequest(
+        async () => {
+          try {
+            return await supabaseAPI.post('/test-connection', config);
+          } catch (err) {
+            if (err.message === 'Network Error') {
+              // If direct call fails, try an alternate endpoint format
+              console.log("Network error, trying direct endpoint...");
+              // Get auth token for the direct request
+              const { data: { session } } = await supabase.auth.getSession();
+              return await axios.post(
+                'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/test-connection',
+                config,
+                {
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': session ? `Bearer ${session.access_token}` : ''
+                  }
+                }
+              );
+            }
+            throw err;
+          }
+        }, 
+        2
+      );
+      
       console.log('Test connection response:', response.data);
       return response.data;
     } catch (error: any) {
@@ -595,6 +752,14 @@ const apiService = {
         return { 
           success: false, 
           message: 'Error connecting to the API. Please check your network connection and authentication status.' 
+        };
+      }
+      
+      // If it's a network error, provide a clear message
+      if (error.message === 'Network Error' || error.code === 'ERR_NETWORK') {
+        return {
+          success: false,
+          message: 'Não foi possível conectar ao servidor API. Verifique sua conexão de internet.'
         };
       }
       
