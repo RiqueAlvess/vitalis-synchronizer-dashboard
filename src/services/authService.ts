@@ -1,4 +1,3 @@
-
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/components/ui/use-toast';
 import { supabaseAPI } from './apiClient';
@@ -31,7 +30,8 @@ export const authService = {
         password,
         options: {
           data: {
-            company_name: companyName
+            company_name: companyName,
+            full_name: email.split('@')[0] // Default name from email
           }
         }
       });
@@ -42,10 +42,41 @@ export const authService = {
         throw new Error('Erro ao criar usuário');
       }
 
+      // Create a profile record
+      if (data.user && data.session) {
+        try {
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .insert({
+              id: data.user.id,
+              full_name: data.user.user_metadata?.full_name || email.split('@')[0],
+              company_name: companyName,
+              is_premium: false,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .select();
+            
+          if (profileError) {
+            console.error('Error creating profile:', profileError);
+          }
+        } catch (profileErr) {
+          console.error('Error creating profile:', profileErr);
+        }
+      }
+
+      // Explicitly set the session
+      if (data.session) {
+        await supabase.auth.setSession({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token
+        });
+      }
+
       return {
         id: data.user.id,
         email: data.user.email || email,
-        fullName: data.user.user_metadata?.full_name || 'Usuário',
+        fullName: data.user.user_metadata?.full_name || email.split('@')[0],
         companyName: data.user.user_metadata?.company_name || companyName,
         isPremium: false,
         token: data.session?.access_token,
@@ -72,10 +103,16 @@ export const authService = {
         throw new Error('Erro ao fazer login');
       }
 
-      // Configure a sessão explicitamente
+      // Configure the session explicitly
       await supabase.auth.setSession({
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token
+      });
+
+      console.log("Session set after login:", {
+        hasAccessToken: !!data.session.access_token,
+        hasRefreshToken: !!data.session.refresh_token,
+        expiresAt: new Date(data.session.expires_at * 1000).toISOString()
       });
 
       // Get user profile data
@@ -85,8 +122,33 @@ export const authService = {
         .eq('id', data.user.id)
         .single();
 
-      if (profileError) {
+      if (profileError && profileError.code !== 'PGRST116') {
         console.error('Error fetching profile:', profileError);
+        
+        // If profile doesn't exist, create one
+        if (profileError.code === 'PGRST104') {
+          try {
+            const { data: newProfileData, error: createProfileError } = await supabase
+              .from('profiles')
+              .insert({
+                id: data.user.id,
+                full_name: data.user.user_metadata?.full_name || email.split('@')[0],
+                company_name: data.user.user_metadata?.company_name || 'Empresa',
+                is_premium: false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .select();
+              
+            if (createProfileError) {
+              console.error('Error creating profile:', createProfileError);
+            } else {
+              console.log('Created missing profile for user');
+            }
+          } catch (createErr) {
+            console.error('Error creating profile:', createErr);
+          }
+        }
       }
 
       return {
@@ -139,6 +201,31 @@ export const authService = {
 
       if (profileError && profileError.code !== 'PGRST116') {
         console.error('Error fetching profile:', profileError);
+        
+        // If profile doesn't exist, create one
+        if (profileError.code === 'PGRST104') {
+          try {
+            const { data: newProfileData, error: createProfileError } = await supabase
+              .from('profiles')
+              .insert({
+                id: user.id,
+                full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuário',
+                company_name: user.user_metadata?.company_name || 'Empresa',
+                is_premium: false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .select();
+              
+            if (createProfileError) {
+              console.error('Error creating profile:', createProfileError);
+            } else {
+              console.log('Created missing profile for user');
+            }
+          } catch (createErr) {
+            console.error('Error creating profile:', createErr);
+          }
+        }
       }
 
       return {
