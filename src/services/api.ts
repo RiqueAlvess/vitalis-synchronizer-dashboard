@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 
 // Define the structure of the API configuration
@@ -442,7 +443,7 @@ const calculateCostImpact = (absenteeismData: any[]): string => {
 };
 
 const getSectorAbsenceData = (absenteeismData: any[]): {name: string, value: number}[] => {
-  const sectorCounts = absenteeismData.reduce((acc, record) => {
+  const sectorCounts = absenteeismData.reduce((acc: Record<string, number>, record) => {
     const sector = record.sector || 'Não informado';
     if (!acc[sector]) {
       acc[sector] = 0;
@@ -525,3 +526,4 @@ const getMonthlyEvolution = (absenteeismData: any[]) => {
 };
 
 export default apiService;
+
