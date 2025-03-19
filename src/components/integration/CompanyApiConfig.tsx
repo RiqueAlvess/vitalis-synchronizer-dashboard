@@ -49,7 +49,7 @@ const CompanyApiConfig = () => {
           codigo: data.codigo || '',
           chave: data.chave || '',
           tipoSaida: data.tipoSaida || 'json',
-          isConfigured: data.isConfigured || false
+          isConfigured: !!data.empresa && !!data.codigo && !!data.chave
         });
       }
     } catch (err) {
@@ -79,12 +79,26 @@ const CompanyApiConfig = () => {
     setIsSaving(true);
     
     try {
-      await apiService.apiConfig.save(config);
+      // Ensure tipoSaida is always "json"
+      const configToSave = {
+        ...config,
+        tipoSaida: 'json',
+        isConfigured: true
+      };
+      
+      const result = await apiService.apiConfig.save(configToSave);
+      
+      if (!result) {
+        throw new Error('Falha ao salvar configurações');
+      }
+      
       toast({
         title: 'Configurações salvas',
         description: 'As configurações da API de Empresas foram salvas com sucesso.',
       });
-      setConfig(prev => ({ ...prev, isConfigured: true }));
+      
+      // Refresh to get updated config
+      await fetchConfig();
     } catch (err) {
       console.error('Error saving company API config:', err);
       toast({
@@ -102,14 +116,27 @@ const CompanyApiConfig = () => {
     setTestResult(null);
     
     try {
-      const result = await apiService.apiConfig.test('company');
+      // Ensure we use the current form values for testing
+      const testConfig = {
+        ...config,
+        tipoSaida: 'json'
+      };
+      
+      const result = await apiService.testApiConnection(testConfig);
+      
       setTestResult({
-        success: true,
-        message: result.message || 'Conexão com a API de Empresas estabelecida com sucesso!'
+        success: result.success,
+        message: result.message || (result.success 
+          ? 'Conexão com a API de Empresas estabelecida com sucesso!' 
+          : 'Falha ao conectar com a API de Empresas.')
       });
+      
       toast({
-        title: 'Teste bem-sucedido',
-        description: 'A conexão com a API de Empresas foi estabelecida com sucesso.',
+        variant: result.success ? 'default' : 'destructive',
+        title: result.success ? 'Teste bem-sucedido' : 'Teste falhou',
+        description: result.message || (result.success 
+          ? 'A conexão com a API de Empresas foi estabelecida com sucesso.' 
+          : 'Não foi possível conectar com a API de Empresas.')
       });
     } catch (err) {
       console.error('Company API connection test failed:', err);
@@ -177,6 +204,7 @@ const CompanyApiConfig = () => {
               value={config.empresa}
               onChange={handleChange}
               placeholder="Ex: 423"
+              required
             />
             <p className="text-xs text-muted-foreground">Código numérico da empresa principal no sistema SOC</p>
           </div>
@@ -190,6 +218,7 @@ const CompanyApiConfig = () => {
               value={config.codigo}
               onChange={handleChange}
               placeholder="Ex: 12345"
+              required
             />
             <p className="text-xs text-muted-foreground">Código numérico fornecido pelo sistema SOC</p>
           </div>
@@ -203,6 +232,7 @@ const CompanyApiConfig = () => {
               value={config.chave}
               onChange={handleChange}
               placeholder="Ex: a1b2c3d4e5f6g7h8i9j0"
+              required
             />
             <p className="text-xs text-muted-foreground">Chave alfanumérica fornecida pelo sistema SOC</p>
           </div>
@@ -226,9 +256,9 @@ const CompanyApiConfig = () => {
               testResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
             }`}>
               {testResult.success ? (
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
+                <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
               ) : (
-                <AlertCircle className="h-5 w-5 text-red-600" />
+                <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
               )}
               <span>{testResult.message}</span>
             </div>
