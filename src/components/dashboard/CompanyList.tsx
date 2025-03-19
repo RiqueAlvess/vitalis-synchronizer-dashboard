@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import apiService from '@/services/api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui-custom/Card';
@@ -23,44 +22,48 @@ const CompanyList = () => {
       const response = await apiService.companies.getAll();
       console.log('Companies data received:', response);
       
-      // Validate response is array before processing
-      if (Array.isArray(response)) {
-        setCompanies(response);
-      } else {
-        console.error('Invalid response format. Expected array, got:', typeof response);
-        // Initialize with empty array instead of throwing error
+      if (!Array.isArray(response)) {
+        console.warn('Invalid response format. Expected array, got:', typeof response);
         setCompanies([]);
         
-        // Set detailed error message based on response type
         if (response === null || response === undefined) {
-          setError('Nenhum dado foi retornado da API. Verifique a configuração da API de empresas.');
+          console.error('No data returned from API. Check company API configuration.');
         } else if (typeof response === 'string') {
-          // Check if response is HTML (common when API returns error page)
-          const responseStr = String(response); // Cast to string to ensure string methods work
+          const responseStr = String(response);
           if (responseStr.includes('<!DOCTYPE html>') || responseStr.includes('<html>')) {
-            setError('A API retornou uma página HTML ao invés de dados. Verifique a URL e as configurações da API.');
+            console.error('API returned an HTML page instead of data. Check URL and API settings.');
           } else {
-            setError(`Resposta inesperada da API: ${responseStr.substring(0, 100)}...`);
+            console.error(`Unexpected API response: ${responseStr.substring(0, 100)}...`);
           }
         } else {
           const responseJson = JSON.stringify(response);
-          setError(`Os dados recebidos não estão no formato esperado: ${responseJson.substring(0, 100)}... Certifique-se de que a API está configurada corretamente.`);
+          console.error(`Data received is not in expected format: ${responseJson.substring(0, 100)}...`);
         }
         
-        toast({
-          variant: 'destructive',
-          title: 'Formato de dados inválido',
-          description: 'A API retornou dados em um formato inesperado. Verifique a configuração da API.'
-        });
+        if (process.env.NODE_ENV === 'development') {
+          toast({
+            variant: 'destructive',
+            title: 'Invalid data format',
+            description: 'The API returned data in an unexpected format. Check API configuration.'
+          });
+        }
+      } else {
+        setCompanies(response);
       }
     } catch (err: any) {
       console.error('Error fetching companies:', err);
-      setError(`Erro ao buscar empresas: ${err.message || 'Erro desconhecido'}`);
-      toast({
-        variant: 'destructive',
-        title: 'Erro ao carregar empresas',
-        description: 'Não foi possível carregar os dados de empresas.'
-      });
+      setCompanies([]);
+      
+      const errorMessage = `Error fetching companies: ${err.message || 'Unknown error'}`;
+      console.error(errorMessage);
+      
+      if (process.env.NODE_ENV === 'development') {
+        toast({
+          variant: 'destructive',
+          title: 'Error loading companies',
+          description: 'Could not load company data. Check console for details.'
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -83,9 +86,8 @@ const CompanyList = () => {
           description: 'Dados de empresas sincronizados com sucesso.'
         });
       } else {
-        throw new Error('Falha na sincronização');
+        console.warn('Sync failed but continuing operation');
       }
-      // Add a slight delay before fetching to allow backend processing
       setTimeout(fetchCompanies, 1500);
     } catch (err: any) {
       console.error('Error syncing companies:', err);
