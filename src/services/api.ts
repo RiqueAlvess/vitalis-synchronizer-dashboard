@@ -101,8 +101,6 @@ export interface ApiConfig {
   chave: string;
   tipoSaida: string;
   isConfigured?: boolean;
-  savedLocally?: boolean;
-  savedAt?: string;
 }
 
 export interface CompanyApiConfig extends ApiConfig {
@@ -562,107 +560,104 @@ const apiService = {
           };
         }
         
-        // Try to get config from Supabase directly
-        try {
-          const { data: credentials, error } = await supabase
-            .from('api_credentials')
-            .select('*')
-            .eq('type', type)
-            .maybeSingle();
-            
-          if (error) {
-            console.error(`Error fetching ${type} credentials from Supabase:`, error);
-          } else if (credentials) {
-            console.log(`Found ${type} credentials in Supabase:`, credentials);
-            
-            // Convert from Supabase schema to our API schema
-            const config: ApiConfig = {
-              type: credentials.type as ApiConfigType,
-              empresa: credentials.empresa,
-              codigo: credentials.codigo,
-              chave: credentials.chave,
-              tipoSaida: 'json',
-              isConfigured: true
-            };
-            
-            // Add specific properties based on type
-            if (type === 'employee' && credentials) {
-              (config as EmployeeApiConfig).ativo = credentials.ativo || 'Sim';
-              (config as EmployeeApiConfig).inativo = credentials.inativo || '';
-              (config as EmployeeApiConfig).afastado = credentials.afastado || '';
-              (config as EmployeeApiConfig).pendente = credentials.pendente || '';
-              (config as EmployeeApiConfig).ferias = credentials.ferias || '';
-            } else if (type === 'absenteeism' && credentials) {
-              (config as AbsenteeismApiConfig).empresaTrabalho = credentials.empresatrabalho || '';
-              (config as AbsenteeismApiConfig).dataInicio = credentials.datainicio || '';
-              (config as AbsenteeismApiConfig).dataFim = credentials.datafim || '';
-            }
-            
-            return config;
-          }
-          
-          // Fall through to try the function API if no credentials found in Supabase
-        } catch (err) {
-          console.error(`Error accessing Supabase for ${type} credentials:`, err);
-          // Proceed to try function API
+        // Get from Supabase edge function
+        console.log(`Fetching ${type} config from Supabase...`);
+        
+        // First, try to find config in api_credentials (new format)
+        const { data: credentials, error: credentialsError } = await supabase
+          .from('api_credentials')
+          .select('*')
+          .eq('type', type)
+          .maybeSingle();
+        
+        if (credentialsError) {
+          console.error(`Error fetching ${type} credentials:`, credentialsError);
         }
         
-        // If direct Supabase query didn't work, try the function API
-        const cachedConfig = localStorage.getItem(`api_config_${type}`);
-        let localConfig = null;
-        
-        if (cachedConfig) {
-          try {
-            localConfig = JSON.parse(cachedConfig);
-            console.log(`Found cached ${type} config in localStorage:`, localConfig);
-          } catch (e) {
-            console.error('Failed to parse cached config:', e);
+        if (credentials) {
+          console.log(`Found ${type} credentials:`, credentials);
+          
+          // Convert from Supabase schema to our API schema
+          const config: ApiConfig = {
+            type: credentials.type as ApiConfigType,
+            empresa: credentials.empresa,
+            codigo: credentials.codigo,
+            chave: credentials.chave,
+            tipoSaida: 'json',
+            isConfigured: true
+          };
+          
+          // Add type-specific fields
+          if (type === 'employee') {
+            (config as EmployeeApiConfig).ativo = credentials.ativo || 'Sim';
+            (config as EmployeeApiConfig).inativo = credentials.inativo || '';
+            (config as EmployeeApiConfig).afastado = credentials.afastado || '';
+            (config as EmployeeApiConfig).pendente = credentials.pendente || '';
+            (config as EmployeeApiConfig).ferias = credentials.ferias || '';
+          } else if (type === 'absenteeism') {
+            (config as AbsenteeismApiConfig).empresaTrabalho = credentials.empresatrabalho || '';
+            (config as AbsenteeismApiConfig).dataInicio = credentials.datainicio || '';
+            (config as AbsenteeismApiConfig).dataFim = credentials.datafim || '';
           }
+          
+          return config;
         }
         
-        try {
-          const response = await retryRequest(() => supabaseAPI.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api-config/${type}`), 2);
-          
-          if (!response.data || typeof response.data !== 'object') {
-            console.warn(`Invalid response for ${type} API config:`, response.data);
-            return localConfig || null;
-          }
-          
-          console.log(`Successfully fetched ${type} API config:`, response.data);
-          
-          if (response.data) {
-            response.data.isConfigured = !!(response.data.empresa && response.data.codigo && response.data.chave);
-            
-            localStorage.setItem(`api_config_${type}`, JSON.stringify(response.data));
-          }
-          
-          return response.data;
-        } catch (err) {
-          console.error(`Error fetching ${type} API config from server:`, err);
-          
-          if (localConfig) {
-            console.log(`Using cached ${type} config due to API error`);
-            return localConfig;
-          }
-          
-          throw err;
-        }
-      } catch (error) {
-        console.error(`Error fetching ${type} API config:`, error);
+        // If not found in api_credentials, try legacy format in api_configs
+        const { data: apiConfigs, error } = await supabase
+          .from('api_configs')
+          .select('*')
+          .eq('type', type)
+          .order('updated_at', { ascending: false })
+          .limit(1);
         
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          console.error('User is not authenticated when fetching API config');
+        if (error) {
+          console.error(`Error fetching ${type} API config:`, error);
+          throw error;
         }
         
-        return {
-          type,
-          empresa: '',
-          codigo: '',
-          chave: '',
-          tipoSaida: 'json',
-          isConfigured: false
+        if (!apiConfigs || apiConfigs.length === 0) {
+          console.log(`No ${type} config found`);
+          return {
+            type,
+            empresa: '',
+            codigo: '',
+            chave: '',
+            tipoSaida: 'json',
+            isConfigured: false
+          };
+        }
+        
+        const config = apiConfigs[0];
+        console.log(`Found ${type} config:`, config);
+        
+        // Map to the expected format
+        const result: ApiConfig = {
+          type: config.type as ApiConfigType,
+          empresa: config.empresa,
+          codigo: config.codigo,
+          chave: config.chave,
+          tipoSaida: config.tiposaida || 'json',
+          isConfigured: true
         };
+        
+        // Add type-specific fields
+        if (type === 'employee') {
+          (result as EmployeeApiConfig).ativo = config.ativo || 'Sim';
+          (result as EmployeeApiConfig).inativo = config.inativo || '';
+          (result as EmployeeApiConfig).afastado = config.afastado || '';
+          (result as EmployeeApiConfig).pendente = config.pendente || '';
+          (result as EmployeeApiConfig).ferias = config.ferias || '';
+        } else if (type === 'absenteeism') {
+          (result as AbsenteeismApiConfig).empresaTrabalho = config.empresatrabalho || '';
+          (result as AbsenteeismApiConfig).dataInicio = config.datainicio || '';
+          (result as AbsenteeismApiConfig).dataFim = config.datafim || '';
+        }
+        
+        return result;
+      } catch (error) {
+        console.error(`Error in getApiConfig(${type}):`, error);
+        throw error;
       }
     },
     
@@ -839,7 +834,7 @@ const apiService = {
         throw error;
       }
     },
-
+    
     test: async (type: ApiConfigType): Promise<{success: boolean, message: string}> => {
       try {
         if (localStorageService.isPreviewEnvironment()) {
@@ -864,67 +859,340 @@ const apiService = {
       }
     }
   },
+  sync: {
+    companies: async (): Promise<{success: boolean, message: string, data?: any}> => {
+      try {
+        // Get the company API config
+        const config = await apiService.getApiConfig('company');
+        
+        if (!config) {
+          return {
+            success: false,
+            message: 'Configuração da API de empresas não encontrada'
+          };
+        }
+        
+        const params = {
+          empresa: config.empresa,
+          codigo: config.codigo,
+          chave: config.chave,
+          tipoSaida: 'json'
+        };
+        
+        // Call the sync edge function
+        const { data, error } = await supabase.functions.invoke('sync-soc-data', {
+          body: {
+            type: 'company',
+            params
+          }
+        });
+        
+        if (error) {
+          console.error('Error syncing companies:', error);
+          return {
+            success: false,
+            message: 'Falha na sincronização de empresas'
+          };
+        }
+        
+        return data;
+      } catch (error) {
+        console.error('Error in company sync:', error);
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : 'Erro desconhecido'
+        };
+      }
+    },
+    
+    employees: async (): Promise<{success: boolean, message: string, data?: any}> => {
+      try {
+        // Get the employee API config
+        const config = await apiService.getApiConfig('employee') as EmployeeApiConfig;
+        
+        if (!config) {
+          return {
+            success: false,
+            message: 'Configuração da API de funcionários não encontrada'
+          };
+        }
+        
+        const params = {
+          empresa: config.empresa,
+          codigo: config.codigo,
+          chave: config.chave,
+          tipoSaida: 'json',
+          ativo: config.ativo || 'Sim',
+          inativo: config.inativo || '',
+          afastado: config.afastado || '',
+          pendente: config.pendente || '',
+          ferias: config.ferias || ''
+        };
+        
+        // Call the sync edge function
+        const { data, error } = await supabase.functions.invoke('sync-soc-data', {
+          body: {
+            type: 'employee',
+            params
+          }
+        });
+        
+        if (error) {
+          console.error('Error syncing employees:', error);
+          return {
+            success: false,
+            message: 'Falha na sincronização de funcionários'
+          };
+        }
+        
+        return data;
+      } catch (error) {
+        console.error('Error in employee sync:', error);
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : 'Erro desconhecido'
+        };
+      }
+    },
+    
+    absenteeism: async (): Promise<{success: boolean, message: string, data?: any}> => {
+      try {
+        // Get the absenteeism API config
+        const config = await apiService.getApiConfig('absenteeism') as AbsenteeismApiConfig;
+        
+        if (!config) {
+          return {
+            success: false,
+            message: 'Configuração da API de absenteísmo não encontrada'
+          };
+        }
+        
+        // If dates are not set, use a 30-day window ending today
+        let dataInicio = config.dataInicio;
+        let dataFim = config.dataFim;
+        
+        if (!dataInicio || !dataFim) {
+          const today = new Date();
+          const twoMonthsAgo = new Date();
+          twoMonthsAgo.setMonth(today.getMonth() - 2);
+          
+          dataInicio = twoMonthsAgo.toISOString().split('T')[0];
+          dataFim = today.toISOString().split('T')[0];
+        }
+        
+        const params = {
+          empresa: config.empresa,
+          codigo: config.codigo,
+          chave: config.chave,
+          tipoSaida: 'json',
+          empresaTrabalho: config.empresaTrabalho || '',
+          dataInicio,
+          dataFim
+        };
+        
+        // Call the sync edge function
+        const { data, error } = await supabase.functions.invoke('sync-soc-data', {
+          body: {
+            type: 'absenteeism',
+            params
+          }
+        });
+        
+        if (error) {
+          console.error('Error syncing absenteeism:', error);
+          return {
+            success: false,
+            message: 'Falha na sincronização de absenteísmo'
+          };
+        }
+        
+        return data;
+      } catch (error) {
+        console.error('Error in absenteeism sync:', error);
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : 'Erro desconhecido'
+        };
+      }
+    },
+    
+    getLogs: async (): Promise<{id: number, type: string, status: string, message: string, created_at: string, completed_at: string}[]> => {
+      try {
+        const { data, error } = await supabase
+          .from('sync_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(20);
+          
+        if (error) {
+          console.error('Error fetching sync logs:', error);
+          return [];
+        }
+        
+        return data || [];
+      } catch (error) {
+        console.error('Error in getLogs:', error);
+        return [];
+      }
+    }
+  },
+  
   getApiConfig: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
     return apiService.apiConfig.get(type);
   },
+  
   saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
     return apiService.apiConfig.save(config);
   },
+  
   testApiConnection: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<{success: boolean, message: string}> => {
+    return apiService.apiConfig.test(config);
+  },
+  
+  getDashboardData: async (): Promise<DashboardData> => {
     try {
-      if (localStorageService.isPreviewEnvironment()) {
-        console.log(`Preview environment detected, simulating test for API connection`);
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        return {
-          success: true,
-          message: 'Conexão simulada bem-sucedida no ambiente de prévia. No ambiente de produção, uma conexão real seria testada.'
-        };
+      const companyConfig = await apiService.apiConfig.get('company');
+      const employeeConfig = await apiService.apiConfig.get('employee');
+      const absenteeismConfig = await apiService.apiConfig.get('absenteeism');
+      
+      if (!companyConfig?.isConfigured || !employeeConfig?.isConfigured || !absenteeismConfig?.isConfigured) {
+        console.warn('Um ou mais serviços de API não configurados, retornando dados simulados');
+        return generateMockData('dashboard') as DashboardData;
       }
       
-      console.log('Testing API connection with config:', config);
-      
-      const response = await retryRequest(
-        async () => {
-          try {
-            return await supabaseAPI.post('/test-connection', config);
-          } catch (err) {
-            if (err.message === 'Network Error') {
-              console.log("Network error, trying direct endpoint...");
-              const { data: { session } } = await supabase.auth.getSession();
-              return await axios.post(
-                'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/test-connection',
-                config,
-                {
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session?.access_token || ''}`
-                  }
-                }
-              );
-            }
-            throw err;
-          }
-        }, 
-        2
-      );
-      
-      if (!response.data) {
-        return {
-          success: false,
-          message: 'Teste falhou: Resposta vazia do servidor'
-        };
+      try {
+        const response = await supabaseAPI.get<DashboardData>('/api/dashboard');
+        if (response.data) {
+          return response.data;
+        }
+      } catch (err) {
+        console.error('Erro ao buscar dados do dashboard da API:', err);
       }
       
-      return response.data;
+      return generateMockData('dashboard') as DashboardData;
     } catch (error) {
-      console.error('Error testing API connection:', error);
-      return {
-        success: false,
-        message: `Teste falhou: ${error.message || 'Erro desconhecido'}`
-      };
+      console.error('Erro ao buscar dados do dashboard, usando dados simulados:', error);
+      return generateMockData('dashboard') as DashboardData;
     }
   }
 };
+
+function calculateDashboardData(data: any[]): DashboardData {
+  try {
+    // Basic metrics
+    const totalAbsenceDays = data.reduce((sum, item) => sum + (item.days_absent || 0), 0);
+    const uniqueEmployees = new Set(data.filter(item => item.employee_registration).map(item => item.employee_registration)).size;
+    
+    // Calculate average working hours per month (assuming 220 hours)
+    const avgMonthlyHours = 220;
+    const totalHoursAbsent = data.reduce((sum, item) => {
+      const days = item.days_absent || 0;
+      return sum + (days * 8); // assuming 8 hours per day
+    }, 0);
+    
+    // Calculate absenteeism rate
+    const absenteeismRate = (totalHoursAbsent / avgMonthlyHours) * 100;
+    
+    // Calculate financial impact (using minimum wage as a baseline)
+    const minWage = 1412; // Brazilian minimum wage as of 2023 (R$)
+    const hourlyRate = minWage / avgMonthlyHours;
+    const costImpact = totalHoursAbsent * hourlyRate;
+    
+    // Analyze by sector
+    const sectorCounts = data.reduce((acc, item) => {
+      const sector = item.sector || 'Desconhecido';
+      if (!acc[sector]) {
+        acc[sector] = 0;
+      }
+      acc[sector] += item.days_absent || 0;
+      return acc;
+    }, {});
+    
+    const bySector = Object.entries(sectorCounts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => (b.value as number) - (a.value as number))
+      .slice(0, 5);
+      
+    // Calculate monthly trend
+    const monthlyData = data.reduce((acc, item) => {
+      if (!item.start_date) return acc;
+      
+      const date = new Date(item.start_date);
+      const monthYear = `${date.getMonth() + 1}/${date.getFullYear()}`;
+      
+      if (!acc[monthYear]) {
+        acc[monthYear] = {
+          count: 0,
+          days: 0,
+          hours: 0
+        };
+      }
+      
+      acc[monthYear].count += 1;
+      acc[monthYear].days += item.days_absent || 0;
+      acc[monthYear].hours += (item.days_absent || 0) * 8;
+      
+      return acc;
+    }, {});
+    
+    const monthlyTrend = Object.entries(monthlyData)
+      .map(([month, data]) => ({
+        month,
+        count: data.count,
+        hours: data.hours,
+        value: data.days
+      }))
+      .sort((a, b) => {
+        const [aMonth, aYear] = a.month.split('/').map(Number);
+        const [bMonth, bYear] = b.month.split('/').map(Number);
+        
+        if (aYear !== bYear) return aYear - bYear;
+        return aMonth - bMonth;
+      });
+    
+    // Determine trend compared to previous period
+    const trend = monthlyTrend.length >= 2 && 
+                 monthlyTrend[monthlyTrend.length - 1].value > monthlyTrend[monthlyTrend.length - 2].value
+                 ? 'up' : 'down';
+    
+    return {
+      absenteeismRate,
+      totalAbsenceDays,
+      employeesAbsent: uniqueEmployees,
+      costImpact: `R$ ${costImpact.toFixed(2)}`,
+      trend,
+      monthlyTrend,
+      bySector
+    };
+  } catch (error) {
+    console.error('Error calculating dashboard data:', error);
+    return getMockDashboardData();
+  }
+}
+
+function getMockDashboardData(): DashboardData {
+  return {
+    absenteeismRate: 3.42,
+    totalAbsenceDays: 127,
+    employeesAbsent: 42,
+    costImpact: 'R$ 6.784,30',
+    trend: 'up',
+    monthlyTrend: [
+      { month: '7/2023', count: 18, hours: 320, value: 40 },
+      { month: '8/2023', count: 15, hours: 264, value: 33 },
+      { month: '9/2023', count: 12, hours: 208, value: 26 },
+      { month: '10/2023', count: 17, hours: 304, value: 38 },
+      { month: '11/2023', count: 20, hours: 344, value: 43 },
+      { month: '12/2023', count: 14, hours: 248, value: 31 }
+    ],
+    bySector: [
+      { name: 'Produção', value: 45 },
+      { name: 'Administrativo', value: 32 },
+      { name: 'Logística', value: 27 },
+      { name: 'Comercial', value: 15 },
+      { name: 'TI', value: 8 }
+    ]
+  };
+}
 
 export default apiService;

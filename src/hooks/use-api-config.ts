@@ -1,9 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
-import apiService, { ApiConfig, EmployeeApiConfig, AbsenteeismApiConfig, CompanyApiConfig } from '@/services/api';
-
-export type ApiConfigType = 'company' | 'employee' | 'absenteeism';
+import apiService, { ApiConfig, EmployeeApiConfig, AbsenteeismApiConfig, CompanyApiConfig, ApiConfigType } from '@/services/api';
 
 export function useApiConfig(type: ApiConfigType) {
   const { toast } = useToast();
