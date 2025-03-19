@@ -1,9 +1,9 @@
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from '@/components/ui/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, hasStoredSession } from '@/integrations/supabase/client';
 
 interface AuthContextType {
   user: User | null;
@@ -26,6 +26,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const authChecked = useRef(false);
+  const refreshAttempts = useRef(0);
+  const MAX_REFRESH_ATTEMPTS = 3;
 
   // Configurar listener de alteração de estado de autenticação
   useEffect(() => {
@@ -44,6 +47,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               console.log("Dados do usuário atualizados após evento:", userData.email);
               setUser(userData);
               setIsLoading(false);
+              authChecked.current = true;
+              refreshAttempts.current = 0;
               
               // Redirecionar para dashboard apenas em caso de login inicial
               if (event === 'SIGNED_IN') {
@@ -57,18 +62,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.log("Usuário desconectado, limpando estado");
             setUser(null);
             setIsLoading(false);
+            authChecked.current = true;
             
             // Redirecionar para página de login após logout
             if (location.pathname !== '/login' && location.pathname !== '/') {
               navigate('/login', { replace: true });
             }
-          } else {
-            // Para outros eventos, garanta que isLoading não fique preso
+          } else if (event === 'INITIAL_SESSION') {
+            // Para sessão inicial (quando a página carrega), marcar como verificado
+            authChecked.current = true;
             setIsLoading(false);
           }
         } catch (err) {
           console.error('Erro ao processar evento de autenticação:', err);
           setIsLoading(false);
+          authChecked.current = true;
         }
       }
     );
@@ -82,6 +90,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Verificar status de autenticação
   const checkAuth = async (): Promise<boolean> => {
+    // Prevenção de loops: não verificar repetidamente se já verificou e não está autenticado
+    if (authChecked.current && !isLoading && !hasStoredSession() && refreshAttempts.current >= MAX_REFRESH_ATTEMPTS) {
+      console.log("Evitando loop de verificação de autenticação");
+      return false;
+    }
+    
+    refreshAttempts.current += 1;
+    
     try {
       console.log("Verificando status de autenticação...");
       setIsLoading(true);
@@ -91,16 +107,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (!session) {
         console.log("Nenhuma sessão encontrada, tentando atualizar...");
-        const { data, error } = await supabase.auth.refreshSession();
-        
-        if (error || !data.session) {
-          console.log("Falha na atualização da sessão:", error?.message);
+        // Apenas tente atualizar se houver uma sessão armazenada
+        if (hasStoredSession()) {
+          const { data, error } = await supabase.auth.refreshSession();
+          
+          if (error || !data.session) {
+            console.log("Falha na atualização da sessão:", error?.message);
+            setUser(null);
+            setIsLoading(false);
+            authChecked.current = true;
+            return false;
+          }
+          
+          console.log("Sessão atualizada com sucesso");
+        } else {
+          console.log("Nenhuma sessão armazenada, não tentando atualizar");
           setUser(null);
           setIsLoading(false);
+          authChecked.current = true;
           return false;
         }
-        
-        console.log("Sessão atualizada com sucesso");
       }
       
       // Agora que temos uma sessão (existente ou atualizada), obter dados do usuário
@@ -110,17 +136,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log("Usuário autenticado:", userData.email);
         setUser(userData);
         setIsLoading(false);
+        authChecked.current = true;
+        refreshAttempts.current = 0;
         return true;
       }
       
       console.log("Usuário não autenticado");
       setUser(null);
       setIsLoading(false);
+      authChecked.current = true;
       return false;
     } catch (err) {
       console.error('Verificação de autenticação falhou:', err);
       setUser(null);
       setIsLoading(false);
+      authChecked.current = true;
       return false;
     }
   };
@@ -130,10 +160,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const verifyAuth = async () => {
       try {
         console.log("Verificando autenticação na inicialização do aplicativo...");
+        
+        // Se não há sessão armazenada, nem tente verificar
+        if (!hasStoredSession()) {
+          console.log("Nenhuma sessão armazenada, definindo como não autenticado");
+          setUser(null);
+          setIsLoading(false);
+          authChecked.current = true;
+          return;
+        }
+        
         await checkAuth();
       } catch (err) {
         console.error('Verificação de autenticação falhou:', err);
         setIsLoading(false);
+        authChecked.current = true;
       }
     };
 

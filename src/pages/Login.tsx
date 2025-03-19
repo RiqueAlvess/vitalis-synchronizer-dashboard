@@ -1,32 +1,46 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import LoginForm from '@/components/auth/LoginForm';
 import GlassPanel from '@/components/ui-custom/GlassPanel';
 import Logo from '@/components/ui-custom/Logo';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2 } from 'lucide-react';
+import { hasStoredSession } from '@/integrations/supabase/client';
 
 const Login = () => {
   const { isLoading, isAuthenticated, checkAuth } = useAuth();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Verificar status de autenticação ao carregar a página
+  // Verificar status de autenticação ao carregar a página, mas apenas uma vez
   useEffect(() => {
     console.log("Página de login carregada, status de autenticação:", 
       isAuthenticated ? "Autenticado" : "Não autenticado",
       "isLoading:", isLoading);
     
     const verifyAuth = async () => {
-      if (!isAuthenticated && !isLoading) {
-        // Tentar verificar autenticação uma vez ao carregar a página
-        await checkAuth();
+      if (!authChecked && !isAuthenticated && !isCheckingAuth) {
+        // Verificar apenas se há uma sessão armazenada
+        if (hasStoredSession()) {
+          try {
+            setIsCheckingAuth(true);
+            // Tentar verificar autenticação uma vez ao carregar a página
+            await checkAuth();
+          } finally {
+            setIsCheckingAuth(false);
+            setAuthChecked(true);
+          }
+        } else {
+          setAuthChecked(true);
+        }
       }
     };
     
     verifyAuth();
-  }, [isAuthenticated, isLoading, checkAuth]);
+  }, [isAuthenticated, isLoading, checkAuth, authChecked, isCheckingAuth]);
   
   // Redirecionar se já autenticado
   useEffect(() => {
@@ -37,7 +51,7 @@ const Login = () => {
     }
   }, [isAuthenticated, navigate, location]);
 
-  if (isLoading) {
+  if (isLoading || isCheckingAuth) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
         <Loader2 className="h-8 w-8 animate-spin text-vitalis-600 mb-4" />

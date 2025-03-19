@@ -15,6 +15,7 @@ const LoginForm = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loginAttempts, setLoginAttempts] = useState(0);
   const navigate = useNavigate();
 
   // Redirecionar se já estiver autenticado
@@ -53,6 +54,7 @@ const LoginForm = () => {
     
     try {
       setIsSubmitting(true);
+      setLoginAttempts(prev => prev + 1);
       console.log(`Tentando fazer login com email: ${email}`);
       await login(email, password);
     } catch (error) {
@@ -69,6 +71,7 @@ const LoginForm = () => {
     
     try {
       setIsSubmitting(true);
+      setLoginAttempts(prev => prev + 1);
       console.log("Tentando fazer login com conta demo");
       await login('demo@example.com', 'demo123');
     } catch (error) {
@@ -77,6 +80,9 @@ const LoginForm = () => {
       setIsSubmitting(false);
     }
   };
+
+  // Adicionar atraso para evitar várias tentativas muito rápido
+  const isButtonDisabled = isSubmitting || isLoading || loginAttempts > 5;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in">
@@ -143,7 +149,7 @@ const LoginForm = () => {
       <Button 
         type="submit" 
         className="w-full"
-        disabled={isSubmitting || isLoading}
+        disabled={isButtonDisabled}
       >
         {(isSubmitting || isLoading) ? (
           <>
@@ -152,6 +158,13 @@ const LoginForm = () => {
           </>
         ) : "Entrar"}
       </Button>
+      
+      {/* Aviso de limite de tentativas */}
+      {loginAttempts > 5 && (
+        <p className="text-sm text-amber-600 text-center">
+          Muitas tentativas de login. Por favor, aguarde um momento antes de tentar novamente.
+        </p>
+      )}
       
       <div className="relative flex items-center justify-center">
         <div className="absolute inset-0 flex items-center">
@@ -167,7 +180,7 @@ const LoginForm = () => {
         variant="outline" 
         className="w-full"
         onClick={handleDemoLogin}
-        disabled={isSubmitting || isLoading}
+        disabled={isButtonDisabled}
       >
         {(isSubmitting || isLoading) ? (
           <>

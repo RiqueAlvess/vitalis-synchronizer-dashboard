@@ -18,3 +18,17 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     flowType: 'implicit'
   }
 });
+
+// Helper to check if there's a valid session in storage
+export const hasStoredSession = () => {
+  try {
+    const storageKey = 'vitalis-auth-token';
+    const stored = localStorage.getItem(storageKey);
+    if (!stored) return false;
+    const { currentSession } = JSON.parse(stored);
+    return !!currentSession;
+  } catch (error) {
+    console.error('Error checking stored session:', error);
+    return false;
+  }
+};
