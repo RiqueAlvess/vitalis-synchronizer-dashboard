@@ -10,7 +10,7 @@ export const supabaseAPI = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 15000 // Aumento do timeout para 15 segundos
+  timeout: 30000 // Increased timeout to 30 seconds for sync operations
 });
 
 // Track if we're currently refreshing the token
@@ -27,10 +27,12 @@ supabaseAPI.interceptors.request.use(
       // Add the token to the request if available
       if (session?.access_token) {
         config.headers['Authorization'] = `Bearer ${session.access_token}`;
-        // Removed the custom header that was causing CORS issues
       } else {
         console.warn('No session token available for API request');
       }
+      
+      // Add a custom header with the request time for debugging
+      config.headers['x-request-time'] = new Date().toISOString();
       
       return config;
     } catch (error) {

@@ -34,24 +34,50 @@ const SyncPage = () => {
     
     const interval = setInterval(async () => {
       try {
+        console.log('Checking job status for:', syncResult.jobId);
         const status = await apiService.sync.checkJobStatus(syncResult.jobId!);
-        setJobStatus(status);
+        console.log('Job status:', status);
         
-        if (status.status === 'completed' || status.status === 'failed') {
-          clearInterval(interval);
+        if (status && status.success !== false) {
+          setJobStatus(status);
           
-          toast({
-            variant: status.status === 'completed' ? 'default' : 'destructive',
-            title: status.status === 'completed' ? 'Sincronização concluída' : 'Erro na sincronização',
-            description: status.status === 'completed' 
-              ? `Sincronização concluída com sucesso. ${status.processed} registros processados.`
-              : `Erro durante a sincronização: ${status.error}`
-          });
+          if (status.status === 'completed' || status.status === 'failed') {
+            clearInterval(interval);
+            
+            toast({
+              variant: status.status === 'completed' ? 'default' : 'destructive',
+              title: status.status === 'completed' ? 'Sincronização concluída' : 'Erro na sincronização',
+              description: status.status === 'completed' 
+                ? `Sincronização concluída com sucesso. ${status.processed} registros processados.`
+                : `Erro durante a sincronização: ${status.error}`
+            });
+          }
+        } else {
+          console.log('Invalid status response:', status);
+          // If we get an invalid response, clear the interval
+          if (status && status.success === false) {
+            clearInterval(interval);
+            
+            toast({
+              variant: 'destructive',
+              title: 'Erro na sincronização',
+              description: status.message || 'Ocorreu um erro durante a sincronização.'
+            });
+          }
         }
       } catch (error) {
         console.error('Error checking job status:', error);
+        // Only clear on persistent errors
+        if (error.status === 404) {
+          clearInterval(interval);
+          setJobStatus(prev => ({
+            ...prev!,
+            status: 'failed',
+            error: 'Job não encontrado ou expirado'
+          }));
+        }
       }
-    }, 2000);
+    }, 3000); // Check every 3 seconds
     
     return () => clearInterval(interval);
   }, [syncResult?.jobId, jobStatus?.status, toast]);
@@ -79,10 +105,16 @@ const SyncPage = () => {
           break;
       }
       
+      console.log('Sync result:', result);
+      
+      if (!result) {
+        throw new Error('Resposta vazia do servidor');
+      }
+      
       setSyncResult({
         type: typeLabel,
-        success: result.success,
-        message: result.message,
+        success: result.success !== false,
+        message: result.message || 'Sincronização iniciada',
         jobId: result.jobId
       });
       
@@ -98,9 +130,9 @@ const SyncPage = () => {
         });
       } else {
         toast({
-          variant: result.success ? 'default' : 'destructive',
-          title: result.success ? 'Sincronização concluída' : 'Erro na sincronização',
-          description: result.message
+          variant: result.success !== false ? 'default' : 'destructive',
+          title: result.success !== false ? 'Sincronização iniciada' : 'Erro na sincronização',
+          description: result.message || 'Ocorreu um erro durante a sincronização.'
         });
       }
       
@@ -159,6 +191,12 @@ const SyncPage = () => {
           <span className="text-sm font-medium">{jobStatus.progress}%</span>
         </div>
         <Progress value={jobStatus.progress} className="h-2" />
+        
+        {jobStatus.error && (
+          <div className="text-sm text-red-600 mt-2">
+            <strong>Erro:</strong> {jobStatus.error}
+          </div>
+        )}
       </div>
     );
   };

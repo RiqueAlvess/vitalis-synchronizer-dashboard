@@ -385,11 +385,13 @@ Deno.serve(async (req) => {
     // Initialize Supabase client
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     
-    // Get the session
-    const { data: { session } } = await supabase.auth.getSession();
+    const url = new URL(req.url);
+    const path = url.pathname.split('/').pop();
+    console.log('Request path:', path);
     
-    // Check if user is authenticated
-    if (!session) {
+    // Validate authentication
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
       return new Response(
         JSON.stringify({ 
           success: false, 
@@ -402,15 +404,36 @@ Deno.serve(async (req) => {
       );
     }
     
-    const userId = session.user.id;
+    // Extract token
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Get the session
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    // Check if user is authenticated
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: 'Authentication failed' 
+        }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+    
+    const userId = user.id;
+    console.log('Authenticated user:', userId);
     
     // Handle different endpoints
-    const url = new URL(req.url);
-    const path = url.pathname.split('/').pop();
-    
     if (req.method === 'POST' && path === 'enqueue') {
       // Handle job enqueuing
-      const { type, params } = await req.json();
+      const requestData = await req.json();
+      const { type, params } = requestData;
+      console.log('Enqueue request:', { type, params });
       
       if (!type || !params) {
         return new Response(
@@ -451,6 +474,8 @@ Deno.serve(async (req) => {
           }
         );
       }
+      
+      console.log('Created sync log entry:', logEntry);
       
       // Generate a unique job ID
       const jobId = crypto.randomUUID();

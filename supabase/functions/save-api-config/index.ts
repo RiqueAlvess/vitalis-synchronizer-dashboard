@@ -23,6 +23,7 @@ Deno.serve(async (req) => {
     let configData;
     try {
       configData = await req.json();
+      console.log('Received config data:', configData);
       
       if (!configData || !configData.type) {
         return new Response(
@@ -67,11 +68,14 @@ Deno.serve(async (req) => {
 
     // Check if user exists
     if (userError || !user) {
+      console.error('Auth error:', userError);
       return new Response(
         JSON.stringify({ error: 'Invalid authentication token' }),
         { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
+
+    console.log('User authenticated:', user.id);
 
     // Add user ID to config data
     const configWithUserId = {
@@ -91,6 +95,8 @@ Deno.serve(async (req) => {
       }
     }
 
+    console.log('Checking for existing config for user:', user.id, 'type:', configData.type);
+
     // Check if a config with this type already exists for this user
     const { data: existingConfig, error: fetchError } = await supabaseAdmin
       .from('api_credentials')
@@ -107,11 +113,14 @@ Deno.serve(async (req) => {
       );
     }
 
+    console.log('Existing config check result:', existingConfig ? 'Found' : 'Not found');
+
     let result;
     
     try {
       // Update or insert based on whether a config already exists
       if (existingConfig) {
+        console.log('Updating existing config with ID:', existingConfig.id);
         // Update existing config
         const { data, error } = await supabaseAdmin
           .from('api_credentials')
@@ -121,11 +130,14 @@ Deno.serve(async (req) => {
           .single();
         
         if (error) {
+          console.error('Error updating config:', error);
           throw error;
         }
         
+        console.log('Config updated successfully');
         result = data;
       } else {
+        console.log('Inserting new config');
         // Insert new config
         const { data, error } = await supabaseAdmin
           .from('api_credentials')
@@ -134,9 +146,11 @@ Deno.serve(async (req) => {
           .single();
         
         if (error) {
+          console.error('Error inserting config:', error);
           throw error;
         }
         
+        console.log('Config inserted successfully');
         result = data;
       }
     } catch (dbError) {
