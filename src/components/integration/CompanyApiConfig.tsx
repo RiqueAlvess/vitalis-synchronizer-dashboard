@@ -39,9 +39,10 @@ const CompanyApiConfig = () => {
   const fetchConfig = async () => {
     setIsLoading(true);
     try {
+      console.log('Fetching company API config...');
       const data = await apiService.apiConfig.get('company');
+      console.log('Received company API config:', data);
       
-      // Fixed: Transform the API response to match our CompanyApiConfig interface
       if (data) {
         setConfig({
           type: 'company',
@@ -51,6 +52,9 @@ const CompanyApiConfig = () => {
           tipoSaida: data.tipoSaida || 'json',
           isConfigured: !!data.empresa && !!data.codigo && !!data.chave
         });
+        console.log('Config state updated with received data');
+      } else {
+        console.log('No config data received');
       }
     } catch (err) {
       console.error('Error fetching company API config:', err);
@@ -86,7 +90,9 @@ const CompanyApiConfig = () => {
         isConfigured: true
       };
       
+      console.log('Saving company API config:', configToSave);
       const result = await apiService.apiConfig.save(configToSave);
+      console.log('Save result:', result);
       
       if (!result) {
         throw new Error('Falha ao salvar configurações');
@@ -122,7 +128,9 @@ const CompanyApiConfig = () => {
         tipoSaida: 'json'
       };
       
+      console.log('Testing company API connection with config:', testConfig);
       const result = await apiService.testApiConnection(testConfig);
+      console.log('Test connection result:', result);
       
       setTestResult({
         success: result.success,

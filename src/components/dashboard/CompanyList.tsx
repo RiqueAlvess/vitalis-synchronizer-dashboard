@@ -19,7 +19,10 @@ const CompanyList = () => {
     setIsLoading(true);
     setError(null);
     try {
+      console.log('Fetching companies...');
       const data = await apiService.companies.getAll();
+      console.log('Companies data received:', data);
+      
       // Ensure data is an array before setting it to state
       if (Array.isArray(data)) {
         setCompanies(data);
@@ -48,7 +51,10 @@ const CompanyList = () => {
   const syncCompanies = async () => {
     setIsSyncing(true);
     try {
+      console.log('Syncing companies...');
       const result = await apiService.companies.sync();
+      console.log('Sync result:', result);
+      
       if (result) {
         toast({
           title: 'Sincronização concluída',
@@ -186,7 +192,7 @@ const CompanyList = () => {
                     <Building2 className="h-5 w-5 text-vitalis-600" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-medium">{company.name || company.short_name || 'Empresa sem nome'}</h3>
+                    <h3 className="text-sm font-medium">{company.name || company.short_name || company.NOMEABREVIADO || company.RAZAOSOCIAL || 'Empresa sem nome'}</h3>
                     <p className="text-xs text-muted-foreground">
                       {company.employees || 0} funcionários
                     </p>

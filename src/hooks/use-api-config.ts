@@ -16,6 +16,7 @@ export function useApiConfig(type: ApiConfigType) {
       try {
         setIsLoading(true);
         setError(null);
+        console.log(`Fetching ${type} API config...`);
         const data = await apiService.getApiConfig(type);
         console.log(`Fetched ${type} config:`, data);
         setConfig(data);
@@ -43,10 +44,12 @@ export function useApiConfig(type: ApiConfigType) {
       console.log(`Saving ${type} config:`, configData);
       
       // Ensure we're sending the right format to the API
-      const result = await apiService.saveApiConfig({
+      const configToSave = {
         ...configData,
         tipoSaida: 'json'
-      });
+      };
+      
+      const result = await apiService.saveApiConfig(configToSave);
       
       if (!result) {
         throw new Error('Failed to save API configuration');
@@ -84,10 +87,12 @@ export function useApiConfig(type: ApiConfigType) {
       console.log(`Testing ${type} connection:`, configData);
       
       // Ensure we're sending the right format to the API
-      const result = await apiService.testApiConnection({
+      const configToTest = {
         ...configData,
         tipoSaida: 'json'
-      });
+      };
+      
+      const result = await apiService.testApiConnection(configToTest);
       
       console.log(`Test connection result:`, result);
       return result;

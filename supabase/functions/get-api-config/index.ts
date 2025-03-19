@@ -47,6 +47,8 @@ Deno.serve(async (req) => {
       );
     }
 
+    console.log(`Looking for ${configType} config for user ${session.user.id}`);
+
     // Get config from database
     const { data, error } = await supabase
       .from('api_configs')
@@ -81,7 +83,7 @@ Deno.serve(async (req) => {
     }
 
     // Log the config found
-    console.log(`Found ${configType} config:`, data);
+    console.log(`Found ${configType} config for user ${session.user.id}:`, data);
 
     // Return the config
     return new Response(
