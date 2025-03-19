@@ -26,12 +26,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const verifyAuth = async () => {
       try {
+        console.log("Verifying authentication...");
         const userData = await authService.getCurrentUser();
+        console.log("Authentication verification result:", userData);
+        
         if (userData) {
           setUser(userData);
         }
       } catch (err) {
         console.error('Authentication verification failed:', err);
+        // Don't show an error toast here since this is a background check
       } finally {
         setIsLoading(false);
       }
@@ -45,7 +49,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
     
     try {
+      console.log("Attempting login...");
       const userData = await authService.login(email, password);
+      console.log("Login successful:", userData);
+      
       setUser(userData);
       navigate('/dashboard');
       toast({
@@ -53,6 +60,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         description: 'Bem-vindo de volta!',
       });
     } catch (err) {
+      console.error('Login error:', err);
       const errorMessage = err instanceof Error ? err.message : 'Falha no login';
       setError(errorMessage);
       toast({
@@ -70,7 +78,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
     
     try {
+      console.log("Attempting registration...");
       const userData = await authService.register(email, password, companyName);
+      console.log("Registration successful:", userData);
+      
       setUser(userData);
       navigate('/dashboard');
       toast({
@@ -78,6 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         description: 'Sua conta foi criada com sucesso!',
       });
     } catch (err) {
+      console.error('Registration error:', err);
       const errorMessage = err instanceof Error ? err.message : 'Falha no cadastro';
       setError(errorMessage);
       toast({
@@ -91,13 +103,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
-    authService.logout();
-    setUser(null);
-    navigate('/login');
-    toast({
-      title: 'Logout realizado',
-      description: 'Você foi desconectado com sucesso.',
-    });
+    try {
+      authService.logout();
+      setUser(null);
+      navigate('/login');
+      toast({
+        title: 'Logout realizado',
+        description: 'Você foi desconectado com sucesso.',
+      });
+    } catch (err) {
+      console.error('Logout error:', err);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao sair',
+        description: 'Ocorreu um erro ao tentar sair do sistema.',
+      });
+    }
   };
 
   return (

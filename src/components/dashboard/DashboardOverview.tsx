@@ -19,11 +19,26 @@ const DashboardOverview = () => {
     try {
       setIsLoading(true);
       setError(null);
+      
       const data = await apiService.getDashboardData();
+      console.log("Dashboard data received:", data);
+      
       if (!data) {
         throw new Error('Dados não recebidos');
       }
-      setDashboardData(data);
+      
+      // Ensure we have default values for all needed properties
+      const processedData = {
+        absenteeismRate: data.absenteeismRate || 0,
+        totalAbsenceDays: data.totalAbsenceDays || 0,
+        employeesAbsent: data.employeesAbsent || 0,
+        costImpact: data.costImpact || 'R$ 0,00',
+        trend: data.trend || 'stable',
+        monthlyTrend: data.monthlyTrend || [],
+        bySector: data.bySector || []
+      };
+      
+      setDashboardData(processedData);
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
       setError('Não foi possível carregar os dados do dashboard. Verifique a configuração da API.');
@@ -135,14 +150,15 @@ const DashboardOverview = () => {
                   dashboardData.bySector.map((sector: any, index: number) => (
                     <div key={index}>
                       <div className="flex justify-between items-center mb-1">
-                        <span className="text-sm font-medium">{sector.name}</span>
-                        <span className="text-sm text-muted-foreground">{sector.value} dias</span>
+                        <span className="text-sm font-medium">{sector.name || 'Setor desconhecido'}</span>
+                        <span className="text-sm text-muted-foreground">{sector.value || 0} dias</span>
                       </div>
                       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-vitalis-500"
                           style={{ 
-                            width: `${(sector.value / Math.max(...dashboardData.bySector.map((s: any) => s.value))) * 100}%` 
+                            width: `${(sector.value && dashboardData.bySector.some((s: any) => s.value > 0)) ? 
+                              (sector.value / Math.max(...dashboardData.bySector.map((s: any) => s.value || 0))) * 100 : 0}%` 
                           }}
                         />
                       </div>

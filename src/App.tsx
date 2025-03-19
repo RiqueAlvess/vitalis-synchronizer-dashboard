@@ -18,6 +18,7 @@ import NotFound from "./pages/NotFound";
 
 // Layout components
 import NavBar from "./components/layout/NavBar";
+import ErrorBoundary from "./components/ui-custom/ErrorBoundary";
 
 // Context providers
 import { AuthProvider } from "./context/AuthContext";
@@ -32,6 +33,7 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutes
       retry: 1,
+      refetchOnWindowFocus: false, // Prevent frequent refetches when tab gains focus
     },
   },
 });
@@ -55,7 +57,7 @@ const ProtectedRoute = ({ children }: { children: ReactNode }) => {
     return <Navigate to="/login" replace />;
   }
   
-  return <>{children}</>;
+  return <ErrorBoundary>{children}</ErrorBoundary>;
 };
 
 // Main App component
