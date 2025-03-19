@@ -10,6 +10,7 @@ export const supabaseAPI = axios.create({
     'Content-Type': 'application/json',
   },
   timeout: 20000, // Increased timeout
+  withCredentials: true, // Enable sending cookies with cross-origin requests
 });
 
 // Add request interceptor to include authentication headers

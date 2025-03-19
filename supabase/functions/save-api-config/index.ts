@@ -15,16 +15,30 @@ Deno.serve(async (req) => {
     // Initialize Supabase client
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // Get the session
-    const { data: { session } } = await supabase.auth.getSession();
+    // Get the authorization header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization header' }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
 
-    // Check if user is authenticated
-    if (!session) {
+    // Get the session using the token
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+    // Check if session exists
+    if (sessionError || !session) {
+      console.error('Session error:', sessionError);
       return new Response(
         JSON.stringify({ error: 'Not authenticated' }),
         { 
           status: 401, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
     }
@@ -39,7 +53,7 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: 'Invalid config: missing type field' }),
         { 
           status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
     }
@@ -50,7 +64,7 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: `Invalid config type: ${config.type}` }),
         { 
           status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
     }
@@ -184,7 +198,7 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: 'Failed to save API configuration' }),
         { 
           status: 500, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
     }
@@ -220,7 +234,7 @@ Deno.serve(async (req) => {
       JSON.stringify(apiResponse),
       { 
         status: 200, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
       }
     );
   } catch (error) {
