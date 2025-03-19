@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -71,6 +72,7 @@ const LoginForm = () => {
       
       console.log(`Tentando fazer login com email: ${email}`);
       await login(email, password);
+      // Login bem sucedido, a navegação acontece no contexto de autenticação
     } catch (error) {
       console.error("Erro capturado no formulário de login:", error);
       // O erro já é tratado no AuthContext
@@ -101,6 +103,7 @@ const LoginForm = () => {
       
       console.log("Tentando fazer login com conta demo");
       await login('demo@example.com', 'demo123');
+      // Login bem sucedido, a navegação acontece no contexto de autenticação
     } catch (error) {
       console.error("Erro ao fazer login com conta demo:", error);
     } finally {

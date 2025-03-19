@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from '@/components/ui/use-toast';
 import { authService } from '@/services/authService';
-import { AuthState, AuthContextValue } from '@/types/auth';
+import { AuthState, AuthContextValue, User } from '@/types/auth';
 import { supabase, hasStoredSession } from '@/integrations/supabase/client';
 
 // Initial authentication state
@@ -96,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
   
   // Authentication actions
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<User> => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
@@ -136,7 +136,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
   
-  const register = async (email: string, password: string, companyName: string) => {
+  const register = async (email: string, password: string, companyName: string): Promise<User> => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {

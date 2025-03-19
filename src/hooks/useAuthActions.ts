@@ -1,4 +1,3 @@
-
 import { useCallback } from 'react';
 import { NavigateFunction, Location } from 'react-router-dom';
 import { authService } from '@/services/authService';
@@ -11,7 +10,7 @@ export const useAuthActions = (
   navigate: NavigateFunction,
   location: Location
 ) => {
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string): Promise<User> => {
     stateManager.setLoading(true);
     stateManager.setError(null);
     
@@ -30,6 +29,8 @@ export const useAuthActions = (
         title: 'Login bem-sucedido',
         description: 'Bem-vindo de volta!',
       });
+      
+      return userData;
     } catch (err) {
       console.error('Erro de login:', err);
       const errorMessage = err instanceof Error ? err.message : 'Falha no login';
@@ -39,12 +40,13 @@ export const useAuthActions = (
         title: 'Erro no login',
         description: errorMessage,
       });
+      throw err;
     } finally {
       stateManager.setLoading(false);
     }
   }, [stateManager, navigate, location]);
 
-  const register = useCallback(async (email: string, password: string, companyName: string) => {
+  const register = useCallback(async (email: string, password: string, companyName: string): Promise<User> => {
     stateManager.setLoading(true);
     stateManager.setError(null);
     
@@ -70,6 +72,8 @@ export const useAuthActions = (
         title: 'Cadastro realizado',
         description: 'Sua conta foi criada com sucesso!',
       });
+      
+      return userData;
     } catch (err) {
       console.error('Erro de registro:', err);
       const errorMessage = err instanceof Error ? err.message : 'Falha no cadastro';
@@ -79,6 +83,7 @@ export const useAuthActions = (
         title: 'Erro no cadastro',
         description: errorMessage,
       });
+      throw err;
     } finally {
       stateManager.setLoading(false);
     }

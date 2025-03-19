@@ -67,6 +67,7 @@ const RegisterForm = () => {
     
     try {
       await register(email, password, companyName);
+      // Registro bem sucedido, a navegação acontece no contexto de autenticação
     } catch (error) {
       // Error is handled in the AuthContext
     }
