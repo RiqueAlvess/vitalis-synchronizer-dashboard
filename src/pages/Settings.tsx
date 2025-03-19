@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import ApiConfigTabs from '@/components/integration/ApiConfigTabs';
 import { Loader2, AlertTriangle, RefreshCcw, Wifi, WifiOff } from 'lucide-react';
