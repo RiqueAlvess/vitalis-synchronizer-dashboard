@@ -8,11 +8,12 @@ import AbsenteeismChart from './AbsenteeismChart';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
+import { DashboardData } from '@/types/dashboard';
 
 const DashboardOverview = () => {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
-  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [isUsingMockData, setIsUsingMockData] = useState(false);
@@ -35,7 +36,7 @@ const DashboardOverview = () => {
       setIsUsingMockData(data.absenteeismRate === 3.42);
       
       // Ensure we have default values for all needed properties
-      const processedData = {
+      const processedData: DashboardData = {
         absenteeismRate: data.absenteeismRate || 0,
         totalAbsenceDays: data.totalAbsenceDays || 0,
         employeesAbsent: data.employeesAbsent || 0,
@@ -108,11 +109,11 @@ const DashboardOverview = () => {
           <>
             <StatCard 
               title="Taxa de Absenteísmo" 
-              value={`${dashboardData?.absenteeismRate?.toFixed(2) || '0'}%`}
+              value={`${dashboardData.absenteeismRate.toFixed(2) || '0'}%`}
               description="Este mês"
-              trend={dashboardData?.trend === 'up' 
+              trend={dashboardData.trend === 'up' 
                 ? { value: 5.2, positive: false } 
-                : dashboardData?.trend === 'down' 
+                : dashboardData.trend === 'down' 
                   ? { value: 3.8, positive: true } 
                   : undefined}
               icon={<BarChart3 className="h-5 w-5" />}
@@ -120,21 +121,21 @@ const DashboardOverview = () => {
             
             <StatCard 
               title="Dias de Ausência" 
-              value={dashboardData?.totalAbsenceDays || 0}
+              value={dashboardData.totalAbsenceDays || 0}
               description="Total do período"
               icon={<CalendarDays className="h-5 w-5" />}
             />
             
             <StatCard 
               title="Funcionários Ausentes" 
-              value={dashboardData?.employeesAbsent || 0}
+              value={dashboardData.employeesAbsent || 0}
               description="No período"
               icon={<Users className="h-5 w-5" />}
             />
             
             <StatCard 
               title="Impacto Financeiro" 
-              value={dashboardData?.costImpact || 'R$ 0,00'}
+              value={dashboardData.costImpact || 'R$ 0,00'}
               description="Este mês"
               icon={<DollarSign className="h-5 w-5" />}
             />
@@ -197,7 +198,7 @@ const DashboardOverview = () => {
               <Skeleton className="h-[300px] w-full" />
             ) : dashboardData?.bySector && dashboardData.bySector.length > 0 ? (
               <div className="space-y-4">
-                {dashboardData.bySector.map((sector: any, index: number) => (
+                {dashboardData.bySector.map((sector, index) => (
                   <div key={index}>
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-sm font-medium">{sector.name || 'Setor desconhecido'}</span>
@@ -207,8 +208,8 @@ const DashboardOverview = () => {
                       <div 
                         className="h-full bg-vitalis-500"
                         style={{ 
-                          width: `${(sector.value && dashboardData.bySector.some((s: any) => s.value > 0)) ? 
-                            (sector.value / Math.max(...dashboardData.bySector.map((s: any) => s.value || 0))) * 100 : 0}%` 
+                          width: `${(sector.value && dashboardData.bySector.some((s) => s.value > 0)) ? 
+                            (sector.value / Math.max(...dashboardData.bySector.map((s) => s.value || 0))) * 100 : 0}%` 
                         }}
                       />
                     </div>

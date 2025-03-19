@@ -1,6 +1,6 @@
-
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
+import { DashboardData, MonthlyTrendData, SectorData } from '@/types/dashboard';
 
 // Define the structure of the API configuration
 export interface ApiConfig {
@@ -81,8 +81,33 @@ export interface User {
   updatedAt: Date;
 }
 
+// Mock company data type
+export interface MockCompanyData {
+  id: number;
+  name: string;
+  short_name: string;
+  corporate_name: string;
+  tax_id: string;
+  employees: number;
+  syncStatus: string;
+  lastSync: string;
+}
+
+// Mock employee data type
+export interface MockEmployeeData {
+  id: number;
+  name: string;
+  full_name: string;
+  position: string;
+  position_name: string;
+  sector: string;
+  sector_name: string;
+  status: string;
+  absentDays: number;
+}
+
 // Function to generate mock data
-const generateMockData = (type: string) => {
+const generateMockData = (type: string): MockCompanyData[] | MockEmployeeData[] | DashboardData => {
   if (type === 'dashboard') {
     return {
       absenteeismRate: 3.42,
@@ -105,7 +130,7 @@ const generateMockData = (type: string) => {
         { name: 'Logística', value: 18 },
         { name: 'Manutenção', value: 9 }
       ]
-    };
+    } as DashboardData;
   } else if (type === 'companies') {
     return Array.from({ length: 5 }, (_, i) => ({
       id: i + 1,
@@ -116,7 +141,7 @@ const generateMockData = (type: string) => {
       employees: Math.floor(Math.random() * 100) + 10,
       syncStatus: ['synced', 'pending', 'error'][Math.floor(Math.random() * 3)],
       lastSync: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString()
-    }));
+    })) as MockCompanyData[];
   } else if (type === 'employees') {
     return Array.from({ length: 10 }, (_, i) => ({
       id: i + 1,
@@ -128,9 +153,9 @@ const generateMockData = (type: string) => {
       sector_name: `Setor ${Math.floor(i / 2) + 1}`,
       status: ['Ativo', 'Afastado', 'Inativo'][Math.floor(Math.random() * 3)],
       absentDays: Math.floor(Math.random() * 20)
-    }));
+    })) as MockEmployeeData[];
   }
-  return [];
+  return [] as MockCompanyData[];
 };
 
 // Function to convert hours string to decimal
@@ -179,50 +204,50 @@ async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiRespon
 // Mock API service
 const apiService = {
   companies: {
-    getAll: async (): Promise<Company[]> => {
+    getAll: async (): Promise<MockCompanyData[]> => {
       try {
         // Check if API is configured first
         const config = await apiService.apiConfig.get('company');
         
         if (!config || !config.isConfigured) {
           console.warn('Company API not configured, returning mock data');
-          return generateMockData('companies') as Company[];
+          return generateMockData('companies') as MockCompanyData[];
         }
         
-        const response = await axios.get<Company[]>('/api/companies');
+        const response = await axios.get<MockCompanyData[]>('/api/companies');
         
         if (Array.isArray(response.data) && response.data.length > 0) {
           return response.data;
         } else {
           console.warn('Empty response from API, returning mock data');
-          return generateMockData('companies') as Company[];
+          return generateMockData('companies') as MockCompanyData[];
         }
       } catch (error) {
         console.error('Error fetching companies, using mock data:', error);
-        return generateMockData('companies') as Company[];
+        return generateMockData('companies') as MockCompanyData[];
       }
     },
-    getById: async (id: number): Promise<Company | null> => {
+    getById: async (id: number): Promise<MockCompanyData | null> => {
       try {
-        const response = await axios.get<Company>(`/api/companies/${id}`);
+        const response = await axios.get<MockCompanyData>(`/api/companies/${id}`);
         return response.data;
       } catch (error) {
         console.error('Error fetching company:', error);
         return null;
       }
     },
-    create: async (data: Omit<Company, 'id' | 'createdAt' | 'updatedAt'>): Promise<Company | null> => {
+    create: async (data: Omit<MockCompanyData, 'id' | 'createdAt' | 'updatedAt'>): Promise<MockCompanyData | null> => {
       try {
-        const response = await axios.post<Company>('/api/companies', data);
+        const response = await axios.post<MockCompanyData>('/api/companies', data);
         return response.data;
       } catch (error) {
         console.error('Error creating company:', error);
         return null;
       }
     },
-    update: async (id: number, data: Omit<Company, 'createdAt' | 'updatedAt' | 'id'>): Promise<Company | null> => {
+    update: async (id: number, data: Omit<MockCompanyData, 'createdAt' | 'updatedAt' | 'id'>): Promise<MockCompanyData | null> => {
       try {
-        const response = await axios.put<Company>(`/api/companies/${id}`, data);
+        const response = await axios.put<MockCompanyData>(`/api/companies/${id}`, data);
         return response.data;
       } catch (error) {
         console.error('Error updating company:', error);
@@ -257,50 +282,50 @@ const apiService = {
     }
   },
   employees: {
-    getAll: async (): Promise<Employee[]> => {
+    getAll: async (): Promise<MockEmployeeData[]> => {
       try {
         // Check if API is configured first
         const config = await apiService.apiConfig.get('employee');
         
         if (!config || !config.isConfigured) {
           console.warn('Employee API not configured, returning mock data');
-          return generateMockData('employees') as Employee[];
+          return generateMockData('employees') as MockEmployeeData[];
         }
         
-        const response = await axios.get<Employee[]>('/api/employees');
+        const response = await axios.get<MockEmployeeData[]>('/api/employees');
         
         if (Array.isArray(response.data) && response.data.length > 0) {
           return response.data;
         } else {
           console.warn('Empty response from API, returning mock data');
-          return generateMockData('employees') as Employee[];
+          return generateMockData('employees') as MockEmployeeData[];
         }
       } catch (error) {
         console.error('Error fetching employees, using mock data:', error);
-        return generateMockData('employees') as Employee[];
+        return generateMockData('employees') as MockEmployeeData[];
       }
     },
-    getById: async (id: number): Promise<Employee | null> => {
+    getById: async (id: number): Promise<MockEmployeeData | null> => {
       try {
-        const response = await axios.get<Employee>(`/api/employees/${id}`);
+        const response = await axios.get<MockEmployeeData>(`/api/employees/${id}`);
         return response.data;
       } catch (error) {
         console.error('Error fetching employee:', error);
         return null;
       }
     },
-    create: async (data: Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>): Promise<Employee | null> => {
+    create: async (data: Omit<MockEmployeeData, 'id' | 'createdAt' | 'updatedAt'>): Promise<MockEmployeeData | null> => {
       try {
-        const response = await axios.post<Employee>('/api/employees', data);
+        const response = await axios.post<MockEmployeeData>('/api/employees', data);
         return response.data;
       } catch (error) {
         console.error('Error creating employee:', error);
         return null;
       }
     },
-    update: async (id: number, data: Omit<Employee, 'createdAt' | 'updatedAt' | 'id'>): Promise<Employee | null> => {
+    update: async (id: number, data: Omit<MockEmployeeData, 'createdAt' | 'updatedAt' | 'id'>): Promise<MockEmployeeData | null> => {
       try {
-        const response = await axios.put<Employee>(`/api/employees/${id}`, data);
+        const response = await axios.put<MockEmployeeData>(`/api/employees/${id}`, data);
         return response.data;
       } catch (error) {
         console.error('Error updating employee:', error);
@@ -585,7 +610,7 @@ const calculateCostImpact = (absenteeismData: any[]): string => {
   }).format(totalCost);
 };
 
-const getSectorAbsenceData = (absenteeismData: any[]): {name: string, value: number}[] => {
+const getSectorAbsenceData = (absenteeismData: any[]): SectorData[] => {
   const sectorCounts = absenteeismData.reduce((acc: Record<string, number>, record) => {
     const sector = record.sector || 'Não informado';
     if (!acc[sector]) {
@@ -610,7 +635,7 @@ const getSectorAbsenceData = (absenteeismData: any[]): {name: string, value: num
   }, {} as Record<string, number>);
   
   return Object.entries(sectorCounts)
-    .map(([name, value]): {name: string, value: number} => ({ name, value: Number(value) }))
+    .map(([name, value]): SectorData => ({ name, value: Number(value) }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 5);
 };
@@ -653,8 +678,8 @@ const getTopSectors = (absenteeismData: any[]) => {
     .slice(0, 10);
 };
 
-const getMonthlyEvolution = (absenteeismData: any[]) => {
-  const monthlyData = absenteeismData.reduce((acc: Record<string, {month: string, count: number, hours: number, value: number}>, record) => {
+const getMonthlyEvolution = (absenteeismData: any[]): MonthlyTrendData[] => {
+  const monthlyData = absenteeismData.reduce((acc: Record<string, MonthlyTrendData>, record) => {
     const startDate = new Date(record.start_date || record.startDate);
     
     // If date is invalid, skip this record
@@ -684,10 +709,10 @@ const getMonthlyEvolution = (absenteeismData: any[]) => {
   }, {});
   
   return Object.values(monthlyData)
-    .sort((a: any, b: any) => {
-      const [aMonth, aYear] = a.month.split('/');
-      const [bMonth, bYear] = b.month.split('/');
-      return (parseInt(aYear) - parseInt(bYear)) || (parseInt(aMonth) - parseInt(bMonth));
+    .sort((a, b) => {
+      const [aMonth, aYear] = a.month.split('/').map(Number);
+      const [bMonth, bYear] = b.month.split('/').map(Number);
+      return (aYear - bYear) || (aMonth - bMonth);
     });
 };
 
