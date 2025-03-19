@@ -1,4 +1,35 @@
+
 import axios from 'axios';
+
+// Define API configuration types
+export type ApiConfigType = 'company' | 'employee' | 'absenteeism';
+
+export interface ApiConfig {
+  type: ApiConfigType;
+  empresa: string;
+  codigo: string;
+  chave: string;
+  tipoSaida: string;
+  isConfigured?: boolean;
+  savedLocally?: boolean;
+  savedAt?: string;
+}
+
+export interface EmployeeApiConfig extends ApiConfig {
+  type: 'employee';
+  ativo: string;
+  inativo: string;
+  afastado: string;
+  pendente: string;
+  ferias: string;
+}
+
+export interface AbsenteeismApiConfig extends ApiConfig {
+  type: 'absenteeism';
+  empresaTrabalho: string;
+  dataInicio: string;
+  dataFim: string;
+}
 
 export const supabaseAPI = axios.create({
   baseURL: import.meta.env.DEV 
@@ -81,7 +112,90 @@ export const retryRequest = async (fn, maxRetries = 3, delay = 1000) => {
   throw lastError;
 };
 
+// API service with all the methods
 const apiService = {
+  // API Configuration methods
+  getApiConfig: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig> => {
+    try {
+      const response = await supabaseAPI.get(`/get-api-config/${type}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error getting ${type} API config:`, error);
+      throw error;
+    }
+  },
+  
+  saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig> => {
+    try {
+      const response = await supabaseAPI.post('/save-api-config', config);
+      return response.data;
+    } catch (error) {
+      console.error('Error saving API config:', error);
+      throw error;
+    }
+  },
+  
+  testApiConnection: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig): Promise<{success: boolean; message: string}> => {
+    try {
+      const response = await supabaseAPI.post('/test-connection', config);
+      return response.data;
+    } catch (error) {
+      console.error('Error testing API connection:', error);
+      throw error;
+    }
+  },
+
+  // Dashboard data
+  getDashboardData: async () => {
+    try {
+      const response = await supabaseAPI.get('/dashboard-data');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      // Return mock data if API fails
+      return {
+        absenteeismRate: 3.42,
+        totalAbsenceDays: 156,
+        employeesAbsent: 23,
+        costImpact: 'R$ 12.450,00',
+        trend: 'up',
+        monthlyTrend: [
+          { month: 'Jan', value: 2.1 },
+          { month: 'Fev', value: 2.5 },
+          { month: 'Mar', value: 3.1 },
+          { month: 'Abr', value: 2.8 },
+          { month: 'Mai', value: 3.2 },
+          { month: 'Jun', value: 3.42 }
+        ],
+        bySector: [
+          { name: 'Administrativo', value: 2.1, count: 5 },
+          { name: 'Comercial', value: 3.7, count: 8 },
+          { name: 'Operacional', value: 4.2, count: 10 },
+          { name: 'TI', value: 1.5, count: 2 }
+        ],
+        topCIDs: [
+          { code: 'J11', description: 'Influenza', count: 12 },
+          { code: 'M54', description: 'Dorsalgia', count: 8 },
+          { code: 'F41', description: 'Transtornos ansiosos', count: 6 }
+        ]
+      };
+    }
+  },
+
+  // API Configuration by resource type
+  apiConfig: {
+    get: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig> => {
+      return apiService.getApiConfig(type);
+    },
+    save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig> => {
+      return apiService.saveApiConfig(config);
+    },
+    test: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig): Promise<{success: boolean; message: string}> => {
+      return apiService.testApiConnection(config);
+    }
+  },
+
+  // Employee-related API endpoints
   employees: {
     getAll: async () => {
       try {
@@ -150,6 +264,8 @@ const apiService = {
       }
     }
   },
+  
+  // Absenteeism-related API endpoints
   absenteeism: {
     getAll: async () => {
       try {
@@ -181,6 +297,8 @@ const apiService = {
       }
     }
   },
+  
+  // Company-related API endpoints
   companies: {
     getAll: async () => {
       try {
@@ -209,6 +327,8 @@ const apiService = {
       }
     }
   },
+  
+  // Sync logs API endpoints
   syncLogs: {
     getAll: async () => {
       try {
@@ -220,6 +340,8 @@ const apiService = {
       }
     }
   },
+  
+  // Authentication-related API endpoints
   auth: {
     login: async (credentials: any) => {
       try {
@@ -258,6 +380,7 @@ const apiService = {
     }
   },
   
+  // Background sync queue API endpoints
   sync: {
     employees: async () => {
       try {

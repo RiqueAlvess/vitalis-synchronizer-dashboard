@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import ApiConfigTabs from '@/components/integration/ApiConfigTabs';
@@ -101,8 +100,8 @@ const Settings = () => {
       
       // Preload all configs when the settings page loads
       const results = await Promise.allSettled([
-        apiService.apiConfig.get('employee'),
-        apiService.apiConfig.get('absenteeism')
+        apiService.getApiConfig('employee'),
+        apiService.getApiConfig('absenteeism')
       ]);
       
       console.log('API config loading results:', results.map(r => ({ 

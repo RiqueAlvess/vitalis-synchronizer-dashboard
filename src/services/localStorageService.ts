@@ -1,5 +1,5 @@
 
-import { ApiConfig, ApiConfigType } from './api';
+import { ApiConfigType } from './api';
 
 interface LocalStorageService {
   isPreviewEnvironment: () => boolean;
