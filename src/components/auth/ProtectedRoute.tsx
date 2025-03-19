@@ -17,11 +17,28 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const navigate = useNavigate();
   const initialCheckDone = useRef(false);
   const redirected = useRef(false);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const maxLoadingTime = useRef<NodeJS.Timeout | null>(null);
 
-  // Effect para limpar e redefinir estados quando a rota muda
+  // Definir um tempo máximo de carregamento para evitar estados de carregamento infinitos
   useEffect(() => {
+    if (!initialCheckDone.current && !maxLoadingTime.current) {
+      maxLoadingTime.current = setTimeout(() => {
+        console.log('Max loading time reached, showing content anyway');
+        initialCheckDone.current = true;
+      }, 3000); // 3 segundos de tempo máximo
+    }
+
+    return () => {
+      if (maxLoadingTime.current) {
+        clearTimeout(maxLoadingTime.current);
+        maxLoadingTime.current = null;
+      }
+    };
+  }, []);
+
+  // Verificar estado de autenticação quando a rota muda
+  useEffect(() => {
+    // Resetar estado de redirecionamento quando a rota muda
     if (location.pathname) {
       redirected.current = false;
       
@@ -30,29 +47,20 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
         initialCheckDone.current = true;
       }
     }
-    
-    return () => {
-      // Limpar timeouts quando componente desmonta ou rota muda
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      if (maxLoadingTime.current) {
-        clearTimeout(maxLoadingTime.current);
-      }
-    };
   }, [location.pathname, user]);
 
+  // Efeito principal para verificação de autenticação
   useEffect(() => {
     const verifyAuthentication = async () => {
+      // Evitar verificações concorrentes ou redundantes
+      if (isAuthChecking || initialCheckDone.current) {
+        return;
+      }
+
       // Se já estiver autenticado, não precisamos verificar novamente
       if (!isLoading && isAuthenticated) {
         console.log('Already authenticated, showing content');
         initialCheckDone.current = true;
-        return;
-      }
-
-      // Evitar verificações concorrentes
-      if (isAuthChecking || initialCheckDone.current) {
         return;
       }
 
@@ -97,6 +105,8 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
         }
       } catch (error) {
         console.error('Error verifying authentication:', error);
+        initialCheckDone.current = true;
+        
         if (!redirected.current) {
           redirected.current = true;
           navigate('/login', { 
@@ -109,18 +119,9 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       }
     };
 
-    // Definir um tempo máximo de carregamento
-    if (!initialCheckDone.current && !maxLoadingTime.current) {
-      maxLoadingTime.current = setTimeout(() => {
-        console.log('Max loading time reached, showing content anyway');
-        initialCheckDone.current = true;
-      }, 3000); // 3 segundo de tempo máximo
-    }
-
-    // Atrasar a verificação inicial para permitir inicialização do contexto de autenticação
-    if (!initialCheckDone.current && !timeoutRef.current) {
-      timeoutRef.current = setTimeout(verifyAuthentication, 100);
-    }
+    // Executar verificação de autenticação com um pequeno atraso para evitar corridas
+    const timeoutId = setTimeout(verifyAuthentication, 100);
+    return () => clearTimeout(timeoutId);
   }, [isAuthenticated, isLoading, location.pathname, navigate, checkAuth, isAuthChecking]);
 
   // Mostrar estado de carregamento enquanto verifica autenticação, mas com timeout máximo

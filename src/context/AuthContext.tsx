@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -30,8 +31,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshAttempts = useRef(0);
   const MAX_REFRESH_ATTEMPTS = 3;
   const initialCheckComplete = useRef(false);
+  const authSubscription = useRef<{ unsubscribe: () => void } | null>(null);
 
+  // Configurar listener de autenticação uma única vez
   useEffect(() => {
+    if (authSubscription.current) return;
+    
     console.log("Configurando listener de alteração de estado de autenticação");
     
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -48,6 +53,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setIsLoading(false);
               authChecked.current = true;
               refreshAttempts.current = 0;
+              initialCheckComplete.current = true;
               
               if (location.pathname === '/login' || location.pathname === '/register') {
                 const intended = location.state?.from || '/dashboard';
@@ -60,6 +66,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(null);
             setIsLoading(false);
             authChecked.current = true;
+            initialCheckComplete.current = true;
             
             if (location.pathname !== '/login' && 
                 location.pathname !== '/register' && 
@@ -76,18 +83,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Erro ao processar evento de autenticação:', err);
           setIsLoading(false);
           authChecked.current = true;
+          initialCheckComplete.current = true;
         }
       }
     );
 
+    authSubscription.current = subscription;
+
     return () => {
       console.log("Limpando inscrição de eventos de autenticação");
-      subscription.unsubscribe();
+      if (authSubscription.current) {
+        authSubscription.current.unsubscribe();
+        authSubscription.current = null;
+      }
     };
-  }, [navigate, location.pathname, location.state]);
+  }, []);
 
+  // Verificar autenticação inicial apenas uma vez
   useEffect(() => {
     const verifyAuth = async () => {
+      // Se já verificamos, não verificar novamente
+      if (initialCheckComplete.current) {
+        return;
+      }
+
       try {
         console.log("Verificando autenticação na inicialização do aplicativo...");
         
@@ -96,6 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           setIsLoading(false);
           authChecked.current = true;
+          initialCheckComplete.current = true;
           return;
         }
         
@@ -118,28 +138,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         setIsLoading(false);
         authChecked.current = true;
+        initialCheckComplete.current = true;
       } catch (err) {
         console.error('Verificação de autenticação falhou:', err);
         setUser(null);
         setIsLoading(false);
         authChecked.current = true;
+        initialCheckComplete.current = true;
       }
     };
 
-    if (!initialCheckComplete.current) {
-      verifyAuth();
-    }
+    // Timeout para garantir que não ficaremos presos no estado de carregamento
+    const timeoutId = setTimeout(() => {
+      if (isLoading && !initialCheckComplete.current) {
+        console.log("Timeout de verificação de autenticação atingido");
+        setIsLoading(false);
+        initialCheckComplete.current = true;
+      }
+    }, 5000);
+
+    verifyAuth();
+
+    return () => clearTimeout(timeoutId);
   }, []);
 
   const checkAuth = async (): Promise<boolean> => {
+    // Se já estamos carregando, retorne o estado atual
     if (isLoading) {
       return !!user;
     }
     
+    // Se já verificamos e temos um usuário, não verificar novamente
     if (authChecked.current && user) {
       return true;
     }
     
+    // Limite de tentativas para evitar loops infinitos
     if (refreshAttempts.current >= MAX_REFRESH_ATTEMPTS) {
       console.log(`Máximo de ${MAX_REFRESH_ATTEMPTS} tentativas de atualização atingido`);
       return false;

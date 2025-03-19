@@ -20,10 +20,10 @@ const Settings = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const initialLoadAttempted = useRef(false);
+  const apiCheckAttempted = useRef(false);
 
+  // Configurar um timeout máximo de carregamento
   useEffect(() => {
-    // Definir um timeout para garantir que não fiquemos presos no carregamento
     loadTimeoutRef.current = setTimeout(() => {
       if (isLoading) {
         console.log('Safety timeout triggered for settings page');
@@ -31,26 +31,81 @@ const Settings = () => {
       }
     }, 5000);
     
-    // Carregar configurações quando o componente montar
-    if (!initialLoadAttempted.current) {
-      initialLoadAttempted.current = true;
-      
-      // Se o usuário estiver autenticado, carregar as configurações
-      if (isAuthenticated) {
-        console.log('User is authenticated, loading settings');
-        loadAllConfigs();
-      } else {
-        console.log('User is not authenticated, not loading settings');
-        setIsLoading(false);
-      }
-    }
-
     return () => {
       if (loadTimeoutRef.current) {
         clearTimeout(loadTimeoutRef.current);
         loadTimeoutRef.current = null;
       }
     };
+  }, []);
+
+  // Efeito para carregar as configurações quando o componente montar
+  useEffect(() => {
+    const loadSettings = async () => {
+      // Evitar tentativas múltiplas
+      if (apiCheckAttempted.current) return;
+      apiCheckAttempted.current = true;
+      
+      // Verificar se o usuário está autenticado antes de tentar carregar dados
+      if (!isAuthenticated) {
+        console.log('User is not authenticated, not loading settings');
+        setIsLoading(false);
+        return;
+      }
+      
+      try {
+        console.log('User is authenticated, loading settings');
+        setIsLoading(true);
+        
+        // Testar conectividade da API
+        const isConnected = await checkApiConnectivity();
+        
+        if (!isConnected) {
+          console.log('API connectivity test failed');
+          setHasError(true);
+          setErrorMessage('Não foi possível conectar ao servidor API. Verifique sua conexão com a internet.');
+          setIsLoading(false);
+          return;
+        }
+        
+        console.log('Starting to load API configurations...');
+        
+        // Carregar configurações
+        const results = await Promise.allSettled([
+          apiService.getApiConfig('employee'),
+          apiService.getApiConfig('absenteeism')
+        ]);
+        
+        console.log('API config loading results:', results.map(r => ({ 
+          status: r.status, 
+          value: r.status === 'fulfilled' ? 'Config loaded' : 'Failed to load' 
+        })));
+        
+        // Verificar resultados
+        if (results.every(result => result.status === 'rejected')) {
+          throw new Error('Não foi possível carregar nenhuma das configurações. Verifique sua conexão com a internet e tente novamente.');
+        }
+        
+        if (results.some(result => result.status === 'fulfilled')) {
+          console.log('At least some API configs loaded successfully');
+          setHasError(false);
+        }
+        
+      } catch (err) {
+        console.error('Error loading API configurations:', err);
+        setHasError(true);
+        setErrorMessage(err instanceof Error ? err.message : 'Erro desconhecido ao carregar configurações');
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao carregar configurações',
+          description: 'Não foi possível carregar as configurações das APIs.'
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadSettings();
   }, [isAuthenticated]);
 
   // Verificar conectividade da API
@@ -80,13 +135,15 @@ const Settings = () => {
     }
   };
 
+  // Função para recarregar as configurações
   const loadAllConfigs = async () => {
+    apiCheckAttempted.current = false;
+    setIsLoading(true);
+    setHasError(false);
+    
     try {
-      setIsLoading(true);
-      setHasError(false);
-      
-      // Verificar conectividade da API primeiro
       const isConnected = await checkApiConnectivity();
+      
       if (!isConnected) {
         setHasError(true);
         setErrorMessage('Não foi possível conectar ao servidor API. Verifique sua conexão com a internet.');
@@ -94,27 +151,16 @@ const Settings = () => {
         return;
       }
       
-      console.log('Starting to load API configurations...');
-      
-      // Pré-carregar todas as configurações quando a página de configurações for carregada
       const results = await Promise.allSettled([
         apiService.getApiConfig('employee'),
         apiService.getApiConfig('absenteeism')
       ]);
       
-      console.log('API config loading results:', results.map(r => ({ 
-        status: r.status, 
-        value: r.status === 'fulfilled' ? 'Config loaded' : 'Failed to load' 
-      })));
-      
-      // Verificar se todas as promessas foram rejeitadas
       if (results.every(result => result.status === 'rejected')) {
         throw new Error('Não foi possível carregar nenhuma das configurações. Verifique sua conexão com a internet e tente novamente.');
       }
       
-      // Se pelo menos uma configuração foi carregada com sucesso, considerar como sucesso
       if (results.some(result => result.status === 'fulfilled')) {
-        console.log('At least some API configs loaded successfully');
         setHasError(false);
       }
     } catch (err) {
@@ -128,11 +174,6 @@ const Settings = () => {
       });
     } finally {
       setIsLoading(false);
-      // Limpar o timeout de segurança
-      if (loadTimeoutRef.current) {
-        clearTimeout(loadTimeoutRef.current);
-        loadTimeoutRef.current = null;
-      }
     }
   };
 

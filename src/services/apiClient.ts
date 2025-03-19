@@ -13,20 +13,6 @@ export const supabaseAPI = axios.create({
   withCredentials: true, // Enable sending cookies with cross-origin requests
 });
 
-// Function to check if token is expired
-function isTokenExpired(token) {
-  if (!token) return true;
-  
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    const expiryTime = payload.exp * 1000;
-    return Date.now() >= expiryTime - 300000; // Consider token expired 5 minutes before actual expiry
-  } catch (e) {
-    console.error('Error checking token expiry:', e);
-    return true;
-  }
-}
-
 // Adicionando um lock para evitar múltiplas atualizações de token simultaneamente
 let isRefreshing = false;
 let refreshPromise = null;
@@ -48,6 +34,21 @@ const getUpdatedToken = async () => {
   }
 };
 
+// Function to check if token is expired
+function isTokenExpired(token) {
+  if (!token) return true;
+  
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const expiryTime = payload.exp * 1000;
+    // Consider token expired 5 minutes before actual expiry to ensure smooth refreshes
+    return Date.now() >= expiryTime - 300000;
+  } catch (e) {
+    console.error('Error checking token expiry:', e);
+    return true;
+  }
+}
+
 // Add request interceptor to include authentication headers
 supabaseAPI.interceptors.request.use(
   async config => {
@@ -66,10 +67,18 @@ supabaseAPI.interceptors.request.use(
         } else {
           console.error('Session refresh failed:', error);
           
-          // If unable to refresh, remove any stale session data
-          await supabase.auth.signOut();
+          // Tentar novamente após um pequeno delay
+          await new Promise(resolve => setTimeout(resolve, 500));
+          const secondAttempt = await getUpdatedToken();
           
-          throw new Error('Authentication session expired');
+          if (secondAttempt.data.session) {
+            console.log('Session refreshed successfully on second attempt');
+            config.headers['Authorization'] = `Bearer ${secondAttempt.data.session.access_token}`;
+          } else {
+            // If unable to refresh, remove any stale session data
+            await supabase.auth.signOut();
+            throw new Error('Authentication session expired');
+          }
         }
       } else {
         // Use existing valid token
@@ -135,31 +144,27 @@ supabaseAPI.interceptors.response.use(
       }
     }
     
-    // Handle CORS errors more explicitly
+    // Melhorar o tratamento de erros de rede
     if (error.message === 'Network Error') {
-      console.error('CORS or Network error detected');
+      // Verificar conectividade
       const isOnline = navigator.onLine;
       
-      if (isOnline && error.request) {
-        console.warn('Possible CORS issue with request', {
-          url: originalRequest?.url,
-          withCredentials: originalRequest?.withCredentials
-        });
-        
-        error.message = 'Erro de conexão com o servidor. Isso pode ser um problema de CORS.';
+      if (isOnline) {
+        error.message = 'Erro de conexão com o servidor. Por favor, tente novamente mais tarde.';
       } else {
-        error.message = isOnline 
-          ? 'Falha na conexão com o servidor. Tente novamente mais tarde.' 
-          : 'Sem conexão com a internet.';
+        error.message = 'Sem conexão com a internet. Por favor, verifique sua conexão e tente novamente.';
       }
-    }
-    
-    // Handle HTML responses (indicates CORS or server issues)
-    if (typeof error.response?.data === 'string' && 
-        error.response.data.includes('<!DOCTYPE html>')) {
-      console.error('Received HTML instead of JSON - possible auth or endpoint issue');
-      error.isHtmlResponse = true;
-      error.message = 'Authentication error. Please log in and try again.';
+      
+      // Tentar novamente automaticamente se estiver online
+      if (isOnline && !originalRequest._networkRetry && originalRequest) {
+        console.log('Retrying request after network error');
+        originalRequest._networkRetry = true;
+        return new Promise(resolve => {
+          setTimeout(() => {
+            resolve(axios(originalRequest));
+          }, 1000);
+        });
+      }
     }
     
     return Promise.reject(error);

@@ -12,38 +12,22 @@ const Login = () => {
   const [isLocalLoading, setIsLocalLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const initialCheck = useRef(false);
   const redirected = useRef(false);
 
-  // Redirecionar se já estiver autenticado
+  // Efeito único para redirecionar se já estiver autenticado
   useEffect(() => {
-    // Impedir verificações múltiplas
-    if (initialCheck.current || redirected.current) return;
-    initialCheck.current = true;
-
-    console.log("Página de login carregada, status de autenticação:", 
-      isAuthenticated ? "Autenticado" : "Não autenticado",
-      "isLoading:", isLoading);
+    // Prevenir redirecionamentos múltiplos
+    if (redirected.current) return;
     
-    // Se já estiver autenticado, redirecionar
     if (isAuthenticated && !isLoading) {
-      const intended = location.state?.from || '/dashboard';
-      console.log(`Usuário já autenticado, redirecionando para: ${intended}`);
+      console.log(`Usuário já autenticado, redirecionando para dashboard`);
       redirected.current = true;
-      navigate(intended, { replace: true });
-    }
-  }, []);
-  
-  // Redirecionar quando autenticado
-  useEffect(() => {
-    if (isAuthenticated && !isLoading && !redirected.current) {
       const intended = location.state?.from || '/dashboard';
-      console.log(`Usuário autenticado, redirecionando para: ${intended}`);
-      redirected.current = true;
       navigate(intended, { replace: true });
     }
   }, [isAuthenticated, isLoading, navigate, location]);
 
+  // Mostrar o estado de carregamento
   if (isLoading || isLocalLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">

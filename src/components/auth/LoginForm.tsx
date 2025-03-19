@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -7,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeOffIcon, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from '@/components/ui/use-toast';
 
 const LoginForm = () => {
   const { login, isLoading, isAuthenticated } = useAuth();
@@ -16,6 +16,7 @@ const LoginForm = () => {
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginAttempts, setLoginAttempts] = useState(0);
+  const [lastAttemptTime, setLastAttemptTime] = useState(0);
   const navigate = useNavigate();
 
   // Redirecionar se já estiver autenticado
@@ -52,26 +53,52 @@ const LoginForm = () => {
       return;
     }
     
+    // Prevenir múltiplas tentativas muito próximas
+    const now = Date.now();
+    if (now - lastAttemptTime < 2000) {
+      toast({
+        title: "Aguarde um momento",
+        description: "Tente novamente em alguns segundos",
+        variant: "default"
+      });
+      return;
+    }
+    
     try {
       setIsSubmitting(true);
       setLoginAttempts(prev => prev + 1);
+      setLastAttemptTime(now);
+      
       console.log(`Tentando fazer login com email: ${email}`);
       await login(email, password);
     } catch (error) {
       console.error("Erro capturado no formulário de login:", error);
-      // Erro é tratado no AuthContext
+      // O erro já é tratado no AuthContext
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleDemoLogin = async () => {
+    // Prevenir múltiplas tentativas muito próximas
+    const now = Date.now();
+    if (now - lastAttemptTime < 2000) {
+      toast({
+        title: "Aguarde um momento",
+        description: "Tente novamente em alguns segundos",
+        variant: "default"
+      });
+      return;
+    }
+    
     setEmail('demo@example.com');
     setPassword('demo123');
     
     try {
       setIsSubmitting(true);
       setLoginAttempts(prev => prev + 1);
+      setLastAttemptTime(now);
+      
       console.log("Tentando fazer login com conta demo");
       await login('demo@example.com', 'demo123');
     } catch (error) {
