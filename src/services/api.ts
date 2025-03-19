@@ -1,5 +1,6 @@
 
 import axios from 'axios';
+import { localStorageService } from './localStorageService';
 
 // Define API configuration types
 export type ApiConfigType = 'company' | 'employee' | 'absenteeism';
@@ -117,18 +118,83 @@ const apiService = {
   // API Configuration methods
   getApiConfig: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig> => {
     try {
+      // First check if config exists in localStorage
+      const localConfig = localStorageService.getConfig<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig>(type);
+      if (localConfig) {
+        return { ...localConfig, savedLocally: true };
+      }
+      
+      // If not, try to get from API
       const response = await supabaseAPI.get(`/get-api-config/${type}`);
-      return response.data;
+      return { ...response.data, savedLocally: false };
     } catch (error) {
       console.error(`Error getting ${type} API config:`, error);
-      throw error;
+      
+      // Return default configuration for each type
+      if (type === 'employee') {
+        return {
+          type: 'employee',
+          empresa: '423',
+          codigo: '25722',
+          chave: 'b4c740208036d64c467b',
+          tipoSaida: 'json',
+          ativo: 'Sim',
+          inativo: '',
+          afastado: '',
+          pendente: '',
+          ferias: '',
+          isConfigured: false,
+          savedLocally: false
+        } as EmployeeApiConfig;
+      } else if (type === 'absenteeism') {
+        return {
+          type: 'absenteeism',
+          empresa: '423',
+          codigo: '183868',
+          chave: '6dff7b9a8a635edaddf5',
+          tipoSaida: 'json',
+          empresaTrabalho: '',
+          dataInicio: '',
+          dataFim: '',
+          isConfigured: false,
+          savedLocally: false
+        } as AbsenteeismApiConfig;
+      } else {
+        return {
+          type: 'company',
+          empresa: '423',
+          codigo: '26625',
+          chave: '7e9da216f3bfda8c024b',
+          tipoSaida: 'json',
+          isConfigured: false,
+          savedLocally: false
+        } as ApiConfig;
+      }
     }
   },
   
   saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig> => {
     try {
-      const response = await supabaseAPI.post('/save-api-config', config);
-      return response.data;
+      // Save to localStorage
+      localStorageService.saveConfig(config.type, {
+        ...config,
+        savedAt: new Date().toISOString(),
+        isConfigured: true
+      });
+      
+      // Also try to save to API if available
+      try {
+        const response = await supabaseAPI.post('/save-api-config', config);
+        return { ...response.data, savedLocally: true, isConfigured: true };
+      } catch (apiError) {
+        console.warn('Could not save to API, but saved locally:', apiError);
+        return { 
+          ...config, 
+          savedLocally: true, 
+          isConfigured: true,
+          savedAt: new Date().toISOString()
+        };
+      }
     } catch (error) {
       console.error('Error saving API config:', error);
       throw error;
@@ -141,7 +207,10 @@ const apiService = {
       return response.data;
     } catch (error) {
       console.error('Error testing API connection:', error);
-      throw error;
+      return {
+        success: false,
+        message: error.message || 'Erro ao testar conexão com a API'
+      };
     }
   },
 
@@ -243,18 +312,21 @@ const apiService = {
     },
     sync: async () => {
       try {
+        // Get the employee API config
+        const config = await apiService.getApiConfig('employee') as EmployeeApiConfig;
+        
         const response = await supabaseAPI.post('/sync-soc-api', {
           type: 'employee',
           params: {
-            empresa: '423', // This should come from API config
-            codigo: '25722', // This should come from API config
-            chave: 'b4c740208036d64c467b', // This should come from API config
+            empresa: config.empresa,
+            codigo: config.codigo,
+            chave: config.chave,
             tipoSaida: 'json',
-            ativo: 'Sim',
-            inativo: '',
-            afastado: '',
-            pendente: '',
-            ferias: ''
+            ativo: config.ativo,
+            inativo: config.inativo,
+            afastado: config.afastado,
+            pendente: config.pendente,
+            ferias: config.ferias
           }
         });
         return response.data;
@@ -278,16 +350,19 @@ const apiService = {
     },
     sync: async () => {
       try {
+        // Get the absenteeism API config
+        const config = await apiService.getApiConfig('absenteeism') as AbsenteeismApiConfig;
+        
         const response = await supabaseAPI.post('/sync-soc-api', {
           type: 'absenteeism',
           params: {
-            empresa: '423', // This should come from API config
-            codigo: '183868', // This should come from API config
-            chave: '6dff7b9a8a635edaddf5', // This should come from API config
+            empresa: config.empresa,
+            codigo: config.codigo,
+            chave: config.chave,
             tipoSaida: 'json',
-            empresaTrabalho: '',
-            dataInicio: '',
-            dataFim: ''
+            empresaTrabalho: config.empresaTrabalho,
+            dataInicio: config.dataInicio,
+            dataFim: config.dataFim
           }
         });
         return response.data;
@@ -311,12 +386,15 @@ const apiService = {
     },
     sync: async () => {
       try {
+        // Get the company API config
+        const config = await apiService.getApiConfig('company') as ApiConfig;
+        
         const response = await supabaseAPI.post('/sync-soc-api', {
           type: 'company',
           params: {
-            empresa: '423', // This should come from API config
-            codigo: '26625', // This should come from API config
-            chave: '7e9da216f3bfda8c024b', // This should come from API config
+            empresa: config.empresa,
+            codigo: config.codigo,
+            chave: config.chave,
             tipoSaida: 'json'
           }
         });
@@ -384,18 +462,21 @@ const apiService = {
   sync: {
     employees: async () => {
       try {
+        // Get the employee API config
+        const config = await apiService.getApiConfig('employee') as EmployeeApiConfig;
+        
         const response = await supabaseAPI.post('/queue-sync-processor/enqueue', {
           type: 'employee',
           params: {
-            empresa: '423', // This should come from API config
-            codigo: '25722', // This should come from API config
-            chave: 'b4c740208036d64c467b', // This should come from API config
+            empresa: config.empresa,
+            codigo: config.codigo,
+            chave: config.chave,
             tipoSaida: 'json',
-            ativo: 'Sim',
-            inativo: '',
-            afastado: '',
-            pendente: '',
-            ferias: ''
+            ativo: config.ativo,
+            inativo: config.inativo,
+            afastado: config.afastado,
+            pendente: config.pendente,
+            ferias: config.ferias
           }
         });
         
@@ -408,16 +489,19 @@ const apiService = {
     
     absenteeism: async () => {
       try {
+        // Get the absenteeism API config
+        const config = await apiService.getApiConfig('absenteeism') as AbsenteeismApiConfig;
+        
         const response = await supabaseAPI.post('/queue-sync-processor/enqueue', {
           type: 'absenteeism',
           params: {
-            empresa: '423', // This should come from API config
-            codigo: '183868', // This should come from API config
-            chave: '6dff7b9a8a635edaddf5', // This should come from API config
+            empresa: config.empresa,
+            codigo: config.codigo,
+            chave: config.chave,
             tipoSaida: 'json',
-            empresaTrabalho: '',
-            dataInicio: '',
-            dataFim: ''
+            empresaTrabalho: config.empresaTrabalho,
+            dataInicio: config.dataInicio,
+            dataFim: config.dataFim
           }
         });
         
@@ -430,12 +514,15 @@ const apiService = {
     
     companies: async () => {
       try {
+        // Get the company API config
+        const config = await apiService.getApiConfig('company') as ApiConfig;
+        
         const response = await supabaseAPI.post('/queue-sync-processor/enqueue', {
           type: 'company',
           params: {
-            empresa: '423', // This should come from API config
-            codigo: '26625', // This should come from API config
-            chave: '7e9da216f3bfda8c024b', // This should come from API config
+            empresa: config.empresa,
+            codigo: config.codigo,
+            chave: config.chave,
             tipoSaida: 'json'
           }
         });
