@@ -1,8 +1,8 @@
 
 export interface SyncLog {
   id: number;
-  type: 'employee' | 'absenteeism';
-  status: 'pending' | 'in_progress' | 'success' | 'error';
+  type: 'employee' | 'absenteeism' | string;
+  status: 'pending' | 'in_progress' | 'success' | 'error' | string;
   message: string;
   error_details?: string;
   started_at: string;

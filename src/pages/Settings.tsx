@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import ApiConfigTabs from '@/components/integration/ApiConfigTabs';
@@ -42,7 +41,7 @@ const Settings = () => {
       setApiConnectivity(null);
       
       const result = await apiService.testApiConnection({
-        type: 'company',
+        type: 'employee',
         empresa: 'test',
         codigo: 'test',
         chave: 'test',
@@ -88,7 +87,6 @@ const Settings = () => {
       
       // Preload all configs when the settings page loads
       const results = await Promise.allSettled([
-        apiService.apiConfig.get('company'),
         apiService.apiConfig.get('employee'),
         apiService.apiConfig.get('absenteeism')
       ]);

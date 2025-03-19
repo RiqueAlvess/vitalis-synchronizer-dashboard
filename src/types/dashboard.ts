@@ -4,7 +4,7 @@ export interface DashboardData {
   totalAbsenceDays: number;
   employeesAbsent: number;
   costImpact: string;
-  trend: 'up' | 'down' | 'stable';
+  trend: 'up' | 'down' | 'stable' | 'neutral';
   monthlyTrend: MonthlyTrendData[];
   bySector: SectorData[];
 }
@@ -22,17 +22,6 @@ export interface SectorData {
 }
 
 // Define types for mock data
-export interface MockCompanyData {
-  id: number;
-  name: string;
-  short_name: string;
-  corporate_name: string;
-  tax_id: string;
-  employees: number;
-  syncStatus: string;
-  lastSync: string;
-}
-
 export interface MockEmployeeData {
   id: number;
   name: string;

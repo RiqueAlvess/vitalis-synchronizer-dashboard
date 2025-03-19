@@ -1,11 +1,11 @@
 
 import { useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
-import apiService, { ApiConfig, EmployeeApiConfig, AbsenteeismApiConfig, CompanyApiConfig, ApiConfigType } from '@/services/api';
+import apiService, { ApiConfig, EmployeeApiConfig, AbsenteeismApiConfig, ApiConfigType } from '@/services/api';
 
 export function useApiConfig(type: ApiConfigType) {
   const { toast } = useToast();
-  const [config, setConfig] = useState<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null>(null);
+  const [config, setConfig] = useState<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -24,7 +24,7 @@ export function useApiConfig(type: ApiConfigType) {
         toast({
           variant: 'destructive',
           title: 'Erro ao carregar configuração',
-          description: `Não foi possível carregar a configuração da API de ${type === 'company' ? 'empresas' : type === 'employee' ? 'funcionários' : 'absenteísmo'}.`
+          description: `Não foi possível carregar a configuração da API de ${type === 'employee' ? 'funcionários' : 'absenteísmo'}.`
         });
       } finally {
         setIsLoading(false);
@@ -34,7 +34,7 @@ export function useApiConfig(type: ApiConfigType) {
     fetchConfig();
   }, [type, toast]);
 
-  const saveConfig = async (configData: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig) => {
+  const saveConfig = async (configData: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig) => {
     try {
       setIsLoading(true);
       setError(null);
@@ -58,7 +58,7 @@ export function useApiConfig(type: ApiConfigType) {
       
       toast({
         title: 'Configuração salva',
-        description: `A configuração da API de ${type === 'company' ? 'empresas' : type === 'employee' ? 'funcionários' : 'absenteísmo'} foi salva com sucesso.`
+        description: `A configuração da API de ${type === 'employee' ? 'funcionários' : 'absenteísmo'} foi salva com sucesso.`
       });
       
       return result;
@@ -71,7 +71,7 @@ export function useApiConfig(type: ApiConfigType) {
       toast({
         variant: 'destructive',
         title: 'Erro ao salvar configuração',
-        description: `Não foi possível salvar a configuração da API de ${type === 'company' ? 'empresas' : type === 'employee' ? 'funcionários' : 'absenteísmo'}.`
+        description: `Não foi possível salvar a configuração da API de ${type === 'employee' ? 'funcionários' : 'absenteísmo'}.`
       });
       
       throw err;
@@ -80,7 +80,7 @@ export function useApiConfig(type: ApiConfigType) {
     }
   };
 
-  const testConnection = async (configData: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig) => {
+  const testConnection = async (configData: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig) => {
     try {
       console.log(`Testing ${type} connection:`, configData);
       

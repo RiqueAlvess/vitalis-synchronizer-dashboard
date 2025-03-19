@@ -16,7 +16,20 @@ export const syncLogsService = {
         throw error;
       }
 
-      return data || [];
+      // Convert the raw data to SyncLog type
+      const logs: SyncLog[] = data?.map(log => ({
+        id: log.id,
+        type: log.type,
+        status: log.status,
+        message: log.message,
+        error_details: log.error_details,
+        started_at: log.started_at,
+        completed_at: log.completed_at,
+        user_id: log.user_id,
+        created_at: log.created_at
+      })) || [];
+
+      return logs;
     } catch (error) {
       console.error('Error in syncLogsService.getLogs:', error);
       return [];
