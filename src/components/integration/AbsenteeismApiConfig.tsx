@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,8 +28,7 @@ const AbsenteeismApiConfig = () => {
     empresaTrabalho: '',
     dataInicio: '',
     dataFim: '',
-    isConfigured: false,
-    savedLocally: false
+    isConfigured: false
   };
 
   const [config, setConfig] = useState<AbsenteeismApiConfigType>(initialConfig);
@@ -123,30 +121,9 @@ const AbsenteeismApiConfig = () => {
         isConfigured: true
       };
       
-      let result;
+      const result = await apiService.saveApiConfig(configToSave);
       
-      try {
-        result = await apiService.saveApiConfig(configToSave);
-      } catch (error) {
-        // If there was an error but we're in preview mode, show a specific message
-        if (localStorageService.isPreviewEnvironment()) {
-          toast({
-            title: 'Configurações salvas localmente',
-            description: 'No ambiente de prévia, as configurações são salvas apenas neste navegador.',
-          });
-          
-          // Update the local config
-          setConfig(prev => ({
-            ...prev, 
-            savedLocally: true,
-            savedAt: new Date().toISOString()
-          }));
-          return;
-        }
-        throw error; // Re-throw for the outer catch to handle
-      }
-      
-      if (!result && !localStorageService.isPreviewEnvironment()) {
+      if (!result) {
         throw new Error('Falha ao salvar configurações');
       }
       
@@ -236,17 +213,6 @@ const AbsenteeismApiConfig = () => {
       </CardHeader>
       
       <PreviewModeIndicator />
-      
-      {config.savedLocally && (
-        <Alert className="mx-6 mb-4">
-          <AlertDescription>
-            Estas configurações estão salvas apenas neste navegador.
-            {localStorageService.isPreviewEnvironment() ? 
-              " No ambiente de prévia, as configurações não são sincronizadas com o servidor." : 
-              " Quando a conexão com o servidor for restabelecida, elas serão sincronizadas automaticamente."}
-          </AlertDescription>
-        </Alert>
-      )}
       
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

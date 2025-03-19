@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,8 +7,6 @@ import { useToast } from '@/components/ui/use-toast';
 import apiService, { EmployeeApiConfig as EmployeeApiConfigType } from '@/services/api';
 import { Loader2, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { localStorageService } from '@/services/localStorageService';
 import PreviewModeIndicator from '@/components/ui-custom/PreviewModeIndicator';
 
 const EmployeeApiConfig = () => {
@@ -29,7 +26,7 @@ const EmployeeApiConfig = () => {
   const [isPendente, setIsPendente] = useState(false);
   const [isFerias, setIsFerias] = useState(false);
 
-  // Initialize config with the correct structure including savedLocally
+  // Initialize config with the correct structure
   const initialConfig: EmployeeApiConfigType = {
     type: 'employee',
     empresa: '',
@@ -41,8 +38,7 @@ const EmployeeApiConfig = () => {
     afastado: '',
     pendente: '',
     ferias: '',
-    isConfigured: false,
-    savedLocally: false
+    isConfigured: false
   };
 
   const [config, setConfig] = useState<EmployeeApiConfigType>(initialConfig);
@@ -66,8 +62,7 @@ const EmployeeApiConfig = () => {
             ...typedData,
             // Force tipoSaida to always be 'json'
             tipoSaida: 'json',
-            isConfigured: !!typedData.empresa && !!typedData.codigo && !!typedData.chave,
-            savedLocally: typedData.savedLocally
+            isConfigured: !!typedData.empresa && !!typedData.codigo && !!typedData.chave
           });
         }
       } catch (error) {
@@ -186,7 +181,6 @@ const EmployeeApiConfig = () => {
     }
   };
 
-  // Add sync function
   const handleSync = async () => {
     try {
       setIsSyncing(true);
@@ -231,7 +225,6 @@ const EmployeeApiConfig = () => {
     }
   };
 
-  // Ensure the handleSave function properly updates with all required fields
   const handleSave = async () => {
     try {
       setIsSaving(true);
@@ -248,34 +241,12 @@ const EmployeeApiConfig = () => {
         afastado: isAfastado ? 'Sim' : '',
         pendente: isPendente ? 'Sim' : '',
         ferias: isFerias ? 'Sim' : '',
-        isConfigured: true,
-        savedLocally: config.savedLocally
+        isConfigured: true
       };
       
-      let result;
+      const result = await apiService.saveApiConfig(configToSave);
       
-      try {
-        result = await apiService.saveApiConfig(configToSave);
-      } catch (error) {
-        // If there was an error but we're in preview mode, show a specific message
-        if (localStorageService.isPreviewEnvironment()) {
-          toast({
-            title: 'Configurações salvas localmente',
-            description: 'No ambiente de prévia, as configurações são salvas apenas neste navegador.',
-          });
-          
-          // Update the local config
-          setConfig(prev => ({
-            ...prev, 
-            savedLocally: true,
-            savedAt: new Date().toISOString()
-          }));
-          return;
-        }
-        throw error; // Re-throw for the outer catch to handle
-      }
-      
-      if (!result && !localStorageService.isPreviewEnvironment()) {
+      if (!result) {
         throw new Error('Falha ao salvar configurações');
       }
       
@@ -324,17 +295,6 @@ const EmployeeApiConfig = () => {
       </CardHeader>
       
       <PreviewModeIndicator />
-      
-      {config.savedLocally && (
-        <Alert className="mx-6 mb-4">
-          <AlertDescription>
-            Estas configurações estão salvas apenas neste navegador.
-            {localStorageService.isPreviewEnvironment() ? 
-              " No ambiente de prévia, as configurações não são sincronizadas com o servidor." : 
-              " Quando a conexão com o servidor for restabelecida, elas serão sincronizadas automaticamente."}
-          </AlertDescription>
-        </Alert>
-      )}
       
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

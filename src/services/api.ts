@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { localStorageService } from './localStorageService';
 import { supabaseAPI, retryRequest } from './apiClient';
 
 // Define API configuration types
@@ -12,8 +11,6 @@ export interface ApiConfig {
   chave: string;
   tipoSaida: string;
   isConfigured?: boolean;
-  savedLocally?: boolean;
-  savedAt?: string;
 }
 
 export interface EmployeeApiConfig extends ApiConfig {
@@ -37,15 +34,9 @@ const apiService = {
   // API Configuration methods
   getApiConfig: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig> => {
     try {
-      // First check if config exists in localStorage
-      const localConfig = localStorageService.getConfig<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig>(type);
-      if (localConfig) {
-        return { ...localConfig, savedLocally: true };
-      }
-      
-      // If not, try to get from API
+      // Always try to get from API
       const response = await supabaseAPI.get(`/get-api-config/${type}`);
-      return { ...response.data, savedLocally: false };
+      return response.data;
     } catch (error) {
       console.error(`Error getting ${type} API config:`, error);
       
@@ -53,40 +44,37 @@ const apiService = {
       if (type === 'employee') {
         return {
           type: 'employee',
-          empresa: '423',
-          codigo: '25722',
-          chave: 'b4c740208036d64c467b',
+          empresa: '',
+          codigo: '',
+          chave: '',
           tipoSaida: 'json',
           ativo: 'Sim',
           inativo: '',
           afastado: '',
           pendente: '',
           ferias: '',
-          isConfigured: false,
-          savedLocally: false
+          isConfigured: false
         } as EmployeeApiConfig;
       } else if (type === 'absenteeism') {
         return {
           type: 'absenteeism',
-          empresa: '423',
-          codigo: '183868',
-          chave: '6dff7b9a8a635edaddf5',
+          empresa: '',
+          codigo: '',
+          chave: '',
           tipoSaida: 'json',
           empresaTrabalho: '',
           dataInicio: '',
           dataFim: '',
-          isConfigured: false,
-          savedLocally: false
+          isConfigured: false
         } as AbsenteeismApiConfig;
       } else {
         return {
           type: 'company',
-          empresa: '423',
-          codigo: '26625',
-          chave: '7e9da216f3bfda8c024b',
+          empresa: '',
+          codigo: '',
+          chave: '',
           tipoSaida: 'json',
-          isConfigured: false,
-          savedLocally: false
+          isConfigured: false
         } as ApiConfig;
       }
     }
@@ -94,26 +82,9 @@ const apiService = {
   
   saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig> => {
     try {
-      // Save to localStorage
-      localStorageService.saveConfig(config.type, {
-        ...config,
-        savedAt: new Date().toISOString(),
-        isConfigured: true
-      });
-      
-      // Also try to save to API if available
-      try {
-        const response = await supabaseAPI.post('/save-api-config', config);
-        return { ...response.data, savedLocally: true, isConfigured: true };
-      } catch (apiError) {
-        console.warn('Could not save to API, but saved locally:', apiError);
-        return { 
-          ...config, 
-          savedLocally: true, 
-          isConfigured: true,
-          savedAt: new Date().toISOString()
-        };
-      }
+      // Always save to API
+      const response = await supabaseAPI.post('/save-api-config', config);
+      return { ...response.data, isConfigured: true };
     } catch (error) {
       console.error('Error saving API config:', error);
       throw error;

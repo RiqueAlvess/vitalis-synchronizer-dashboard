@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
 
     // Parse request body
     const { type, params } = await req.json();
+    console.log('Sync request received:', { type, params });
 
     // Check if type is valid
     if (!['company', 'employee', 'absenteeism'].includes(type)) {
@@ -81,8 +82,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    // This would normally call out to the actual API
+    // In a real implementation, this would call the actual SOC API
     // For now, just return success with the sync log ID
+    console.log(`${type} synchronization initiated. Log ID: ${logData.id}`);
+    
     return new Response(
       JSON.stringify({
         success: true,

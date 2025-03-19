@@ -4,6 +4,7 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
 Deno.serve(async (req) => {
   // Handle CORS preflight request
@@ -12,32 +13,46 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Initialize Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
     // Get the authorization header
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
+      console.log('Missing authorization header');
       return new Response(
         JSON.stringify({ success: false, message: 'Missing authorization header' }),
         { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
 
-    // Get the session using the token
+    // Extract token
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    
+    // Initialize admin Supabase client
+    const supabaseAdmin = createClient(
+      SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
+    
+    // Verify the token
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
 
-    // Check if session exists
+    // Check if user exists
     if (userError || !user) {
       console.error('User auth error:', userError);
       return new Response(
-        JSON.stringify({ success: false, message: 'Not authenticated' }),
+        JSON.stringify({ success: false, message: 'Invalid authentication token' }),
         { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
 
-    // This is just a test endpoint, so we'll return success if the user is authenticated
+    console.log('Connection test successful for user:', user.id);
+
+    // Return success response
     return new Response(
       JSON.stringify({ 
         success: true, 
