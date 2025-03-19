@@ -1,18 +1,11 @@
-
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.23.0';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Credentials': 'true',
-};
+import { corsHeaders } from '../_shared/cors.ts';
 
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: corsHeaders(req) });
   }
 
   try {
@@ -44,7 +37,7 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({ success: false, message: error.message }),
           {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
             status: 401,
           }
         );
@@ -83,7 +76,7 @@ serve(async (req) => {
         JSON.stringify({ success: true, user: userData }),
         {
           headers: {
-            ...corsHeaders,
+            ...corsHeaders(req),
             'Content-Type': 'application/json',
             'Set-Cookie': cookieOptions.join('; '),
           },
@@ -99,7 +92,7 @@ serve(async (req) => {
         JSON.stringify({ success: true }),
         {
           headers: {
-            ...corsHeaders,
+            ...corsHeaders(req),
             'Content-Type': 'application/json',
             'Set-Cookie': 'auth_token=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax',
           },
@@ -119,7 +112,7 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({ success: false, message: 'No authentication token found' }),
           {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
             status: 401,
           }
         );
@@ -132,7 +125,7 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({ success: false, message: 'Invalid or expired token' }),
           {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
             status: 401,
           }
         );
@@ -157,7 +150,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ success: true, user: userData }),
         {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
           status: 200,
         }
       );
@@ -167,7 +160,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ success: false, message: 'Invalid endpoint' }),
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
         status: 404,
       }
     );
@@ -177,7 +170,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ success: false, message: error.message }),
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
         status: 500,
       }
     );

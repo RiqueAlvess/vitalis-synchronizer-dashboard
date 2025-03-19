@@ -14,7 +14,7 @@ interface SyncOptions {
 Deno.serve(async (req) => {
   // Handle CORS
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders(req) });
   }
 
   try {
@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
       JSON.stringify({ success: false, message: 'Erro interno no servidor', error: error.message }),
       { 
         status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
       }
     );
   }

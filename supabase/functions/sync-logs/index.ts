@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
 Deno.serve(async (req) => {
   // Handle CORS for preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders(req) });
   }
 
   try {
@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     console.error('Unexpected error:', error);
     return new Response(
       JSON.stringify({ success: false, message: 'Server error', error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
     );
   }
 });

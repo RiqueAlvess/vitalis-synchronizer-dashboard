@@ -8,7 +8,7 @@ const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
 Deno.serve(async (req) => {
   // Handle CORS
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders(req) });
   }
 
   try {
@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
       }),
       { 
         status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
       }
     );
   }

@@ -1,9 +1,8 @@
+import { corsHeaders } from '../_shared/cors.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
 
-import { corsHeaders } from '../_shared/cors.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0'
-
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
-const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 
 interface ApiParams {
   type: 'company' | 'employee' | 'absenteeism';
@@ -17,36 +16,36 @@ interface ApiParams {
 Deno.serve(async (req) => {
   // Handle CORS
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: corsHeaders(req) });
   }
 
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     
     // Get session for authentication
-    const { data: { session } } = await supabase.auth.getSession()
+    const { data: { session } } = await supabase.auth.getSession();
     
     if (!session) {
       return new Response(
         JSON.stringify({ success: false, message: 'Não autorizado - Faça login para continuar' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+        { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+      );
     }
 
     // Get API parameters from request
-    const params: ApiParams = await req.json()
+    const params: ApiParams = await req.json();
     
     if (!params || !params.type || !params.empresa || !params.codigo || !params.chave) {
       return new Response(
         JSON.stringify({ success: false, message: 'Parâmetros de API ausentes ou inválidos' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+        { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+      );
     }
     
-    console.log(`Testing ${params.type} API connection`, { empresa: params.empresa })
+    console.log(`Testing ${params.type} API connection`, { empresa: params.empresa });
     
     // Build the API URL based on the params type
-    const socApiUrl = 'https://ws1.soc.com.br/WebSoc/exportadados'
+    const socApiUrl = 'https://ws1.soc.com.br/WebSoc/exportadados';
     
     // Set up API parameters based on the type
     const apiParams: Record<string, string> = {
@@ -85,7 +84,7 @@ Deno.serve(async (req) => {
             success: false, 
             message: `Erro na API SOC: ${response.status} ${response.statusText}` 
           }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
         );
       }
       
@@ -120,7 +119,7 @@ Deno.serve(async (req) => {
               message: `Conexão estabelecida com sucesso! Retornados ${jsonData.length} registros.`,
               count: jsonData.length
             }),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            { status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
           );
         } else {
           return new Response(
@@ -128,7 +127,7 @@ Deno.serve(async (req) => {
               success: false, 
               message: 'A API retornou dados inválidos ou vazios. Verifique suas credenciais.' 
             }),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            { status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
           );
         }
       } catch (parseError) {
@@ -138,7 +137,7 @@ Deno.serve(async (req) => {
             success: false, 
             message: 'Erro ao analisar a resposta da API. O formato retornado é inválido.' 
           }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
         );
       }
     } catch (apiError) {
@@ -148,7 +147,7 @@ Deno.serve(async (req) => {
           success: false, 
           message: 'Erro ao conectar com a API SOC. Verifique suas credenciais e conexão.' 
         }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
     
@@ -156,7 +155,7 @@ Deno.serve(async (req) => {
     console.error('Error in API test connection:', error);
     return new Response(
       JSON.stringify({ success: false, message: 'Erro interno ao processar o teste de conexão API.' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+      { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+    );
   }
-})
+});

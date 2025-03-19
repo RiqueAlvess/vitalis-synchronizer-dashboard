@@ -1,4 +1,3 @@
-
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
 import { corsHeaders } from '../_shared/cors.ts';
 import { decode as decodeBase64 } from 'https://deno.land/std@0.177.0/encoding/base64.ts';
@@ -17,7 +16,7 @@ interface SocApiParams {
 Deno.serve(async (req) => {
   // Handle CORS preflight request
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders(req) });
   }
 
   try {
@@ -36,7 +35,7 @@ Deno.serve(async (req) => {
         }),
         { 
           status: 401, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
     }
@@ -54,7 +53,7 @@ Deno.serve(async (req) => {
         }),
         { 
           status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
     }
@@ -107,7 +106,7 @@ Deno.serve(async (req) => {
         }),
         { 
           status: 500, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
     }
@@ -145,7 +144,7 @@ Deno.serve(async (req) => {
         }),
         { 
           status: 500, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
     }
@@ -183,7 +182,7 @@ Deno.serve(async (req) => {
       JSON.stringify(processingResult),
       { 
         status: processingResult.success ? 200 : 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
       }
     );
   } catch (error) {
@@ -197,7 +196,7 @@ Deno.serve(async (req) => {
       }),
       { 
         status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
       }
     );
   }
