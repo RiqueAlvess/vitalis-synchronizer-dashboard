@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from './context/AuthContext';
 import PageTransition from './components/layout/PageTransition';
+import NavBar from './components/layout/NavBar';
 
 // Pages
 import Index from './pages/Index';
@@ -20,6 +21,7 @@ function App() {
   return (
     <Router>
       <AuthProvider>
+        <NavBar />
         <PageTransition>
           <Routes>
             <Route path="/" element={<Index />} />
