@@ -81,31 +81,6 @@ export interface User {
   updatedAt: Date;
 }
 
-// Mock company data type
-export interface MockCompanyData {
-  id: number;
-  name: string;
-  short_name: string;
-  corporate_name: string;
-  tax_id: string;
-  employees: number;
-  syncStatus: string;
-  lastSync: string;
-}
-
-// Mock employee data type
-export interface MockEmployeeData {
-  id: number;
-  name: string;
-  full_name: string;
-  position: string;
-  position_name: string;
-  sector: string;
-  sector_name: string;
-  status: string;
-  absentDays: number;
-}
-
 // Function to generate mock data
 const generateMockData = (type: string): MockCompanyData[] | MockEmployeeData[] | DashboardData => {
   if (type === 'dashboard') {
