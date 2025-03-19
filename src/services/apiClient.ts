@@ -12,6 +12,17 @@ export const supabaseAPI = axios.create({
   withCredentials: true, // Enable sending cookies with requests
 });
 
+// Add request interceptor to include authentication headers
+supabaseAPI.interceptors.request.use(
+  async config => {
+    // Add any additional headers or authentication tokens if needed
+    return config;
+  },
+  error => {
+    return Promise.reject(error);
+  }
+);
+
 // Add response interceptor to handle authentication errors
 supabaseAPI.interceptors.response.use(
   response => {
