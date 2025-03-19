@@ -1,6 +1,6 @@
 
 import React, { useEffect } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import LoginForm from '@/components/auth/LoginForm';
 import GlassPanel from '@/components/ui-custom/GlassPanel';
 import Logo from '@/components/ui-custom/Logo';
@@ -10,18 +10,15 @@ import { Loader2 } from 'lucide-react';
 const Login = () => {
   const { isLoading, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
-  // Efeito para redirecionar se já estiver autenticado
+  // Effect to redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      console.log(`Usuário já autenticado, redirecionando para dashboard`);
-      const intended = location.state?.from || '/dashboard';
-      navigate(intended, { replace: true });
+      navigate('/dashboard', { replace: true });
     }
-  }, [isAuthenticated, isLoading, navigate, location]);
+  }, [isAuthenticated, isLoading, navigate]);
 
-  // Mostrar o estado de carregamento
+  // Show loading state
   if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">

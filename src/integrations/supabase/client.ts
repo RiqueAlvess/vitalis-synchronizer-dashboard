@@ -18,32 +18,18 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
   }
 });
 
-// Helper to check if there's a valid session in storage with proper error handling
+// Simple helper to check if there's a valid session in storage
 export const hasStoredSession = () => {
   try {
     const storageKey = 'vitalis-auth-token';
     const stored = localStorage.getItem(storageKey);
     if (!stored) return false;
     
-    try {
-      const parsedData = JSON.parse(stored);
-      if (!parsedData?.currentSession) return false;
-      
-      // Se não tiver expiresAt, considere válido por 1 hora
-      if (!parsedData.currentSession.expires_at) {
-        if (parsedData.currentSession.created_at) {
-          const createdAt = new Date(parsedData.currentSession.created_at * 1000);
-          const oneHourLater = new Date(createdAt.getTime() + 60 * 60 * 1000);
-          return oneHourLater > new Date();
-        }
-        return false; // Se não tiver created_at, não consideramos válido
-      }
-      
-      return new Date(parsedData.currentSession.expires_at * 1000) > new Date();
-    } catch (parseError) {
-      console.error('Error parsing stored session:', parseError);
-      return false;
-    }
+    const parsedData = JSON.parse(stored);
+    if (!parsedData?.currentSession) return false;
+    
+    const expiryTime = parsedData.currentSession.expires_at * 1000;
+    return new Date(expiryTime) > new Date();
   } catch (error) {
     console.error('Error checking stored session:', error);
     return false;
