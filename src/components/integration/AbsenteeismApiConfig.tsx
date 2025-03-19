@@ -44,7 +44,6 @@ const AbsenteeismApiConfig = () => {
           const typedConfig = savedConfig as AbsenteeismApiConfigType;
           setConfig({
             ...typedConfig,
-            // Ensure tipoSaida is always 'json'
             tipoSaida: 'json',
             isConfigured: !!typedConfig.empresa && !!typedConfig.codigo && !!typedConfig.chave
           });
@@ -132,7 +131,6 @@ const AbsenteeismApiConfig = () => {
         description: 'Configuração da API de absenteísmo salva com sucesso.'
       });
       
-      // Refresh config from the server
       const savedConfig = await apiService.getApiConfig('absenteeism');
       if (savedConfig) {
         setConfig(savedConfig as AbsenteeismApiConfigType);
@@ -154,7 +152,6 @@ const AbsenteeismApiConfig = () => {
       setIsTesting(true);
       setTestResult(null);
       
-      // Use current form values for testing
       const testConfig = {
         ...config,
         tipoSaida: 'json'
@@ -163,7 +160,6 @@ const AbsenteeismApiConfig = () => {
       let result;
       
       if (localStorageService.isPreviewEnvironment()) {
-        // In preview mode, simulate a successful test after a delay
         await new Promise(resolve => setTimeout(resolve, 1500));
         result = {
           success: true,
