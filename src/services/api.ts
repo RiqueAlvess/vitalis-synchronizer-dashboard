@@ -83,30 +83,27 @@ const apiService = {
   
   saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig> => {
     try {
-      // Verificar se há sessão antes de tentar salvar
+      // Verificar sessão explicitamente
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
-        console.error('Sem sessão válida ao salvar config. Tentando refresh...');
+        // Tentar renovar a sessão
         const { data, error } = await supabase.auth.refreshSession();
         
         if (error || !data.session) {
-          throw new Error('Não foi possível autenticar. Faça login novamente.');
+          console.error('Sessão inválida e não foi possível renovar');
+          throw new Error('Sessão expirada, faça login novamente');
         }
-        
-        console.log('Sessão renovada, continuando...');
       }
       
-      // Agora realiza a chamada com token renovado
+      // Agora faça a chamada API
       const response = await supabaseAPI.post('/save-api-config', config);
       return { ...response.data, isConfigured: true };
     } catch (error) {
       console.error('Error saving API config:', error);
       
-      // Se o erro for de autenticação, tenta forçar um redirecionamento para login
-      if (error?.message?.includes('Not authenticated') || 
-          error?.response?.status === 401) {
-        // Redirecionar para login
+      // Tratar erro de autenticação especificamente
+      if (error.message?.includes('Not authenticated') || error.status === 401) {
         window.location.href = '/login?redirect=settings';
       }
       

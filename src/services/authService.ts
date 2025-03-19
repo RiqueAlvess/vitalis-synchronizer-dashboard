@@ -11,6 +11,7 @@ export interface User {
   jobTitle?: string;
   isPremium: boolean;
   token?: string;
+  refreshToken?: string;
 }
 
 export const authService = {
@@ -47,7 +48,8 @@ export const authService = {
         fullName: data.user.user_metadata?.full_name || 'Usuário',
         companyName: data.user.user_metadata?.company_name || companyName,
         isPremium: false,
-        token: data.session?.access_token
+        token: data.session?.access_token,
+        refreshToken: data.session?.refresh_token
       };
     } catch (error: any) {
       console.error('Registration error:', error);
@@ -66,9 +68,15 @@ export const authService = {
 
       if (error) throw error;
       
-      if (!data.user) {
+      if (!data.user || !data.session) {
         throw new Error('Erro ao fazer login');
       }
+
+      // Configure a sessão explicitamente
+      await supabase.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token
+      });
 
       // Get user profile data
       const { data: profileData, error: profileError } = await supabase
@@ -88,7 +96,8 @@ export const authService = {
         companyName: profileData?.company_name || data.user.user_metadata?.company_name || 'Empresa',
         jobTitle: profileData?.job_title || data.user.user_metadata?.job_title,
         isPremium: profileData?.is_premium || false,
-        token: data.session?.access_token
+        token: data.session?.access_token,
+        refreshToken: data.session?.refresh_token
       };
     } catch (error: any) {
       console.error('Login error:', error);
@@ -139,7 +148,8 @@ export const authService = {
         companyName: profileData?.company_name || user.user_metadata?.company_name || 'Empresa',
         jobTitle: profileData?.job_title || user.user_metadata?.job_title,
         isPremium: profileData?.is_premium || false,
-        token: session?.access_token
+        token: session?.access_token,
+        refreshToken: session?.refresh_token
       };
     } catch (error) {
       console.error('Get current user error:', error);

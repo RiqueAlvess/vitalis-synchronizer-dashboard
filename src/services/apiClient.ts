@@ -1,4 +1,5 @@
 
+
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -13,33 +14,46 @@ export const supabaseAPI = axios.create({
   withCredentials: true, // Enable sending cookies with cross-origin requests
 });
 
+// Function to check if token is expired
+function isTokenExpired(token) {
+  if (!token) return true;
+  
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const expiryTime = payload.exp * 1000;
+    return Date.now() >= expiryTime;
+  } catch (e) {
+    return true;
+  }
+}
+
 // Add request interceptor to include authentication headers
 supabaseAPI.interceptors.request.use(
   async config => {
     try {
-      // Get the current session from Supabase
+      // Verificar sessão atual
       const { data: { session } } = await supabase.auth.getSession();
       
-      // Se não tiver sessão ou token, tente um refresh
-      if (!session || !session.access_token) {
-        console.log('Session não encontrada, tentando refresh...');
+      // Se não houver sessão ou o token expirou, tente renovar
+      if (!session || isTokenExpired(session.access_token)) {
+        console.log('Token expirado ou ausente, renovando...');
         const { data } = await supabase.auth.refreshSession();
         
         if (data.session) {
           config.headers['Authorization'] = `Bearer ${data.session.access_token}`;
-          console.log('Usando novo token após refresh');
         } else {
-          console.error('Não foi possível obter uma sessão válida');
+          // Não foi possível renovar a sessão
+          window.location.href = '/login?session=expired';
+          throw new Error('Sessão expirada');
         }
       } else {
         config.headers['Authorization'] = `Bearer ${session.access_token}`;
-        console.log('Usando token existente na sessão');
       }
       
       return config;
     } catch (error) {
-      console.error('Error setting auth header:', error);
-      return config;
+      console.error('Erro no interceptor:', error);
+      return Promise.reject(error);
     }
   },
   error => {

@@ -11,11 +11,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import PreviewModeIndicator from '@/components/ui-custom/PreviewModeIndicator';
 import { localStorageService } from '@/services/localStorageService';
 import { supabase } from '@/integrations/supabase/client';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const EmployeeApiConfig = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -45,6 +46,24 @@ const EmployeeApiConfig = () => {
   };
 
   const [config, setConfig] = useState<EmployeeApiConfigType>(initialConfig);
+
+  // Check session on component mount
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.warn('Sem sessão válida no componente');
+        toast({
+          variant: 'destructive',
+          title: 'Autenticação necessária',
+          description: 'Faça login para acessar esta funcionalidade'
+        });
+        navigate('/login', { state: { from: location.pathname } });
+      }
+    };
+    
+    checkSession();
+  }, []);
 
   useEffect(() => {
     const fetchConfig = async () => {

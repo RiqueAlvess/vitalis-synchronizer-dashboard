@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -30,16 +31,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       async (event, session) => {
         console.log('Auth state changed:', event, session ? 'User is authenticated' : 'User is not authenticated');
         
-        if (event === 'SIGNED_IN' && session) {
-          // User has signed in
+        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+          // User has signed in or token refreshed
           try {
             const userData = await authService.getCurrentUser();
             if (userData) {
               setUser(userData);
-              setIsLoading(false);
+              console.log('User data updated after token refresh or sign in');
             }
           } catch (err) {
-            console.error('Error getting user data after sign in:', err);
+            console.error('Error getting user data after auth state change:', err);
+          } finally {
             setIsLoading(false);
           }
         } else if (event === 'SIGNED_OUT') {
@@ -139,7 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (userData.token) {
         await supabase.auth.setSession({
           access_token: userData.token,
-          refresh_token: '' // We don't have this in our User type, so using empty string
+          refresh_token: userData.refreshToken || ''
         });
         console.log("Sessão configurada explicitamente após login");
       }

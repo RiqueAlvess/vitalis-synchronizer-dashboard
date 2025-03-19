@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,11 +12,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { localStorageService } from '@/services/localStorageService';
 import PreviewModeIndicator from '@/components/ui-custom/PreviewModeIndicator';
 import { supabase } from '@/integrations/supabase/client';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const AbsenteeismApiConfig = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -38,6 +38,23 @@ const AbsenteeismApiConfig = () => {
   const [config, setConfig] = useState<AbsenteeismApiConfigType>(initialConfig);
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.warn('Sem sessão válida no componente');
+        toast({
+          variant: 'destructive',
+          title: 'Autenticação necessária',
+          description: 'Faça login para acessar esta funcionalidade'
+        });
+        navigate('/login', { state: { from: location.pathname } });
+      }
+    };
+    
+    checkSession();
+  }, []);
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -113,7 +130,6 @@ const AbsenteeismApiConfig = () => {
     try {
       setIsSaving(true);
       
-      // Verificar autenticação explicitamente antes de salvar
       const { data } = await supabase.auth.getSession();
       if (!data.session) {
         console.error("Sessão não encontrada antes de salvar, forçando login");
@@ -162,7 +178,6 @@ const AbsenteeismApiConfig = () => {
     } catch (error) {
       console.error('Error saving absenteeism API config:', error);
       
-      // Verificar se é erro de autenticação
       if (error.message?.includes('Not authenticated') || 
           error.response?.status === 401) {
         toast({
