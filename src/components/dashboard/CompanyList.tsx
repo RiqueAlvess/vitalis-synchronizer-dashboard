@@ -36,10 +36,10 @@ const CompanyList = () => {
           setError('Nenhum dado foi retornado da API. Verifique a configuração da API de empresas.');
         } else if (typeof response === 'string') {
           // Check if response is HTML (common when API returns error page)
-          if (response.includes('<!DOCTYPE html>') || response.includes('<html>')) {
+          if (typeof response === 'string' && (response.includes('<!DOCTYPE html>') || response.includes('<html>'))) {
             setError('A API retornou uma página HTML ao invés de dados. Verifique a URL e as configurações da API.');
           } else {
-            setError(`Resposta inesperada da API: ${response.substring(0, 100)}...`);
+            setError(`Resposta inesperada da API: ${typeof response === 'string' ? response.substring(0, 100) : JSON.stringify(response).substring(0, 100)}...`);
           }
         } else {
           setError('Os dados recebidos não estão no formato esperado. Certifique-se de que a API está configurada corretamente.');
