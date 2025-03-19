@@ -65,7 +65,52 @@ Deno.serve(async (req) => {
 
     console.log(`Looking for ${configType} config for user ${session.user.id}`);
 
-    // Get config from database
+    // Try to get from api_credentials table first
+    const { data: credentials, error: credentialsError } = await supabase
+      .from('api_credentials')
+      .select('*')
+      .eq('type', configType)
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+      
+    if (credentialsError) {
+      console.error('Error fetching from api_credentials:', credentialsError);
+    } else if (credentials) {
+      console.log(`Found ${configType} config in api_credentials table`);
+      
+      // Convert from database format to API format
+      const response: any = {
+        type: credentials.type,
+        empresa: credentials.empresa,
+        codigo: credentials.codigo,
+        chave: credentials.chave,
+        tipoSaida: 'json',
+        isConfigured: true
+      };
+      
+      // Add type-specific fields
+      if (configType === 'employee') {
+        response.ativo = credentials.ativo || 'Sim';
+        response.inativo = credentials.inativo || '';
+        response.afastado = credentials.afastado || '';
+        response.pendente = credentials.pendente || '';
+        response.ferias = credentials.ferias || '';
+      } else if (configType === 'absenteeism') {
+        response.empresaTrabalho = credentials.empresatrabalho || '';
+        response.dataInicio = credentials.datainicio || '';
+        response.dataFim = credentials.datafim || '';
+      }
+      
+      return new Response(
+        JSON.stringify(response),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    // If not found in api_credentials, try the legacy api_configs table
     const { data, error } = await supabase
       .from('api_configs')
       .select('*')

@@ -159,6 +159,63 @@ export type Database = {
         }
         Relationships: []
       }
+      api_credentials: {
+        Row: {
+          afastado: string | null
+          ativo: string | null
+          chave: string
+          codigo: string
+          created_at: string
+          datafim: string | null
+          datainicio: string | null
+          empresa: string
+          empresatrabalho: string | null
+          ferias: string | null
+          id: string
+          inativo: string | null
+          pendente: string | null
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          afastado?: string | null
+          ativo?: string | null
+          chave: string
+          codigo: string
+          created_at?: string
+          datafim?: string | null
+          datainicio?: string | null
+          empresa: string
+          empresatrabalho?: string | null
+          ferias?: string | null
+          id?: string
+          inativo?: string | null
+          pendente?: string | null
+          type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          afastado?: string | null
+          ativo?: string | null
+          chave?: string
+          codigo?: string
+          created_at?: string
+          datafim?: string | null
+          datainicio?: string | null
+          empresa?: string
+          empresatrabalho?: string | null
+          ferias?: string | null
+          id?: string
+          inativo?: string | null
+          pendente?: string | null
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       companies: {
         Row: {
           address: string | null

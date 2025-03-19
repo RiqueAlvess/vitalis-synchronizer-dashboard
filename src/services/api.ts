@@ -508,76 +508,19 @@ const apiService = {
   },
   apiConfig: {
     get: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
-      try {
-        console.log(`Fetching ${type} API config...`);
+    try {
+      console.log(`Fetching ${type} API config...`);
+      
+      if (localStorageService.isPreviewEnvironment()) {
+        console.log(`Preview environment detected, using localStorage for ${type} config`);
+        const localConfig = localStorageService.getConfig<ApiConfig>(type);
         
-        if (localStorageService.isPreviewEnvironment()) {
-          console.log(`Preview environment detected, using localStorage for ${type} config`);
-          const localConfig = localStorageService.getConfig<ApiConfig>(type);
-          
-          if (localConfig) {
-            console.log(`Found local ${type} config:`, localConfig);
-            return {
-              ...localConfig,
-              isConfigured: !!(localConfig.empresa && localConfig.codigo && localConfig.chave)
-            };
-          }
-          
+        if (localConfig) {
+          console.log(`Found local ${type} config:`, localConfig);
           return {
-            type,
-            empresa: '',
-            codigo: '',
-            chave: '',
-            tipoSaida: 'json',
-            isConfigured: false
+            ...localConfig,
+            isConfigured: !!(localConfig.empresa && localConfig.codigo && localConfig.chave)
           };
-        }
-        
-        const cachedConfig = localStorage.getItem(`api_config_${type}`);
-        let localConfig = null;
-        
-        if (cachedConfig) {
-          try {
-            localConfig = JSON.parse(cachedConfig);
-            console.log(`Found cached ${type} config in localStorage:`, localConfig);
-          } catch (e) {
-            console.error('Failed to parse cached config:', e);
-          }
-        }
-        
-        try {
-          const response = await retryRequest(() => supabaseAPI.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api-config/${type}`), 2);
-          
-          if (!response.data || typeof response.data !== 'object') {
-            console.warn(`Invalid response for ${type} API config:`, response.data);
-            return localConfig || null;
-          }
-          
-          console.log(`Successfully fetched ${type} API config:`, response.data);
-          
-          if (response.data) {
-            response.data.isConfigured = !!(response.data.empresa && response.data.codigo && response.data.chave);
-            
-            localStorage.setItem(`api_config_${type}`, JSON.stringify(response.data));
-          }
-          
-          return response.data;
-        } catch (err) {
-          console.error(`Error fetching ${type} API config from server:`, err);
-          
-          if (localConfig) {
-            console.log(`Using cached ${type} config due to API error`);
-            return localConfig;
-          }
-          
-          throw err;
-        }
-      } catch (error) {
-        console.error(`Error fetching ${type} API config:`, error);
-        
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          console.error('User is not authenticated when fetching API config');
         }
         
         return {
@@ -589,106 +532,286 @@ const apiService = {
           isConfigured: false
         };
       }
-    },
-    save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
+      
+      // Try to get config from Supabase directly
       try {
-        if (localStorageService.isPreviewEnvironment()) {
-          console.log(`Preview environment detected, saving ${config.type} config to localStorage`);
-          const success = localStorageService.saveConfig(config.type, config);
+        const { data: credentials, error } = await supabase
+          .from('api_credentials')
+          .select('*')
+          .eq('type', type)
+          .maybeSingle();
           
-          if (success) {
-            return {
-              ...config,
-              isConfigured: !!(config.empresa && config.codigo && config.chave),
-              savedLocally: true,
-              savedAt: new Date().toISOString()
-            };
-          } else {
-            throw new Error('Failed to save to localStorage');
+        if (error) {
+          console.error(`Error fetching ${type} credentials from Supabase:`, error);
+        } else if (credentials) {
+          console.log(`Found ${type} credentials in Supabase:`, credentials);
+          
+          // Convert from Supabase schema to our API schema
+          const config: ApiConfig = {
+            type: credentials.type,
+            empresa: credentials.empresa,
+            codigo: credentials.codigo,
+            chave: credentials.chave,
+            tipoSaida: 'json',
+            isConfigured: true
+          };
+          
+          // Add specific properties based on type
+          if (type === 'employee' && credentials) {
+            (config as EmployeeApiConfig).ativo = credentials.ativo || 'Sim';
+            (config as EmployeeApiConfig).inativo = credentials.inativo || '';
+            (config as EmployeeApiConfig).afastado = credentials.afastado || '';
+            (config as EmployeeApiConfig).pendente = credentials.pendente || '';
+            (config as EmployeeApiConfig).ferias = credentials.ferias || '';
+          } else if (type === 'absenteeism' && credentials) {
+            (config as AbsenteeismApiConfig).empresaTrabalho = credentials.empresatrabalho || '';
+            (config as AbsenteeismApiConfig).dataInicio = credentials.datainicio || '';
+            (config as AbsenteeismApiConfig).dataFim = credentials.datafim || '';
           }
+          
+          return config;
         }
         
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          console.error('User is not authenticated when saving API config');
-          throw new Error('Authentication required to save configuration');
+        // Fall through to try the function API if no credentials found in Supabase
+      } catch (err) {
+        console.error(`Error accessing Supabase for ${type} credentials:`, err);
+        // Proceed to try function API
+      }
+      
+      // If direct Supabase query didn't work, try the function API
+      const cachedConfig = localStorage.getItem(`api_config_${type}`);
+      let localConfig = null;
+      
+      if (cachedConfig) {
+        try {
+          localConfig = JSON.parse(cachedConfig);
+          console.log(`Found cached ${type} config in localStorage:`, localConfig);
+        } catch (e) {
+          console.error('Failed to parse cached config:', e);
         }
-        
-        const configToSave = {
-          ...config,
-          tipoSaida: 'json'
-        };
-        
-        console.log('Saving API config:', configToSave);
-        
-        const isConnected = await checkApiConnectivity();
-        if (!isConnected) {
-          console.warn('API connectivity check failed, saving to localStorage only');
-          localStorage.setItem(`api_config_${config.type}`, JSON.stringify(configToSave));
-          throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
-        }
-        
-        const response = await retryRequest(
-          async () => {
-            try {
-              return await supabaseAPI.post<ApiConfig>('/api-config', configToSave);
-            } catch (err) {
-              if (err.message.includes('Network Error')) {
-                console.log("Network error, trying alternate endpoint format...");
-                return await axios.post(
-                  'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/save-api-config',
-                  configToSave,
-                  {
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${session.access_token}`
-                    }
-                  }
-                );
-              }
-              throw err;
-            }
-          }, 
-          2
-        );
+      }
+      
+      try {
+        const response = await retryRequest(() => supabaseAPI.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api-config/${type}`), 2);
         
         if (!response.data || typeof response.data !== 'object') {
-          console.warn('Invalid response when saving API config:', 
-            typeof response.data === 'string' ? response.data.substring(0, 100) : response.data);
-          throw new Error('Invalid response from server');
+          console.warn(`Invalid response for ${type} API config:`, response.data);
+          return localConfig || null;
         }
         
-        console.log('API config saved successfully:', response.data);
+        console.log(`Successfully fetched ${type} API config:`, response.data);
         
-        const result = {...response.data};
-        result.isConfigured = !!(result.empresa && result.codigo && result.chave);
-        
-        localStorage.setItem(`api_config_${config.type}`, JSON.stringify(result));
-        
-        return result;
-      } catch (error) {
-        console.error('Error saving API config:', error);
-        
-        if ((error as any).isHtmlResponse) {
-          throw new Error('Authentication error. Please log in and try again.');
+        if (response.data) {
+          response.data.isConfigured = !!(response.data.empresa && response.data.codigo && response.data.chave);
+          
+          localStorage.setItem(`api_config_${type}`, JSON.stringify(response.data));
         }
         
-        if (error.message.includes('Network Error') || error.message.includes('Não foi possível conectar')) {
-          const savedConfig = {
+        return response.data;
+      } catch (err) {
+        console.error(`Error fetching ${type} API config from server:`, err);
+        
+        if (localConfig) {
+          console.log(`Using cached ${type} config due to API error`);
+          return localConfig;
+        }
+        
+        throw err;
+      }
+    } catch (error) {
+      console.error(`Error fetching ${type} API config:`, error);
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.error('User is not authenticated when fetching API config');
+      }
+      
+      return {
+        type,
+        empresa: '',
+        codigo: '',
+        chave: '',
+        tipoSaida: 'json',
+        isConfigured: false
+      };
+    }
+  },
+  
+  save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
+    try {
+      if (localStorageService.isPreviewEnvironment()) {
+        console.log(`Preview environment detected, saving ${config.type} config to localStorage`);
+        const success = localStorageService.saveConfig(config.type, config);
+        
+        if (success) {
+          return {
             ...config,
             isConfigured: !!(config.empresa && config.codigo && config.chave),
             savedLocally: true,
             savedAt: new Date().toISOString()
           };
-          localStorage.setItem(`api_config_${config.type}`, JSON.stringify(savedConfig));
-          
-          throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
+        } else {
+          throw new Error('Failed to save to localStorage');
+        }
+      }
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.error('User is not authenticated when saving API config');
+        throw new Error('Authentication required to save configuration');
+      }
+      
+      // Try to save directly to Supabase first
+      try {
+        // Prepare credentials object based on config type
+        let credentials: any = {
+          type: config.type,
+          empresa: config.empresa,
+          codigo: config.codigo,
+          chave: config.chave
+        };
+        
+        // Add type-specific fields
+        if (config.type === 'employee') {
+          const empConfig = config as EmployeeApiConfig;
+          credentials.ativo = empConfig.ativo || 'Sim';
+          credentials.inativo = empConfig.inativo || '';
+          credentials.afastado = empConfig.afastado || '';
+          credentials.pendente = empConfig.pendente || '';
+          credentials.ferias = empConfig.ferias || '';
+        } else if (config.type === 'absenteeism') {
+          const absConfig = config as AbsenteeismApiConfig;
+          credentials.empresatrabalho = absConfig.empresaTrabalho || '';
+          credentials.datainicio = absConfig.dataInicio || '';
+          credentials.datafim = absConfig.dataFim || '';
         }
         
-        throw error;
+        // Check if record already exists
+        const { data: existingRecord } = await supabase
+          .from('api_credentials')
+          .select('id')
+          .eq('type', config.type)
+          .maybeSingle();
+          
+        if (existingRecord) {
+          // Update existing record
+          const { data, error } = await supabase
+            .from('api_credentials')
+            .update(credentials)
+            .eq('id', existingRecord.id)
+            .select()
+            .single();
+            
+          if (error) throw error;
+          console.log(`Updated ${config.type} credentials in Supabase`, data);
+          
+          // Convert and return
+          return {
+            ...config,
+            isConfigured: true
+          };
+        } else {
+          // Insert new record
+          const { data, error } = await supabase
+            .from('api_credentials')
+            .insert({
+              ...credentials,
+              user_id: session.user.id
+            })
+            .select()
+            .single();
+            
+          if (error) throw error;
+          console.log(`Inserted new ${config.type} credentials in Supabase`, data);
+          
+          // Convert and return
+          return {
+            ...config,
+            isConfigured: true
+          };
+        }
+      } catch (supabaseError) {
+        console.error(`Error saving ${config.type} config directly to Supabase:`, supabaseError);
+        // Fall through to try function API
       }
-    },
-    test: async (type: 'company' | 'employee' | 'absenteeism'): Promise<{success: boolean, message: string}> => {
+      
+      // If direct Supabase save fails, try the function API
+      const configToSave = {
+        ...config,
+        tipoSaida: 'json'
+      };
+      
+      console.log('Saving API config:', configToSave);
+      
+      const isConnected = await checkApiConnectivity();
+      if (!isConnected) {
+        console.warn('API connectivity check failed, saving to localStorage only');
+        localStorage.setItem(`api_config_${config.type}`, JSON.stringify(configToSave));
+        throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
+      }
+      
+      const response = await retryRequest(
+        async () => {
+          try {
+            return await supabaseAPI.post<ApiConfig>('/api-config', configToSave);
+          } catch (err) {
+            if (err.message.includes('Network Error')) {
+              console.log("Network error, trying alternate endpoint format...");
+              return await axios.post(
+                'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/save-api-config',
+                configToSave,
+                {
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`
+                  }
+                }
+              );
+            }
+            throw err;
+          }
+        }, 
+        2
+      );
+      
+      if (!response.data || typeof response.data !== 'object') {
+        console.warn('Invalid response when saving API config:', 
+          typeof response.data === 'string' ? response.data.substring(0, 100) : response.data);
+        throw new Error('Invalid response from server');
+      }
+      
+      console.log('API config saved successfully:', response.data);
+      
+      const result = {...response.data};
+      result.isConfigured = !!(result.empresa && result.codigo && result.chave);
+      
+      localStorage.setItem(`api_config_${config.type}`, JSON.stringify(result));
+      
+      return result;
+    } catch (error) {
+      console.error('Error saving API config:', error);
+      
+      if ((error as any).isHtmlResponse) {
+        throw new Error('Authentication error. Please log in and try again.');
+      }
+      
+      if (error.message.includes('Network Error') || error.message.includes('Não foi possível conectar')) {
+        const savedConfig = {
+          ...config,
+          isConfigured: !!(config.empresa && config.codigo && config.chave),
+          savedLocally: true,
+          savedAt: new Date().toISOString()
+        };
+        localStorage.setItem(`api_config_${config.type}`, JSON.stringify(savedConfig));
+        
+        throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
+      }
+      
+      throw error;
+    }
+  },
+
+  test: async (type: 'company' | 'employee' | 'absenteeism'): Promise<{success: boolean, message: string}> => {
       try {
         if (localStorageService.isPreviewEnvironment()) {
           console.log(`Preview environment detected, simulating test for ${type} API`);
@@ -743,243 +866,3 @@ const apiService = {
               return await axios.post(
                 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/test-connection',
                 config,
-                {
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': session ? `Bearer ${session.access_token}` : ''
-                  }
-                }
-              );
-            }
-            throw err;
-          }
-        }, 
-        2
-      );
-      
-      console.log('Test connection response:', response.data);
-      return response.data;
-    } catch (error: any) {
-      console.error('Error testing API connection:', error);
-      
-      if (error.isHtmlResponse) {
-        return { 
-          success: false, 
-          message: 'Error connecting to the API. Please check your network connection and authentication status.' 
-        };
-      }
-      
-      if (error.message === 'Network Error' || error.code === 'ERR_NETWORK') {
-        return {
-          success: false,
-          message: 'Não foi possível conectar ao servidor API. Verifique sua conexão de internet.'
-        };
-      }
-      
-      let message = 'Failed to connect to the API';
-      if (error.response?.data?.message) {
-        message = error.response.data.message;
-      } else if (error.message) {
-        message = error.message;
-      }
-      
-      return { success: false, message };
-    }
-  },
-  async getDashboardData(): Promise<DashboardData> {
-    try {
-      const [companyConfig, employeeConfig, absenteeismConfig] = await Promise.all([
-        this.apiConfig.get('company'),
-        this.apiConfig.get('employee'),
-        this.apiConfig.get('absenteeism')
-      ]);
-      
-      const allConfigured = 
-        companyConfig?.isConfigured && 
-        employeeConfig?.isConfigured && 
-        absenteeismConfig?.isConfigured;
-      
-      if (!allConfigured) {
-        console.warn('Not all APIs are configured, returning mock dashboard data');
-        return generateMockData('dashboard') as DashboardData;
-      }
-      
-      const absenteeismData = await this.absenteeism.getAll();
-      const employeesData = await this.employees.getAll();
-      
-      if (!absenteeismData || absenteeismData.length === 0) {
-        console.warn('No absenteeism data available, returning mock dashboard data');
-        return generateMockData('dashboard') as DashboardData;
-      }
-      
-      return {
-        absenteeismRate: calculateAbsenteeismRate(absenteeismData),
-        totalAbsenceDays: calculateTotalAbsenceDays(absenteeismData),
-        employeesAbsent: countUniqueEmployees(absenteeismData),
-        costImpact: calculateCostImpact(absenteeismData),
-        trend: determineTrend(absenteeismData),
-        monthlyTrend: getMonthlyEvolution(absenteeismData),
-        bySector: getSectorAbsenceData(absenteeismData)
-      };
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      return generateMockData('dashboard') as DashboardData;
-    }
-  }
-};
-
-const determineTrend = (absenteeismData: any[]): 'up' | 'down' | 'stable' => {
-  const monthlyData = getMonthlyEvolution(absenteeismData);
-  
-  if (monthlyData.length < 2) {
-    return 'stable';
-  }
-  
-  const lastMonth = monthlyData[monthlyData.length - 1].value;
-  const previousMonth = monthlyData[monthlyData.length - 2].value;
-  
-  if (lastMonth > previousMonth * 1.05) {
-    return 'up';
-  } else if (lastMonth < previousMonth * 0.95) {
-    return 'down';
-  } else {
-    return 'stable';
-  }
-};
-
-const calculateTotalAbsenceDays = (absenteeismData: any[]): number => {
-  return absenteeismData.reduce((sum, record) => {
-    const startDate = new Date(record.start_date || record.startDate);
-    const endDate = new Date(record.end_date || record.endDate);
-    
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      return sum + (record.days_absent || 1);
-    }
-    
-    const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
-    return sum + diffDays;
-  }, 0);
-};
-
-const countUniqueEmployees = (absenteeismData: any[]): number => {
-  const uniqueEmployees = new Set(absenteeismData.map(record => record.employee_id || record.employeeId));
-  return uniqueEmployees.size;
-};
-
-const calculateCostImpact = (absenteeismData: any[]): string => {
-  const totalAbsentHours = absenteeismData.reduce((sum, record) => {
-    return sum + hoursToDecimal(record.hours_absent || record.hoursAbsent || "0:00");
-  }, 0);
-  
-  const averageHourlyCost = 30;
-  const totalCost = totalAbsentHours * averageHourlyCost;
-  
-  return new Intl.NumberFormat('pt-BR', { 
-    style: 'currency', 
-    currency: 'BRL' 
-  }).format(totalCost);
-};
-
-const getSectorAbsenceData = (absenteeismData: any[]): SectorData[] => {
-  const sectorCounts = absenteeismData.reduce((acc: Record<string, number>, record) => {
-    const sector = record.sector || 'Não informado';
-    if (!acc[sector]) {
-      acc[sector] = 0;
-    }
-    
-    let days = 0;
-    const startDate = new Date(record.start_date || record.startDate);
-    const endDate = new Date(record.end_date || record.endDate);
-    
-    if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-      const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
-      days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
-    } else {
-      days = record.days_absent || 1;
-    }
-    
-    acc[sector] += days;
-    return acc;
-  }, {} as Record<string, number>);
-  
-  return Object.entries(sectorCounts)
-    .map(([name, value]): SectorData => ({ name, value: Number(value) }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5);
-};
-
-const calculateAbsenteeismRate = (absenteeismData: any[]) => {
-  const totalAbsentHours = absenteeismData.reduce((sum, record) => {
-    return sum + hoursToDecimal(record.hours_absent || record.hoursAbsent || "0:00");
-  }, 0);
-  
-  const avgWorkHoursPerMonth = 220;
-  const estimatedTotalWorkHours = absenteeismData.length > 0 ? absenteeismData.length * avgWorkHoursPerMonth : 1;
-  
-  return (totalAbsentHours / estimatedTotalWorkHours) * 100;
-};
-
-const getTopCids = (absenteeismData: any[]) => {
-  const cidCounts = absenteeismData.reduce((acc: Record<string, number>, record) => {
-    const cid = record.primary_icd || record.primaryIcd || 'Não informado';
-    acc[cid] = (acc[cid] || 0) + 1;
-    return acc;
-  }, {});
-  
-  return Object.entries(cidCounts)
-    .map(([cid, count]) => ({ cid, count }))
-    .sort((a, b) => (b.count as number) - (a.count as number))
-    .slice(0, 10);
-};
-
-const getTopSectors = (absenteeismData: any[]) => {
-  const sectorCounts = absenteeismData.reduce((acc: Record<string, number>, record) => {
-    const sector = record.sector || 'Não informado';
-    acc[sector] = (acc[sector] || 0) + 1;
-    return acc;
-  }, {});
-  
-  return Object.entries(sectorCounts)
-    .map(([sector, count]) => ({ sector, count }))
-    .sort((a, b) => (b.count as number) - (a.count as number))
-    .slice(0, 10);
-};
-
-const getMonthlyEvolution = (absenteeismData: any[]): MonthlyTrendData[] => {
-  const monthlyData: Record<string, MonthlyTrendData> = absenteeismData.reduce((acc: Record<string, MonthlyTrendData>, record) => {
-    const startDate = new Date(record.start_date || record.startDate);
-    
-    if (isNaN(startDate.getTime())) {
-      return acc;
-    }
-    
-    const monthYear = `${startDate.getMonth() + 1}/${startDate.getFullYear()}`;
-    
-    if (!acc[monthYear]) {
-      acc[monthYear] = { 
-        month: monthYear, 
-        count: 0, 
-        hours: 0,
-        value: 0 
-      };
-    }
-    
-    acc[monthYear].count += 1;
-    acc[monthYear].hours += hoursToDecimal(record.hours_absent || record.hoursAbsent || "0:00");
-    
-    const avgWorkHoursPerMonth = 220;
-    acc[monthYear].value = (acc[monthYear].hours / (acc[monthYear].count * avgWorkHoursPerMonth)) * 100;
-    
-    return acc;
-  }, {});
-  
-  return Object.values(monthlyData)
-    .sort((a, b) => {
-      const [aMonth, aYear] = a.month.split('/').map(Number);
-      const [bMonth, bYear] = b.month.split('/').map(Number);
-      return (aYear - bYear) || (aMonth - bMonth);
-    });
-};
-
-export default apiService;
