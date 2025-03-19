@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
-import { DashboardData, MonthlyTrendData, SectorData } from '@/types/dashboard';
+import { DashboardData, MonthlyTrendData, SectorData, MockCompanyData, MockEmployeeData } from '@/types/dashboard';
 
 // Define the structure of the API configuration
 export interface ApiConfig {
@@ -510,9 +510,9 @@ const apiService = {
       throw error;
     }
   },
-  async getDashboardData() {
+  async getDashboardData(): Promise<DashboardData> {
     try {
-      // Check if all APIs are configured
+      // Check if all APIs are configured first
       const [companyConfig, employeeConfig, absenteeismConfig] = await Promise.all([
         this.apiConfig.get('company'),
         this.apiConfig.get('employee'),
@@ -526,7 +526,7 @@ const apiService = {
       
       if (!allConfigured) {
         console.warn('Not all APIs are configured, returning mock dashboard data');
-        return generateMockData('dashboard');
+        return generateMockData('dashboard') as DashboardData;
       }
       
       const absenteeismData = await this.absenteeism.getAll();
@@ -534,7 +534,7 @@ const apiService = {
       
       if (!absenteeismData || absenteeismData.length === 0) {
         console.warn('No absenteeism data available, returning mock dashboard data');
-        return generateMockData('dashboard');
+        return generateMockData('dashboard') as DashboardData;
       }
       
       // Process data for dashboard metrics
@@ -543,14 +543,14 @@ const apiService = {
         totalAbsenceDays: calculateTotalAbsenceDays(absenteeismData),
         employeesAbsent: countUniqueEmployees(absenteeismData),
         costImpact: calculateCostImpact(absenteeismData),
-        trend: determineTrend(absenteeismData), // This is a new helper function below
+        trend: determineTrend(absenteeismData), 
         monthlyTrend: getMonthlyEvolution(absenteeismData),
         bySector: getSectorAbsenceData(absenteeismData)
       };
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       // Return mock data on any error
-      return generateMockData('dashboard');
+      return generateMockData('dashboard') as DashboardData;
     }
   },
 };
@@ -678,8 +678,9 @@ const getTopSectors = (absenteeismData: any[]) => {
     .slice(0, 10);
 };
 
+// Fix the getMonthlyEvolution function to ensure proper typing
 const getMonthlyEvolution = (absenteeismData: any[]): MonthlyTrendData[] => {
-  const monthlyData = absenteeismData.reduce((acc: Record<string, MonthlyTrendData>, record) => {
+  const monthlyData: Record<string, MonthlyTrendData> = absenteeismData.reduce((acc: Record<string, MonthlyTrendData>, record) => {
     const startDate = new Date(record.start_date || record.startDate);
     
     // If date is invalid, skip this record
