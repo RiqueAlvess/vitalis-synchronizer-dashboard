@@ -13,48 +13,39 @@ const Login = () => {
   const [isLocalLoading, setIsLocalLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const initialCheckDone = useRef(false);
+  const initialCheck = useRef(false);
 
-  // Redirecionar se já autenticado
+  // Redirect if already authenticated
   useEffect(() => {
     const checkAuth = async () => {
-      // Evitar verificações múltiplas
-      if (initialCheckDone.current) return;
-      initialCheckDone.current = true;
+      // Prevent multiple checks
+      if (initialCheck.current) return;
+      initialCheck.current = true;
 
       console.log("Página de login carregada, status de autenticação:", 
         isAuthenticated ? "Autenticado" : "Não autenticado",
         "isLoading:", isLoading);
       
-      // Se já estiver autenticado, redirecionar
+      // If already authenticated, redirect
       if (isAuthenticated) {
         const intended = location.state?.from || '/dashboard';
         console.log(`Usuário já autenticado, redirecionando para: ${intended}`);
         navigate(intended, { replace: true });
-        return;
-      }
-      
-      // Se houver uma sessão armazenada mas ainda não autenticado, aguardar
-      if (hasStoredSession() && !isAuthenticated && !isLoading) {
-        setIsLocalLoading(true);
-        // Definir um tempo limite para evitar espera infinita
-        setTimeout(() => {
-          setIsLocalLoading(false);
-        }, 3000);
       }
     };
     
-    checkAuth();
-  }, [isAuthenticated, isLoading, navigate, location]);
+    // Wait briefly before checking to ensure auth state is loaded
+    setTimeout(checkAuth, 100);
+  }, []);
   
-  // Redirecionar se já autenticado
+  // Redirect when authenticated
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !isLoading) {
       const intended = location.state?.from || '/dashboard';
       console.log(`Usuário autenticado, redirecionando para: ${intended}`);
       navigate(intended, { replace: true });
     }
-  }, [isAuthenticated, navigate, location]);
+  }, [isAuthenticated, isLoading, navigate, location]);
 
   if (isLoading || isLocalLoading) {
     return (

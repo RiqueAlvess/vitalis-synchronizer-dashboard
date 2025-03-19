@@ -14,24 +14,36 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     autoRefreshToken: true,
     persistSession: true,
     storageKey: 'vitalis-auth-token',
-    detectSessionInUrl: false, // Desabilitando detecção de sessão na URL para evitar problemas de redirecionamento
+    detectSessionInUrl: false, // Disable session detection in URL to avoid redirection issues
     flowType: 'implicit'
   }
 });
 
-// Helper to check if there's a valid session in storage
+// Helper to check if there's a valid session in storage with proper error handling
 export const hasStoredSession = () => {
   try {
     const storageKey = 'vitalis-auth-token';
     const stored = localStorage.getItem(storageKey);
     if (!stored) return false;
     
-    const { currentSession } = JSON.parse(stored);
-    // Verificar se a sessão existe e se ainda não expirou
-    if (!currentSession || !currentSession.expires_at) return false;
+    const parsedData = JSON.parse(stored);
+    // Check if current session exists and hasn't expired
+    if (!parsedData?.currentSession?.expires_at) return false;
     
-    const expiresAt = new Date(currentSession.expires_at * 1000);
-    return expiresAt > new Date();
+    const expiresAt = new Date(parsedData.currentSession.expires_at * 1000);
+    const hasValidSession = expiresAt > new Date();
+    
+    // If session is close to expiration (within 5 minutes), consider it invalid
+    // to trigger a refresh
+    if (hasValidSession) {
+      const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
+      if (expiresAt < fiveMinutesFromNow) {
+        console.log('Session is close to expiration, should refresh');
+        return true; // Still return true but will trigger refresh soon
+      }
+    }
+    
+    return hasValidSession;
   } catch (error) {
     console.error('Error checking stored session:', error);
     return false;

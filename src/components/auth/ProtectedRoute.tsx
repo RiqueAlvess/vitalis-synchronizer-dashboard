@@ -16,11 +16,12 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const checkAttempts = useRef(0);
-  const maxAttempts = 3;
+  const maxAttempts = 2;
   const redirected = useRef(false);
+  const initialCheckDone = useRef(false);
 
   useEffect(() => {
-    // Resetar tentativas quando a rota muda
+    // Reset attempts when route changes
     if (location.pathname) {
       checkAttempts.current = 0;
       redirected.current = false;
@@ -29,40 +30,44 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
   useEffect(() => {
     const verifyAuthentication = async () => {
-      // Evitar verificações desnecessárias
+      // If already authenticated, no need to check
       if (!isLoading && isAuthenticated) {
-        // Já está autenticado, não precisa fazer nada
         return;
       }
 
-      // Evitar verificações desnecessárias se já está em verificação ou excedeu tentativas
-      if (isAuthChecking || checkAttempts.current >= maxAttempts) {
+      // Prevent concurrent or excessive checks
+      if (isAuthChecking || checkAttempts.current >= maxAttempts || initialCheckDone.current) {
         return;
       }
 
-      // Verificar se há sessão armazenada antes de tentar verificar auth
+      // Check for stored session before attempting auth verification
       if (!hasStoredSession()) {
         if (!redirected.current) {
-          console.log('Sem sessão armazenada, redirecionando para login');
+          console.log('No stored session, redirecting to login');
           redirected.current = true;
+          initialCheckDone.current = true;
           
-          navigate('/login', { 
-            state: { from: location.pathname },
-            replace: true 
-          });
+          // Delay redirect slightly to avoid potential race conditions
+          setTimeout(() => {
+            navigate('/login', { 
+              state: { from: location.pathname },
+              replace: true 
+            });
+          }, 100);
         }
         return;
       }
 
       try {
-        console.log('Verificando autenticação para rota protegida:', location.pathname);
+        console.log('Verifying authentication for protected route:', location.pathname);
         setIsAuthChecking(true);
         checkAttempts.current += 1;
         
         const isAuth = await checkAuth();
+        initialCheckDone.current = true;
         
         if (!isAuth && !redirected.current) {
-          console.log('Autenticação falhou, redirecionando para login');
+          console.log('Authentication failed, redirecting to login');
           redirected.current = true;
           
           toast({
@@ -76,18 +81,49 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
             replace: true 
           });
         }
+      } catch (error) {
+        console.error('Error verifying authentication:', error);
+        if (!redirected.current) {
+          redirected.current = true;
+          navigate('/login', { 
+            state: { from: location.pathname },
+            replace: true 
+          });
+        }
       } finally {
         setIsAuthChecking(false);
       }
     };
 
-    // Só verificar se não estamos carregando e não estamos autenticados
-    if (!isLoading && !isAuthenticated) {
-      verifyAuthentication();
+    // Delay the initial check slightly to allow auth context to initialize
+    if (!initialCheckDone.current) {
+      setTimeout(verifyAuthentication, 100);
     }
   }, [isAuthenticated, isLoading, location.pathname, navigate, checkAuth, isAuthChecking]);
 
-  // Show loading state while checking authentication
+  // Show loading state while checking authentication, but with a maximum timeout
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    
+    if (isLoading || isAuthChecking) {
+      // Set a maximum timeout for loading state
+      timeout = setTimeout(() => {
+        if (!isAuthenticated && !redirected.current) {
+          console.log('Authentication check timed out, redirecting to login');
+          redirected.current = true;
+          navigate('/login', { 
+            state: { from: location.pathname },
+            replace: true 
+          });
+        }
+      }, 5000); // 5 second timeout
+    }
+    
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [isLoading, isAuthChecking, isAuthenticated, navigate, location.pathname]);
+
   if (isLoading || isAuthChecking) {
     return (
       <div className="flex flex-col items-center justify-center h-screen">

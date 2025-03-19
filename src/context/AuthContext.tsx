@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -29,8 +28,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const authChecked = useRef(false);
   const refreshAttempts = useRef(0);
   const MAX_REFRESH_ATTEMPTS = 3;
+  const initialCheckComplete = useRef(false);
 
-  // Configurar listener de alteração de estado de autenticação
   useEffect(() => {
     console.log("Configurando listener de alteração de estado de autenticação");
     
@@ -39,8 +38,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log(`Evento de autenticação detectado: ${event}`, session ? 'Com sessão' : 'Sem sessão');
         
         try {
-          if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
-            // Usuário conectado ou token atualizado
+          if (event === 'SIGNED_IN' && session) {
             console.log("Obtendo dados do usuário após evento de autenticação");
             const userData = await authService.getCurrentUser();
             if (userData) {
@@ -50,28 +48,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               authChecked.current = true;
               refreshAttempts.current = 0;
               
-              // Redirecionar para dashboard apenas em caso de login inicial
-              if (event === 'SIGNED_IN') {
+              if (location.pathname === '/login' || location.pathname === '/register') {
                 const intended = location.state?.from || '/dashboard';
                 console.log(`Redirecionando para: ${intended} após login`);
                 navigate(intended, { replace: true });
               }
             }
           } else if (event === 'SIGNED_OUT') {
-            // Usuário desconectado
             console.log("Usuário desconectado, limpando estado");
             setUser(null);
             setIsLoading(false);
             authChecked.current = true;
             
-            // Redirecionar para página de login após logout
-            if (location.pathname !== '/login' && location.pathname !== '/') {
+            if (location.pathname !== '/login' && 
+                location.pathname !== '/register' && 
+                location.pathname !== '/') {
               navigate('/login', { replace: true });
             }
           } else if (event === 'INITIAL_SESSION') {
-            // Para sessão inicial (quando a página carrega), marcar como verificado
-            authChecked.current = true;
-            setIsLoading(false);
+            initialCheckComplete.current = true;
+            if (!session) {
+              setIsLoading(false);
+            }
           }
         } catch (err) {
           console.error('Erro ao processar evento de autenticação:', err);
@@ -81,18 +79,68 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
-    // Limpar inscrição
     return () => {
       console.log("Limpando inscrição de eventos de autenticação");
       subscription.unsubscribe();
     };
-  }, [navigate, location.pathname]);
+  }, [navigate, location.pathname, location.state]);
 
-  // Verificar status de autenticação
+  useEffect(() => {
+    const verifyAuth = async () => {
+      try {
+        console.log("Verificando autenticação na inicialização do aplicativo...");
+        
+        if (!hasStoredSession()) {
+          console.log("Nenhuma sessão armazenada, definindo como não autenticado");
+          setUser(null);
+          setIsLoading(false);
+          authChecked.current = true;
+          return;
+        }
+        
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          console.log("Sessão encontrada, obtendo dados do usuário");
+          const userData = await authService.getCurrentUser();
+          if (userData) {
+            console.log("Usuário autenticado:", userData.email);
+            setUser(userData);
+          } else {
+            console.log("Dados do usuário não encontrados");
+            setUser(null);
+          }
+        } else {
+          console.log("Nenhuma sessão ativa encontrada");
+          setUser(null);
+        }
+        
+        setIsLoading(false);
+        authChecked.current = true;
+      } catch (err) {
+        console.error('Verificação de autenticação falhou:', err);
+        setUser(null);
+        setIsLoading(false);
+        authChecked.current = true;
+      }
+    };
+
+    if (!initialCheckComplete.current) {
+      verifyAuth();
+    }
+  }, []);
+
   const checkAuth = async (): Promise<boolean> => {
-    // Prevenção de loops: não verificar repetidamente se já verificou e não está autenticado
-    if (authChecked.current && !isLoading && !hasStoredSession() && refreshAttempts.current >= MAX_REFRESH_ATTEMPTS) {
-      console.log("Evitando loop de verificação de autenticação");
+    if (isLoading) {
+      return !!user;
+    }
+    
+    if (authChecked.current && user) {
+      return true;
+    }
+    
+    if (refreshAttempts.current >= MAX_REFRESH_ATTEMPTS) {
+      console.log(`Máximo de ${MAX_REFRESH_ATTEMPTS} tentativas de atualização atingido`);
       return false;
     }
     
@@ -102,41 +150,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log("Verificando status de autenticação...");
       setIsLoading(true);
       
-      // Verificar se temos uma sessão explicitamente
+      if (!hasStoredSession()) {
+        console.log("Nenhuma sessão armazenada");
+        setUser(null);
+        setIsLoading(false);
+        return false;
+      }
+      
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
         console.log("Nenhuma sessão encontrada, tentando atualizar...");
-        // Apenas tente atualizar se houver uma sessão armazenada
-        if (hasStoredSession()) {
-          const { data, error } = await supabase.auth.refreshSession();
-          
-          if (error || !data.session) {
-            console.log("Falha na atualização da sessão:", error?.message);
-            setUser(null);
-            setIsLoading(false);
-            authChecked.current = true;
-            return false;
-          }
-          
-          console.log("Sessão atualizada com sucesso");
-        } else {
-          console.log("Nenhuma sessão armazenada, não tentando atualizar");
+        const { data, error } = await supabase.auth.refreshSession();
+        
+        if (error || !data.session) {
+          console.log("Falha na atualização da sessão:", error?.message);
           setUser(null);
           setIsLoading(false);
-          authChecked.current = true;
           return false;
         }
+        
+        console.log("Sessão atualizada com sucesso");
       }
       
-      // Agora que temos uma sessão (existente ou atualizada), obter dados do usuário
       const userData = await authService.getCurrentUser();
       
       if (userData) {
         console.log("Usuário autenticado:", userData.email);
         setUser(userData);
         setIsLoading(false);
-        authChecked.current = true;
         refreshAttempts.current = 0;
         return true;
       }
@@ -144,42 +186,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log("Usuário não autenticado");
       setUser(null);
       setIsLoading(false);
-      authChecked.current = true;
       return false;
     } catch (err) {
       console.error('Verificação de autenticação falhou:', err);
       setUser(null);
       setIsLoading(false);
-      authChecked.current = true;
       return false;
     }
   };
-
-  // Verificar se o usuário está logado ao carregar o aplicativo
-  useEffect(() => {
-    const verifyAuth = async () => {
-      try {
-        console.log("Verificando autenticação na inicialização do aplicativo...");
-        
-        // Se não há sessão armazenada, nem tente verificar
-        if (!hasStoredSession()) {
-          console.log("Nenhuma sessão armazenada, definindo como não autenticado");
-          setUser(null);
-          setIsLoading(false);
-          authChecked.current = true;
-          return;
-        }
-        
-        await checkAuth();
-      } catch (err) {
-        console.error('Verificação de autenticação falhou:', err);
-        setIsLoading(false);
-        authChecked.current = true;
-      }
-    };
-
-    verifyAuth();
-  }, []);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
@@ -192,16 +206,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(userData);
       
-      // Garantir que a sessão seja definida explicitamente globalmente
-      if (userData.token) {
-        await supabase.auth.setSession({
-          access_token: userData.token,
-          refresh_token: userData.refreshToken || ''
-        });
-        console.log("Sessão configurada explicitamente após login");
-      }
-      
-      // Redirecionar para a página pretendida ou dashboard
       const intended = location.state?.from || '/dashboard';
       console.log(`Redirecionando para: ${intended}`);
       navigate(intended, { replace: true });
@@ -235,7 +239,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(userData);
       
-      // Garantir que a sessão seja definida explicitamente globalmente
       if (userData.token) {
         await supabase.auth.setSession({
           access_token: userData.token,
@@ -289,7 +292,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Função para salvar configurações do usuário atual
   const saveSettings = async (settings: any): Promise<boolean> => {
     if (!user) {
       console.error("Tentativa de salvar configurações sem usuário autenticado");
@@ -304,7 +306,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return await authService.saveSettings(user.id, settings);
   };
 
-  // Função para obter configurações do usuário atual
   const getSettings = async (): Promise<any> => {
     if (!user) {
       console.error("Tentativa de obter configurações sem usuário autenticado");
