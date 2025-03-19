@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { MetricCard } from "@/components/ui-custom/metrics/MetricCard"
-import { AreaChartCard } from "@/components/ui-custom/charts/AreaChartCard"
-import { DoughnutChartCard } from "@/components/ui-custom/charts/DoughnutChartCard"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { MetricCard } from "@/components/ui-custom/metrics/MetricCard";
+import { AreaChartCard } from "@/components/ui-custom/charts/AreaChartCard";
+import { DoughnutChartCard } from "@/components/ui-custom/charts/DoughnutChartCard";
 import { DashboardData } from '@/types/dashboard';
 import apiService from '@/services/api';
 import { Loader2 } from 'lucide-react';
