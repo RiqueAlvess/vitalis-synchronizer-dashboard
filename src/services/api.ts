@@ -279,6 +279,33 @@ const checkApiConnectivity = async (): Promise<boolean> => {
 };
 
 const apiService = {
+  getDashboardData: async (): Promise<DashboardData> => {
+    try {
+      const companyConfig = await apiService.apiConfig.get('company');
+      const employeeConfig = await apiService.apiConfig.get('employee');
+      const absenteeismConfig = await apiService.apiConfig.get('absenteeism');
+      
+      if (!companyConfig?.isConfigured || !employeeConfig?.isConfigured || !absenteeismConfig?.isConfigured) {
+        console.warn('Um ou mais serviços de API não configurados, retornando dados simulados');
+        return generateMockData('dashboard') as DashboardData;
+      }
+      
+      try {
+        const response = await supabaseAPI.get<DashboardData>('/api/dashboard');
+        if (response.data) {
+          return response.data;
+        }
+      } catch (err) {
+        console.error('Erro ao buscar dados do dashboard da API:', err);
+      }
+      
+      return generateMockData('dashboard') as DashboardData;
+    } catch (error) {
+      console.error('Erro ao buscar dados do dashboard, usando dados simulados:', error);
+      return generateMockData('dashboard') as DashboardData;
+    }
+  },
+  
   companies: {
     getAll: async (): Promise<MockCompanyData[]> => {
       try {
