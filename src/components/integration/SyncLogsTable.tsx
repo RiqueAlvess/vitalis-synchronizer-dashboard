@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   Table, 
@@ -19,15 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import apiService from '@/services/api';
-
-interface SyncLog {
-  id: number;
-  type: string;
-  status: string;
-  message: string;
-  created_at: string;
-  completed_at: string | null;
-}
+import { syncLogsService, SyncLog } from '@/services/syncLogsService';
 
 interface SyncLogsTableProps {
   onSync?: (type: 'company' | 'employee' | 'absenteeism') => Promise<void>;
@@ -42,7 +33,7 @@ const SyncLogsTable: React.FC<SyncLogsTableProps> = ({ onSync }) => {
   const fetchLogs = async () => {
     try {
       setIsLoading(true);
-      const data = await apiService.sync.getLogs();
+      const data = await syncLogsService.getLogs();
       setLogs(data);
     } catch (error) {
       console.error('Error fetching sync logs:', error);
