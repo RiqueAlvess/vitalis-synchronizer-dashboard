@@ -14,7 +14,7 @@ const Login = () => {
         <div className="w-full max-w-md mx-auto">
           <div className="text-center mb-8">
             <Link to="/" className="inline-flex items-center gap-2 mb-6 justify-center">
-              <Logo variant="full" size="lg" />
+              <Logo variant="full" size="xl" />
             </Link>
             
             <h1 className="text-2xl font-bold mt-6">Bem-vindo de volta</h1>

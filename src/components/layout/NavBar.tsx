@@ -64,7 +64,7 @@ const NavBar = () => {
             to="/" 
             className="flex items-center gap-2"
           >
-            <Logo variant="icon" size="md" />
+            <Logo variant="icon" size="lg" />
             <span className="font-semibold text-xl">Vitalis</span>
           </Link>
           
@@ -149,7 +149,7 @@ const NavBar = () => {
       <div className="container flex items-center justify-between">
         <div className="flex items-center gap-10">
           <Link to="/" className="flex items-center gap-2">
-            <Logo variant="icon" size="md" />
+            <Logo variant="icon" size="lg" />
             <span className="font-semibold text-lg">Vitalis</span>
           </Link>
           
