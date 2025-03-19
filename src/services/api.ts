@@ -513,7 +513,7 @@ const apiService = {
         
         if (localStorageService.isPreviewEnvironment()) {
           console.log(`Preview environment detected, using localStorage for ${type} config`);
-          const localConfig = localStorageService.getConfig(type);
+          const localConfig = localStorageService.getConfig<ApiConfig>(type);
           
           if (localConfig) {
             console.log(`Found local ${type} config:`, localConfig);
