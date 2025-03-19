@@ -1,503 +1,424 @@
-import { supabase } from '@/integrations/supabase/client';
+import axios from 'axios';
+import { useToast } from "@/components/ui/use-toast"
 
-// API Service - Handles all API calls for data
-export const apiService = {
-  // Company API
+// Define the structure of the API configuration
+export interface ApiConfig {
+  type: 'company' | 'employee' | 'absenteeism';
+  empresa: string;
+  codigo: string;
+  chave: string;
+  tipoSaida: string;
+  isConfigured?: boolean;
+}
+
+export interface CompanyApiConfig extends ApiConfig {
+  type: 'company';
+}
+
+export interface EmployeeApiConfig extends ApiConfig {
+  type: 'employee';
+  ativo: string;
+  inativo: string;
+  afastado: string;
+  pendente: string;
+  ferias: string;
+}
+
+export interface AbsenteeismApiConfig extends ApiConfig {
+  type: 'absenteeism';
+  empresaTrabalho: string;
+  dataInicio: string;
+  dataFim: string;
+}
+
+// Define the structure of the API response
+interface ApiResponse<T> {
+  data: T[] | null;
+  error: string | null;
+}
+
+// Define the structure of the Company
+export interface Company {
+  id: number;
+  name: string;
+  cnpj: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Define the structure of the Employee
+export interface Employee {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  companyId: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Define the structure of the Absenteeism
+export interface Absenteeism {
+  id: number;
+  employeeId: number;
+  companyId: number;
+  startDate: Date;
+  endDate: Date;
+  reason: string;
+  cid: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Define the structure of the User
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Define the structure of the API service
+interface ApiService {
   companies: {
-    async getAll() {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*')
-        .order('corporate_name', { ascending: true });
-        
-      if (error) throw error;
-      return data || [];
-    },
-    
-    async getById(id: number) {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*')
-        .eq('id', id)
-        .single();
-        
-      if (error) throw error;
-      return data;
-    },
-    
-    async create(company: any) {
-      const { data, error } = await supabase
-        .from('companies')
-        .insert([company])
-        .select();
-        
-      if (error) throw error;
-      return data[0];
-    },
-    
-    async update(id: number, company: any) {
-      const { data, error } = await supabase
-        .from('companies')
-        .update(company)
-        .eq('id', id)
-        .select();
-        
-      if (error) throw error;
-      return data[0];
-    },
-    
-    async delete(id: number) {
-      const { error } = await supabase
-        .from('companies')
-        .delete()
-        .eq('id', id);
-        
-      if (error) throw error;
-      return true;
-    },
-    
-    async sync(configId?: number) {
-      try {
-        const response = await fetch('/api/soc-api', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-          },
-          body: JSON.stringify({
-            type: 'company',
-            params: {},
-            configId
-          })
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to sync companies');
-        }
-        
-        return await response.json();
-      } catch (error: any) {
-        console.error('Error syncing companies:', error);
-        throw new Error(error.message || 'Failed to sync companies');
-      }
-    }
-  },
-  
-  // Employee API
+    getAll: () => Promise<Company[]>;
+    getById: (id: number) => Promise<Company | null>;
+    create: (data: Omit<Company, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Company | null>;
+    update: (id: number, data: Omit<Company, 'createdAt' | 'updatedAt' | 'id'>) => Promise<Company | null>;
+    delete: (id: number) => Promise<boolean>;
+  };
   employees: {
-    async getAll() {
-      const { data, error } = await supabase
-        .from('employees')
-        .select(`
-          *,
-          company:companies(id, corporate_name)
-        `)
-        .order('full_name', { ascending: true });
-        
-      if (error) throw error;
-      return data || [];
-    },
-    
-    async getByCompany(companyId: number) {
-      const { data, error } = await supabase
-        .from('employees')
-        .select(`
-          *,
-          company:companies(id, corporate_name)
-        `)
-        .eq('company_id', companyId)
-        .order('full_name', { ascending: true });
-        
-      if (error) throw error;
-      return data || [];
-    },
-    
-    async getById(id: number) {
-      const { data, error } = await supabase
-        .from('employees')
-        .select(`
-          *,
-          company:companies(id, corporate_name)
-        `)
-        .eq('id', id)
-        .single();
-        
-      if (error) throw error;
-      return data;
-    },
-    
-    async sync(configId?: number) {
-      try {
-        const response = await fetch('/api/soc-api', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-          },
-          body: JSON.stringify({
-            type: 'employee',
-            params: {},
-            configId
-          })
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to sync employees');
-        }
-        
-        return await response.json();
-      } catch (error: any) {
-        console.error('Error syncing employees:', error);
-        throw new Error(error.message || 'Failed to sync employees');
-      }
-    }
-  },
-  
-  // Absenteeism API
+    getAll: () => Promise<Employee[]>;
+    getById: (id: number) => Promise<Employee | null>;
+    create: (data: Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Employee | null>;
+    update: (id: number, data: Omit<Employee, 'createdAt' | 'updatedAt' | 'id'>) => Promise<Employee | null>;
+    delete: (id: number) => Promise<boolean>;
+  };
   absenteeism: {
-    async getAll() {
-      const { data, error } = await supabase
-        .from('absenteeism')
-        .select(`
-          *,
-          company:companies(id, corporate_name),
-          employee:employees(id, full_name)
-        `)
-        .order('start_date', { ascending: false });
-        
-      if (error) throw error;
-      return data || [];
-    },
-    
-    async getByCompany(companyId: number) {
-      const { data, error } = await supabase
-        .from('absenteeism')
-        .select(`
-          *,
-          company:companies(id, corporate_name),
-          employee:employees(id, full_name)
-        `)
-        .eq('company_id', companyId)
-        .order('start_date', { ascending: false });
-        
-      if (error) throw error;
-      return data || [];
-    },
-    
-    async getByEmployee(employeeId: number) {
-      const { data, error } = await supabase
-        .from('absenteeism')
-        .select(`
-          *,
-          company:companies(id, corporate_name),
-          employee:employees(id, full_name)
-        `)
-        .eq('employee_id', employeeId)
-        .order('start_date', { ascending: false });
-        
-      if (error) throw error;
-      return data || [];
-    },
-    
-    async sync(configId?: number) {
-      try {
-        const response = await fetch('/api/soc-api', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-          },
-          body: JSON.stringify({
-            type: 'absenteeism',
-            params: {},
-            configId
-          })
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to sync absenteeism data');
-        }
-        
-        return await response.json();
-      } catch (error: any) {
-        console.error('Error syncing absenteeism data:', error);
-        throw new Error(error.message || 'Failed to sync absenteeism data');
-      }
-    },
-    
-    async getDashboardData() {
-      try {
-        const { data: absenteeismData, error } = await supabase
-          .from('absenteeism')
-          .select(`
-            *,
-            company:companies(id, corporate_name),
-            employee:employees(id, full_name)
-          `)
-          .order('start_date', { ascending: false });
-
-        if (error) throw error;
-
-        // Process data for dashboard
-        const totalAbsenceDays = absenteeismData.reduce((sum, item) => sum + (item.days_absent || 0), 0);
-        const employeesAbsent = new Set(absenteeismData.map(item => item.employee_id).filter(Boolean)).size;
-        
-        // Calculate monthly trend (last 6 months)
-        const now = new Date();
-        const monthlyTrend = [];
-        for (let i = 5; i >= 0; i--) {
-          const month = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const monthName = month.toLocaleString('default', { month: 'short' });
-          const monthData = absenteeismData.filter(item => {
-            const itemDate = new Date(item.start_date);
-            return itemDate.getMonth() === month.getMonth() && 
-                  itemDate.getFullYear() === month.getFullYear();
-          });
-          const totalDays = monthData.reduce((sum, item) => sum + (item.days_absent || 0), 0);
-          monthlyTrend.push({
-            name: monthName,
-            value: totalDays
-          });
-        }
-        
-        // Calculate by sector
-        const sectors = {};
-        absenteeismData.forEach(item => {
-          if (item.sector) {
-            sectors[item.sector] = (sectors[item.sector] || 0) + (item.days_absent || 0);
-          }
-        });
-        
-        const bySector = Object.entries(sectors)
-          .map(([name, value]) => ({ name, value }))
-          .sort((a, b) => (b.value as number) - (a.value as number))
-          .slice(0, 5);
-        
-        // Calculate current month absenteeism rate
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
-        const currentMonthData = absenteeismData.filter(item => {
-          const itemDate = new Date(item.start_date);
-          return itemDate.getMonth() === currentMonth && 
-                itemDate.getFullYear() === currentYear;
-        });
-        
-        const totalHoursAbsent = currentMonthData.reduce((sum, item) => {
-          return sum + this.hoursToDecimal(item.hours_absent || '0:00');
-        }, 0);
-        
-        const absenteeismRate = this.calculateRate(totalHoursAbsent).toFixed(2);
-        
-        // Calculate trend compared to previous month
-        const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-        const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-        const prevMonthData = absenteeismData.filter(item => {
-          const itemDate = new Date(item.start_date);
-          return itemDate.getMonth() === prevMonth && 
-                itemDate.getFullYear() === prevYear;
-        });
-        
-        const prevTotalHoursAbsent = prevMonthData.reduce((sum, item) => {
-          return sum + this.hoursToDecimal(item.hours_absent || '0:00');
-        }, 0);
-        
-        const prevAbsenteeismRate = this.calculateRate(prevTotalHoursAbsent);
-        const trend = prevAbsenteeismRate === 0 ? 0 : 
-          ((parseFloat(absenteeismRate) - prevAbsenteeismRate) / prevAbsenteeismRate * 100).toFixed(1);
-        
-        // Calculate cost impact
-        const costImpact = this.calculateFinancialImpact(totalHoursAbsent)
-          .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-        
-        return {
-          absenteeismRate,
-          totalAbsenceDays,
-          employeesAbsent,
-          costImpact,
-          monthlyTrend,
-          bySector,
-          trend: parseFloat(trend)
-        };
-      } catch (err) {
-        console.error('Error in getDashboardData:', err);
-        throw err;
-      }
-    },
-    
-    // Calculate absenteeism rate
-    calculateRate(totalHoursAbsent: number, period: 'day' | 'week' | 'month' = 'month'): number {
-      // Default to monthly rate (220 hours per month)
-      let totalWorkHours = 220;
-      
-      if (period === 'day') {
-        totalWorkHours = 8; // 8 hours per day
-      } else if (period === 'week') {
-        totalWorkHours = 44; // 44 hours per week
-      }
-      
-      return (totalHoursAbsent / totalWorkHours) * 100;
-    },
-    
-    // Calculate financial impact
-    calculateFinancialImpact(totalHoursAbsent: number, hourlyRate: number = 6.22): number {
-      // Default hourly rate based on minimum wage (R$ 1,370 / 220 hours = R$ 6.22)
-      return totalHoursAbsent * hourlyRate;
-    },
-    
-    // Convert HH:MM format to decimal hours
-    hoursToDecimal(hoursString: string): number {
-      if (!hoursString) return 0;
-      
-      const [hours, minutes] = hoursString.split(':').map(Number);
-      return hours + (minutes / 60);
-    }
-  },
-  
-  // API Configuration
+    getAll: () => Promise<Absenteeism[]>;
+    getById: (id: number) => Promise<Absenteeism | null>;
+    create: (data: Omit<Absenteeism, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Absenteeism | null>;
+    update: (id: number, data: Omit<Absenteeism, 'createdAt' | 'updatedAt' | 'id'>) => Promise<Absenteeism | null>;
+    delete: (id: number) => Promise<boolean>;
+  };
+  users: {
+    getMe: () => Promise<User | null>;
+  };
   apiConfig: {
-    async get(type: 'company' | 'employee' | 'absenteeism') {
-      const { data, error } = await supabase
-        .from('api_configs')
-        .select('*')
-        .eq('type', type)
-        .maybeSingle();
-        
-      if (error) throw error;
-      
-      // If we have no data, return a default config
-      if (!data) {
-        return {
-          type,
-          empresa: '',
-          codigo: '',
-          chave: '',
-          tipoSaida: 'json',
-          isConfigured: false
-        };
-      }
-      
-      return {
-        ...data,
-        isConfigured: true
-      };
-    },
-    
-    async save(type: 'company' | 'employee' | 'absenteeism', config: any) {
-      // Check if a config already exists for this type
-      const { data: existingConfig } = await supabase
-        .from('api_configs')
-        .select('id')
-        .eq('type', type)
-        .maybeSingle();
-        
-      if (existingConfig) {
-        // Update existing config
-        const { data, error } = await supabase
-          .from('api_configs')
-          .update({
-            ...config,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingConfig.id)
-          .select();
-          
-        if (error) throw error;
-        return data[0];
-      } else {
-        // Insert new config
-        const { data, error } = await supabase
-          .from('api_configs')
-          .insert([{
-            ...config,
-            type
-          }])
-          .select();
-          
-        if (error) throw error;
-        return data[0];
-      }
-    },
-    
-    async test(type: 'company' | 'employee' | 'absenteeism') {
-      // Get the config
-      const { data: configData } = await supabase
-        .from('api_configs')
-        .select('id')
-        .eq('type', type)
-        .maybeSingle();
-        
-      if (!configData) {
-        throw new Error('Configuração não encontrada');
-      }
-      
-      // Test the API by syncing a single record
+    get: (type: 'company' | 'employee' | 'absenteeism') => Promise<ApiConfig | null>;
+    save: (config: ApiConfig) => Promise<ApiConfig | null>;
+  };
+  getDashboardData: () => Promise<any>;
+}
+
+// Function to convert hours string to decimal
+const hoursToDecimal = (hoursString: string): number => {
+  if (!hoursString) return 0;
+  
+  const [hours, minutes] = hoursString.split(':').map(part => {
+    const num = parseInt(part, 10);
+    return isNaN(num) ? 0 : num;
+  });
+  
+  return hours + (minutes / 60);
+};
+
+// Function to fetch data from an external API
+async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiResponse<T>> {
+  try {
+    if (!config) {
+      throw new Error('API configuration not found');
+    }
+
+    let url = '';
+    if (config.type === 'company') {
+      url = `${process.env.NEXT_PUBLIC_API_URL}/integration/companies?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
+    } else if (config.type === 'employee') {
+      url = `${process.env.NEXT_PUBLIC_API_URL}/integration/employees?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
+    } else if (config.type === 'absenteeism') {
+      url = `${process.env.NEXT_PUBLIC_API_URL}/integration/absenteeism?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
+    } else {
+      throw new Error('Invalid API type');
+    }
+
+    const response = await axios.get(url);
+
+    if (response.status !== 200) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+
+    return { data: response.data as T[], error: null };
+  } catch (error: any) {
+    console.error('Error fetching data from external API:', error);
+    return { data: null, error: error.message || 'Failed to fetch data from external API' };
+  }
+}
+
+// Mock API service
+const apiService: ApiService = {
+  companies: {
+    getAll: async (): Promise<Company[]> => {
       try {
-        const response = await fetch('/api/soc-api', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-          },
-          body: JSON.stringify({
-            type,
-            params: {},
-            configId: configData.id
-          })
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || `Falha ao testar API de ${type}`);
-        }
-        
-        return {
-          success: true,
-          message: `Conexão com a API de ${type} estabelecida com sucesso!`
-        };
-      } catch (error: any) {
-        console.error(`Error testing ${type} API:`, error);
-        throw new Error(error.message || `Falha ao testar API de ${type}`);
+        const response = await axios.get<Company[]>('/api/companies');
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching companies:', error);
+        return [];
       }
+    },
+    getById: async (id: number): Promise<Company | null> => {
+      try {
+        const response = await axios.get<Company>(`/api/companies/${id}`);
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching company:', error);
+        return null;
+      }
+    },
+    create: async (data: Omit<Company, 'id' | 'createdAt' | 'updatedAt'>): Promise<Company | null> => {
+      try {
+        const response = await axios.post<Company>('/api/companies', data);
+        return response.data;
+      } catch (error) {
+        console.error('Error creating company:', error);
+        return null;
+      }
+    },
+    update: async (id: number, data: Omit<Company, 'createdAt' | 'updatedAt' | 'id'>): Promise<Company | null> => {
+      try {
+        const response = await axios.put<Company>(`/api/companies/${id}`, data);
+        return response.data;
+      } catch (error) {
+        console.error('Error updating company:', error);
+        return null;
+      }
+    },
+    delete: async (id: number): Promise<boolean> => {
+      try {
+        await axios.delete(`/api/companies/${id}`);
+        return true;
+      } catch (error) {
+        console.error('Error deleting company:', error);
+        return false;
+      }
+    },
+  },
+  employees: {
+    getAll: async (): Promise<Employee[]> => {
+      try {
+        const response = await axios.get<Employee[]>('/api/employees');
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching employees:', error);
+        return [];
+      }
+    },
+    getById: async (id: number): Promise<Employee | null> => {
+      try {
+        const response = await axios.get<Employee>(`/api/employees/${id}`);
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching employee:', error);
+        return null;
+      }
+    },
+    create: async (data: Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>): Promise<Employee | null> => {
+      try {
+        const response = await axios.post<Employee>('/api/employees', data);
+        return response.data;
+      } catch (error) {
+        console.error('Error creating employee:', error);
+        return null;
+      }
+    },
+    update: async (id: number, data: Omit<Employee, 'createdAt' | 'updatedAt' | 'id'>): Promise<Employee | null> => {
+      try {
+        const response = await axios.put<Employee>(`/api/employees/${id}`, data);
+        return response.data;
+      } catch (error) {
+        console.error('Error updating employee:', error);
+        return null;
+      }
+    },
+    delete: async (id: number): Promise<boolean> => {
+      try {
+        await axios.delete(`/api/employees/${id}`);
+        return true;
+      } catch (error) {
+        console.error('Error deleting employee:', error);
+        return false;
+      }
+    },
+  },
+  absenteeism: {
+    getAll: async (): Promise<Absenteeism[]> => {
+      try {
+        const response = await axios.get<Absenteeism[]>('/api/absenteeism');
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching absenteeism:', error);
+        return [];
+      }
+    },
+    getById: async (id: number): Promise<Absenteeism | null> => {
+      try {
+        const response = await axios.get<Absenteeism>(`/api/absenteeism/${id}`);
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching absenteeism:', error);
+        return null;
+      }
+    },
+    create: async (data: Omit<Absenteeism, 'id' | 'createdAt' | 'updatedAt'>): Promise<Absenteeism | null> => {
+      try {
+        const response = await axios.post<Absenteeism>('/api/absenteeism', data);
+        return response.data;
+      } catch (error) {
+        console.error('Error creating absenteeism:', error);
+        return null;
+      }
+    },
+    update: async (id: number, data: Omit<Absenteeism, 'createdAt' | 'updatedAt' | 'id'>): Promise<Absenteeism | null> => {
+      try {
+        const response = await axios.put<Absenteeism>(`/api/absenteeism/${id}`, data);
+        return response.data;
+      } catch (error) {
+        console.error('Error updating absenteeism:', error);
+        return null;
+      }
+    },
+    delete: async (id: number): Promise<boolean> => {
+      try {
+        await axios.delete(`/api/absenteeism/${id}`);
+        return true;
+      } catch (error) {
+        console.error('Error deleting absenteeism:', error);
+        return false;
+      }
+    },
+  },
+  users: {
+    getMe: async (): Promise<User | null> => {
+      try {
+        const response = await axios.get<User>('/api/users/me');
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching user:', error);
+        return null;
+      }
+    },
+  },
+  apiConfig: {
+    get: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | null> => {
+      try {
+        const response = await axios.get<ApiConfig>(`/api/api-config/${type}`);
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching API config:', error);
+        return null;
+      }
+    },
+    save: async (config: ApiConfig): Promise<ApiConfig | null> => {
+      try {
+        const response = await axios.post<ApiConfig>('/api/api-config', config);
+        return response.data;
+      } catch (error) {
+        console.error('Error saving API config:', error);
+        return null;
+      }
+    },
+  },
+  async getDashboardData() {
+    try {
+      const absenteeismData = await this.absenteeism.getAll();
+      const employeesData = await this.employees.getAll();
+      
+      // Process data for dashboard metrics
+      return {
+        absenteeismRate: calculateAbsenteeismRate(absenteeismData),
+        totalAbsences: absenteeismData.length,
+        topCids: getTopCids(absenteeismData),
+        topSectors: getTopSectors(absenteeismData),
+        monthlyEvolution: getMonthlyEvolution(absenteeismData),
+        // Additional premium metrics might be added here
+      };
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      throw error;
     }
   },
-  
-  // Sync Logs
-  syncLogs: {
-    async getAll() {
-      const { data, error } = await supabase
-        .from('sync_logs')
-        .select('*')
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
-      return data || [];
-    },
-    
-    async getByType(type: 'company' | 'employee' | 'absenteeism') {
-      const { data, error } = await supabase
-        .from('sync_logs')
-        .select('*')
-        .eq('type', type)
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
-      return data || [];
-    },
-    
-    async getLatest(type: 'company' | 'employee' | 'absenteeism') {
-      const { data, error } = await supabase
-        .from('sync_logs')
-        .select('*')
-        .eq('type', type)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-        
-      if (error) throw error;
-      return data;
-    }
-  }
 };
+
+// These are helper functions for the dashboard data
+const calculateAbsenteeismRate = (absenteeismData: any[]) => {
+  // Implementation according to the formula in the requirements
+  // Total Hours Absent / Total Work Hours * 100
+  const totalAbsentHours = absenteeismData.reduce((sum, record) => {
+    return sum + hoursToDecimal(record.hours_absent || "0:00");
+  }, 0);
+  
+  // Assuming average work hours per employee is 220h/month
+  const avgWorkHoursPerMonth = 220;
+  // We need to know the total number of employees
+  const estimatedTotalWorkHours = absenteeismData.length > 0 ? absenteeismData.length * avgWorkHoursPerMonth : 1;
+  
+  return (totalAbsentHours / estimatedTotalWorkHours) * 100;
+};
+
+const getTopCids = (absenteeismData: any[]) => {
+  // Group by CID and count occurrences
+  const cidCounts = absenteeismData.reduce((acc, record) => {
+    const cid = record.primary_icd || 'Não informado';
+    acc[cid] = (acc[cid] || 0) + 1;
+    return acc;
+  }, {});
+  
+  // Convert to array, sort, and take top 10
+  return Object.entries(cidCounts)
+    .map(([cid, count]) => ({ cid, count }))
+    .sort((a, b) => (b.count as number) - (a.count as number))
+    .slice(0, 10);
+};
+
+const getTopSectors = (absenteeismData: any[]) => {
+  // Group by sector and count occurrences
+  const sectorCounts = absenteeismData.reduce((acc, record) => {
+    const sector = record.sector || 'Não informado';
+    acc[sector] = (acc[sector] || 0) + 1;
+    return acc;
+  }, {});
+  
+  // Convert to array, sort, and take top 10
+  return Object.entries(sectorCounts)
+    .map(([sector, count]) => ({ sector, count }))
+    .sort((a, b) => (b.count as number) - (a.count as number))
+    .slice(0, 10);
+};
+
+const getMonthlyEvolution = (absenteeismData: any[]) => {
+  // Group absences by month
+  const monthlyData = absenteeismData.reduce((acc, record) => {
+    const date = new Date(record.start_date);
+    const monthYear = `${date.getMonth() + 1}/${date.getFullYear()}`;
+    
+    if (!acc[monthYear]) {
+      acc[monthYear] = { month: monthYear, count: 0, hours: 0 };
+    }
+    
+    acc[monthYear].count += 1;
+    acc[monthYear].hours += hoursToDecimal(record.hours_absent || "0:00");
+    
+    return acc;
+  }, {});
+  
+  // Convert to array and sort by date
+  return Object.values(monthlyData)
+    .sort((a: any, b: any) => {
+      const [aMonth, aYear] = a.month.split('/');
+      const [bMonth, bYear] = b.month.split('/');
+      return (parseInt(aYear) - parseInt(bYear)) || (parseInt(aMonth) - parseInt(bMonth));
+    });
+};
+
+export default apiService;

@@ -1,0 +1,28 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">
+  <!-- Definições -->
+  <defs>
+    <!-- Gradiente principal -->
+    <linearGradient id="vitalis-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0042DE" />
+      <stop offset="100%" stop-color="#00E0FF" />
+    </linearGradient>
+    
+    <!-- Filtros para efeitos avançados -->
+    <filter id="soft-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  
+  <!-- Símbolo icônico central: A forma 'V' estilizada combinada com batimento cardíaco -->
+  <g transform="translate(150, 150)">
+    <!-- Forma de 'V' principal - simbolizando Vitalis e Vitalidade -->
+    <path d="M0,95 L-85,-80 L-45,-80 L0,25 L45,-80 L85,-80 L0,95 Z" 
+          fill="url(#vitalis-gradient)" filter="url(#soft-glow)" />
+    
+    <!-- Linha de batimento cardíaco integrada à forma - alinhada com o V -->
+    <path d="M-60,-30 L-40,-30 L-25,-60 L0,0 L25,-60 L40,-30 L60,-30" 
+          fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>

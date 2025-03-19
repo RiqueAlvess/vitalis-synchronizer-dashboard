@@ -1,35 +1,23 @@
-
 import React, { useState, useEffect } from 'react';
-import { apiService } from '@/services/api';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui-custom/Card';
-import { Loader2, CheckCircle2, AlertCircle, Info } from 'lucide-react';
-import { toast } from '@/components/ui/use-toast';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-
-interface EmployeeApiConfig {
-  empresa: string;
-  codigo: string;
-  chave: string;
-  tipoSaida: string;
-  ativo: string;
-  inativo: string;
-  afastado: string;
-  pendente: string;
-  ferias: string;
-  isConfigured: boolean;
-}
+import { useToast } from '@/components/ui/use-toast';
+import { apiService, EmployeeApiConfig as EmployeeApiConfigType } from '@/services/api';
+import { Loader2 } from 'lucide-react';
+import { useApiConfig } from '@/hooks/use-api-config';
 
 const EmployeeApiConfig = () => {
-  const [config, setConfig] = useState<EmployeeApiConfig>({
+  const { toast } = useToast();
+  const { config: savedConfig, saveConfig, isLoading: isLoadingConfig } = useApiConfig('employee');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Initialize config with the correct structure
+  const initialConfig: EmployeeApiConfigType = {
+    type: 'employee',
     empresa: '',
     codigo: '',
     chave: '',
@@ -39,300 +27,231 @@ const EmployeeApiConfig = () => {
     afastado: '',
     pendente: '',
     ferias: '',
-    isConfigured: false,
-  });
-  
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isTesting, setIsTesting] = useState(false);
-  const [showSecrets, setShowSecrets] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+    isConfigured: false
+  };
+
+  const [config, setConfig] = useState<EmployeeApiConfigType>(initialConfig);
 
   useEffect(() => {
-    fetchConfig();
-  }, []);
-
-  const fetchConfig = async () => {
-    setIsLoading(true);
-    try {
-      const data = await apiService.apiConfig.get('employee');
-      
-      // Fixed: Transform the API response to match our EmployeeApiConfig interface
-      if (data) {
-        setConfig({
-          empresa: data.empresa || '',
-          codigo: data.codigo || '',
-          chave: data.chave || '',
-          tipoSaida: data.tipoSaida || 'json',
-          ativo: data.ativo || 'Sim',
-          inativo: data.inativo || '',
-          afastado: data.afastado || '',
-          pendente: data.pendente || '',
-          ferias: data.ferias || '',
-          isConfigured: data.isConfigured || false
-        });
-      }
-    } catch (err) {
-      console.error('Error fetching employee API config:', err);
-      toast({
-        variant: 'destructive',
-        title: 'Erro ao carregar configurações',
-        description: 'Não foi possível carregar as configurações da API de Funcionários.',
-      });
-    } finally {
-      setIsLoading(false);
+    if (savedConfig) {
+      setConfig(savedConfig as EmployeeApiConfigType);
     }
-  };
+  }, [savedConfig]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setConfig(prev => ({ ...prev, [name]: value }));
-    
-    // Clear test result when form is changed
-    if (testResult) {
+  };
+
+  const handleTest = async () => {
+    try {
+      setIsTesting(true);
       setTestResult(null);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    
-    try {
-      await apiService.apiConfig.save('employee', config);
-      toast({
-        title: 'Configurações salvas',
-        description: 'As configurações da API de Funcionários foram salvas com sucesso.',
-      });
-      setConfig(prev => ({ ...prev, isConfigured: true }));
-    } catch (err) {
-      console.error('Error saving employee API config:', err);
-      toast({
-        variant: 'destructive',
-        title: 'Erro ao salvar',
-        description: 'Não foi possível salvar as configurações da API de Funcionários.',
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const testConnection = async () => {
-    setIsTesting(true);
-    setTestResult(null);
-    
-    try {
-      const result = await apiService.apiConfig.test('employee');
+      
+      // Test the API connection
+      const result = await apiService.employees.testConnection(config);
+      
       setTestResult({
         success: true,
-        message: result.message || 'Conexão com a API de Funcionários estabelecida com sucesso!'
+        message: `Conexão bem-sucedida! ${result.count || 0} funcionários encontrados.`
       });
+      
       toast({
-        title: 'Teste bem-sucedido',
-        description: 'A conexão com a API de Funcionários foi estabelecida com sucesso.',
+        title: "Teste concluído",
+        description: "Conexão com a API de funcionários estabelecida com sucesso.",
+        variant: "success"
       });
-    } catch (err) {
-      console.error('Employee API connection test failed:', err);
+    } catch (error) {
+      console.error('Error testing employee API connection:', error);
       setTestResult({
         success: false,
-        message: 'Falha ao conectar com a API de Funcionários. Verifique suas credenciais.'
+        message: error instanceof Error ? error.message : 'Erro desconhecido ao testar conexão'
       });
+      
       toast({
-        variant: 'destructive',
-        title: 'Teste falhou',
-        description: 'Não foi possível conectar com a API de Funcionários.',
+        title: "Erro no teste",
+        description: "Não foi possível conectar à API de funcionários. Verifique as configurações.",
+        variant: "destructive"
       });
     } finally {
       setIsTesting(false);
     }
   };
 
-  if (isLoading) {
+  // Ensure the handleSave function properly updates with all required fields
+  const handleSave = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Create proper EmployeeApiConfig object
+      const configToSave: EmployeeApiConfigType = {
+        type: 'employee',
+        empresa: config.empresa,
+        codigo: config.codigo,
+        chave: config.chave,
+        tipoSaida: 'json',
+        ativo: config.ativo,
+        inativo: config.inativo,
+        afastado: config.afastado,
+        pendente: config.pendente,
+        ferias: config.ferias
+      };
+      
+      await saveConfig(configToSave);
+      
+      toast({
+        title: "Configuração salva",
+        description: "As configurações da API de funcionários foram salvas com sucesso.",
+        variant: "success"
+      });
+    } catch (error) {
+      console.error('Error saving employee API config:', error);
+      toast({
+        title: "Erro ao salvar",
+        description: "Não foi possível salvar as configurações da API de funcionários.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoadingConfig) {
     return (
-      <Card className="animate-pulse">
-        <CardHeader>
-          <CardTitle>Carregando...</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="h-5 bg-gray-200 rounded w-1/3"></div>
-          <div className="h-10 bg-gray-200 rounded"></div>
-          <div className="h-5 bg-gray-200 rounded w-1/3"></div>
-          <div className="h-10 bg-gray-200 rounded"></div>
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex justify-center items-center h-40">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card className="animate-fade-in">
-      <form onSubmit={handleSubmit}>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Configuração da API de Funcionários</CardTitle>
-              <CardDescription>
-                Configure suas credenciais para integrar com a API de Funcionários.
-              </CardDescription>
-            </div>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info className="h-5 w-5 text-muted-foreground cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent className="max-w-md">
-                  <p>Esta API é utilizada para sincronizar os funcionários das empresas do sistema SOC.</p>
-                  <p className="mt-1">Formato: {`{"empresa":"valor","codigo":"valor","chave":"valor","tipoSaida":"json",...}`}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-        </CardHeader>
-        
-        <CardContent className="space-y-5">
+    <Card>
+      <CardHeader>
+        <CardTitle>Configuração da API de Funcionários</CardTitle>
+        <CardDescription>
+          Configure a integração com a API SOC para importar dados de funcionários.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="empresa">Código da Empresa</Label>
+            <Label htmlFor="empresa">Empresa</Label>
             <Input
               id="empresa"
               name="empresa"
               value={config.empresa}
               onChange={handleChange}
-              placeholder="Ex: 423"
+              placeholder="Código da empresa"
             />
-            <p className="text-xs text-muted-foreground">Código numérico da empresa no sistema SOC</p>
           </div>
-          
           <div className="space-y-2">
-            <Label htmlFor="codigo">Código de Integração</Label>
+            <Label htmlFor="codigo">Código</Label>
             <Input
               id="codigo"
               name="codigo"
-              type={showSecrets ? "text" : "password"}
               value={config.codigo}
               onChange={handleChange}
-              placeholder="Ex: 25722"
+              placeholder="Código de acesso"
             />
-            <p className="text-xs text-muted-foreground">Código numérico fornecido pelo sistema SOC</p>
           </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="chave">Chave de Integração</Label>
-            <Input
-              id="chave"
-              name="chave"
-              type={showSecrets ? "text" : "password"}
-              value={config.chave}
-              onChange={handleChange}
-              placeholder="Ex: b4c740208036d64c467b"
-            />
-            <p className="text-xs text-muted-foreground">Chave alfanumérica fornecida pelo sistema SOC</p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="ativo">Filtro: Ativos</Label>
-              <Input
-                id="ativo"
-                name="ativo"
-                value={config.ativo}
-                onChange={handleChange}
-                placeholder="Ex: Sim"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="inativo">Filtro: Inativos</Label>
-              <Input
-                id="inativo"
-                name="inativo"
-                value={config.inativo}
-                onChange={handleChange}
-                placeholder="Deixe em branco para não incluir"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="afastado">Filtro: Afastados</Label>
-              <Input
-                id="afastado"
-                name="afastado"
-                value={config.afastado}
-                onChange={handleChange}
-                placeholder="Deixe em branco para não incluir"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="pendente">Filtro: Pendentes</Label>
-              <Input
-                id="pendente"
-                name="pendente"
-                value={config.pendente}
-                onChange={handleChange}
-                placeholder="Deixe em branco para não incluir"
-              />
-            </div>
-          </div>
-          
-          <div className="flex items-center space-x-2 pt-2">
-            <Checkbox
-              id="showSecrets"
-              checked={showSecrets}
-              onCheckedChange={(checked) => setShowSecrets(!!checked)}
-            />
-            <label
-              htmlFor="showSecrets"
-              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-            >
-              Mostrar credenciais
-            </label>
-          </div>
-          
-          {testResult && (
-            <div className={`p-4 rounded-lg mt-4 flex items-center space-x-3 ${
-              testResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
-            }`}>
-              {testResult.success ? (
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-              ) : (
-                <AlertCircle className="h-5 w-5 text-red-600" />
-              )}
-              <span>{testResult.message}</span>
-            </div>
-          )}
-        </CardContent>
+        </div>
         
-        <CardFooter className="flex justify-between">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={testConnection}
-            disabled={isTesting || isSaving || !config.empresa || !config.codigo || !config.chave}
-          >
-            {isTesting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Testando...
-              </>
-            ) : (
-              'Testar Conexão'
-            )}
-          </Button>
-          
-          <Button
-            type="submit"
-            disabled={isSaving || !config.empresa || !config.codigo || !config.chave}
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Salvando...
-              </>
-            ) : (
-              'Salvar Configurações'
-            )}
-          </Button>
-        </CardFooter>
-      </form>
+        <div className="space-y-2">
+          <Label htmlFor="chave">Chave de API</Label>
+          <Input
+            id="chave"
+            name="chave"
+            value={config.chave}
+            onChange={handleChange}
+            placeholder="Chave de autenticação da API"
+          />
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="ativo">Filtro Ativo</Label>
+            <Input
+              id="ativo"
+              name="ativo"
+              value={config.ativo}
+              onChange={handleChange}
+              placeholder="Ex: Sim"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="inativo">Filtro Inativo</Label>
+            <Input
+              id="inativo"
+              name="inativo"
+              value={config.inativo}
+              onChange={handleChange}
+              placeholder="Ex: Não"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="afastado">Filtro Afastado</Label>
+            <Input
+              id="afastado"
+              name="afastado"
+              value={config.afastado}
+              onChange={handleChange}
+              placeholder="Ex: Afastado"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="pendente">Filtro Pendente</Label>
+            <Input
+              id="pendente"
+              name="pendente"
+              value={config.pendente}
+              onChange={handleChange}
+              placeholder="Ex: Pendente"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ferias">Filtro Férias</Label>
+            <Input
+              id="ferias"
+              name="ferias"
+              value={config.ferias}
+              onChange={handleChange}
+              placeholder="Ex: Férias"
+            />
+          </div>
+        </div>
+        
+        {testResult && (
+          <div className={`p-4 rounded-md ${testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+            {testResult.message}
+          </div>
+        )}
+      </CardContent>
+      <CardFooter className="flex justify-between">
+        <Button variant="outline" onClick={handleTest} disabled={isTesting}>
+          {isTesting ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Testando...
+            </>
+          ) : (
+            'Testar Conexão'
+          )}
+        </Button>
+        <Button onClick={handleSave} disabled={isLoading}>
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Salvando...
+            </>
+          ) : (
+            'Salvar Configurações'
+          )}
+        </Button>
+      </CardFooter>
     </Card>
   );
 };

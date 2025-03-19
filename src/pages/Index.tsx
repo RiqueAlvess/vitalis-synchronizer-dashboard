@@ -1,10 +1,10 @@
-
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { ArrowRight, BarChart2, Settings, Users, CheckCircle } from 'lucide-react';
 import GlassPanel from '@/components/ui-custom/GlassPanel';
+import Logo from '@/components/ui-custom/Logo';
 
 const Index = () => {
   const { isAuthenticated } = useAuth();
@@ -21,7 +21,8 @@ const Index = () => {
         
         <div className="container px-4 md:px-6 mx-auto relative z-10">
           <div className="flex flex-col items-center text-center space-y-8 max-w-3xl mx-auto animate-fade-in">
-            <div className="inline-block">
+            <div className="inline-flex flex-col items-center">
+              <Logo variant="full" size="lg" className="mb-6" />
               <span className="inline-flex items-center px-3 py-1 text-sm font-medium rounded-full bg-vitalis-100 text-vitalis-800">
                 Plataforma de Gestão de Absenteísmo
               </span>
@@ -264,9 +265,7 @@ const Index = () => {
         <div className="container px-4 md:px-6 mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="flex items-center gap-2 mb-4 md:mb-0">
-              <div className="h-8 w-8 rounded-lg bg-vitalis-500 flex items-center justify-center">
-                <span className="text-white font-semibold">V</span>
-              </div>
+              <Logo variant="icon" size="md" />
               <span className="font-semibold text-lg">Vitalis</span>
             </div>
             

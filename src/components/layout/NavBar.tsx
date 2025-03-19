@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useAuth } from '@/context/AuthContext';
+import Logo from '@/components/ui-custom/Logo';
 
 const NavBar = () => {
   const { pathname } = useLocation();
@@ -48,7 +49,6 @@ const NavBar = () => {
     return null; // Don't show navbar on auth pages
   }
 
-  // Landing page special navbar
   if (pathname === '/' && !isAuthenticated) {
     return (
       <header 
@@ -64,9 +64,7 @@ const NavBar = () => {
             to="/" 
             className="flex items-center gap-2"
           >
-            <div className="h-8 w-8 rounded-lg bg-vitalis-500 flex items-center justify-center">
-              <span className="text-white font-semibold">V</span>
-            </div>
+            <Logo variant="icon" size="md" />
             <span className="font-semibold text-xl">Vitalis</span>
           </Link>
           
@@ -141,7 +139,6 @@ const NavBar = () => {
     );
   }
 
-  // Dashboard navbar for authenticated users
   return (
     <header 
       className={cn(
@@ -152,9 +149,7 @@ const NavBar = () => {
       <div className="container flex items-center justify-between">
         <div className="flex items-center gap-10">
           <Link to="/" className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-vitalis-500 flex items-center justify-center">
-              <span className="text-white font-semibold">V</span>
-            </div>
+            <Logo variant="icon" size="md" />
             <span className="font-semibold text-lg">Vitalis</span>
           </Link>
           
