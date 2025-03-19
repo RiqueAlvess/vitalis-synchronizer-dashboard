@@ -9,6 +9,9 @@ import apiService, { AbsenteeismApiConfig as AbsenteeismApiConfigType } from '@/
 import { DatePicker } from '@/components/ui/date-picker';
 import { format } from 'date-fns';
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { localStorageService } from '@/services/localStorageService';
+import PreviewModeIndicator from '@/components/ui-custom/PreviewModeIndicator';
 
 const AbsenteeismApiConfig = () => {
   const { toast } = useToast();
@@ -119,9 +122,30 @@ const AbsenteeismApiConfig = () => {
         isConfigured: true
       };
       
-      const result = await apiService.saveApiConfig(configToSave);
+      let result;
       
-      if (!result) {
+      try {
+        result = await apiService.saveApiConfig(configToSave);
+      } catch (error) {
+        // If there was an error but we're in preview mode, show a specific message
+        if (localStorageService.isPreviewEnvironment()) {
+          toast({
+            title: 'Configurações salvas localmente',
+            description: 'No ambiente de prévia, as configurações são salvas apenas neste navegador.',
+          });
+          
+          // Update the local config
+          setConfig(prev => ({
+            ...prev, 
+            savedLocally: true,
+            savedAt: new Date().toISOString()
+          }));
+          return;
+        }
+        throw error; // Re-throw for the outer catch to handle
+      }
+      
+      if (!result && !localStorageService.isPreviewEnvironment()) {
         throw new Error('Falha ao salvar configurações');
       }
       
@@ -158,7 +182,18 @@ const AbsenteeismApiConfig = () => {
         tipoSaida: 'json'
       };
       
-      const result = await apiService.testApiConnection(testConfig);
+      let result;
+      
+      if (localStorageService.isPreviewEnvironment()) {
+        // In preview mode, simulate a successful test after a delay
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        result = {
+          success: true,
+          message: 'Conexão simulada bem-sucedida no ambiente de prévia.'
+        };
+      } else {
+        result = await apiService.testApiConnection(testConfig);
+      }
       
       setTestResult({
         success: result.success,
@@ -198,6 +233,20 @@ const AbsenteeismApiConfig = () => {
           Configure os parâmetros para sincronização dos dados de absenteísmo.
         </CardDescription>
       </CardHeader>
+      
+      <PreviewModeIndicator />
+      
+      {config.savedLocally && (
+        <Alert className="mx-6 mb-4">
+          <AlertDescription>
+            Estas configurações estão salvas apenas neste navegador.
+            {localStorageService.isPreviewEnvironment() ? 
+              " No ambiente de prévia, as configurações não são sincronizadas com o servidor." : 
+              " Quando a conexão com o servidor for restabelecida, elas serão sincronizadas automaticamente."}
+          </AlertDescription>
+        </Alert>
+      )}
+      
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">

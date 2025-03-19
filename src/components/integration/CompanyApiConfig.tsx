@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import apiService, { CompanyApiConfig as CompanyApiConfigType } from '@/services/api';
 import { Button } from '@/components/ui/button';
@@ -8,6 +7,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui-custom/Card';
 import { Loader2, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { localStorageService } from '@/services/localStorageService';
+import PreviewModeIndicator from '@/components/ui-custom/PreviewModeIndicator';
 import {
   Tooltip,
   TooltipContent,
@@ -72,7 +74,6 @@ const CompanyApiConfig = () => {
     const { name, value } = e.target;
     setConfig(prev => ({ ...prev, [name]: value }));
     
-    // Clear test result when form is changed
     if (testResult) {
       setTestResult(null);
     }
@@ -83,7 +84,6 @@ const CompanyApiConfig = () => {
     setIsSaving(true);
     
     try {
-      // Ensure tipoSaida is always "json"
       const configToSave = {
         ...config,
         tipoSaida: 'json',
@@ -91,10 +91,23 @@ const CompanyApiConfig = () => {
       };
       
       console.log('Saving company API config:', configToSave);
-      const result = await apiService.apiConfig.save(configToSave);
-      console.log('Save result:', result);
+      let result;
       
-      if (!result) {
+      try {
+        result = await apiService.apiConfig.save(configToSave);
+      } catch (error) {
+        if (localStorageService.isPreviewEnvironment()) {
+          toast({
+            title: 'Configurações salvas localmente',
+            description: 'No ambiente de prévia, as configurações são salvas apenas neste navegador.',
+          });
+          await fetchConfig();
+          return;
+        }
+        throw error;
+      }
+      
+      if (!result && !localStorageService.isPreviewEnvironment()) {
         throw new Error('Falha ao salvar configurações');
       }
       
@@ -103,7 +116,6 @@ const CompanyApiConfig = () => {
         description: 'As configurações da API de Empresas foram salvas com sucesso.',
       });
       
-      // Refresh to get updated config
       await fetchConfig();
     } catch (err) {
       console.error('Error saving company API config:', err);
@@ -122,14 +134,24 @@ const CompanyApiConfig = () => {
     setTestResult(null);
     
     try {
-      // Ensure we use the current form values for testing
       const testConfig = {
         ...config,
         tipoSaida: 'json'
       };
       
       console.log('Testing company API connection with config:', testConfig);
-      const result = await apiService.testApiConnection(testConfig);
+      let result;
+      
+      if (localStorageService.isPreviewEnvironment()) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        result = {
+          success: true,
+          message: 'Conexão simulada bem-sucedida no ambiente de prévia.'
+        };
+      } else {
+        result = await apiService.testApiConnection(testConfig);
+      }
+      
       console.log('Test connection result:', result);
       
       setTestResult({
@@ -202,6 +224,19 @@ const CompanyApiConfig = () => {
             </TooltipProvider>
           </div>
         </CardHeader>
+        
+        <PreviewModeIndicator />
+        
+        {config.savedLocally && (
+          <Alert className="mx-6 mb-4">
+            <AlertDescription>
+              Estas configurações estão salvas apenas neste navegador.
+              {localStorageService.isPreviewEnvironment() ? 
+                " No ambiente de prévia, as configurações não são sincronizadas com o servidor." : 
+                " Quando a conexão com o servidor for restabelecida, elas serão sincronizadas automaticamente."}
+            </AlertDescription>
+          </Alert>
+        )}
         
         <CardContent className="space-y-5">
           <div className="space-y-2">

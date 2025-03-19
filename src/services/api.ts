@@ -1,8 +1,8 @@
-
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
 import { DashboardData, MonthlyTrendData, SectorData } from '@/types/dashboard';
 import type { MockCompanyData, MockEmployeeData } from '@/types/dashboard';
+import { localStorageService } from '@/services/localStorageService';
 
 // Function to retry failed requests
 const retryRequest = async (fn, maxRetries = 3, delay = 1000) => {
@@ -279,6 +279,12 @@ async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiRespon
 // Check API connectivity
 const checkApiConnectivity = async (): Promise<boolean> => {
   try {
+    // If in preview environment, return false to indicate no API connectivity
+    if (localStorageService.isPreviewEnvironment()) {
+      console.log('Preview environment detected, API connectivity check skipped');
+      return false;
+    }
+    
     // Try a simple request to check connectivity
     await supabaseAPI.get('/test-connection');
     return true;
@@ -534,6 +540,30 @@ const apiService = {
       try {
         console.log(`Fetching ${type} API config...`);
         
+        // Check if we're in preview mode
+        if (localStorageService.isPreviewEnvironment()) {
+          console.log(`Preview environment detected, using localStorage for ${type} config`);
+          const localConfig = localStorageService.getConfig(type);
+          
+          if (localConfig) {
+            console.log(`Found local ${type} config:`, localConfig);
+            return {
+              ...localConfig,
+              isConfigured: !!(localConfig.empresa && localConfig.codigo && localConfig.chave)
+            };
+          }
+          
+          // No local config, return empty one
+          return {
+            type,
+            empresa: '',
+            codigo: '',
+            chave: '',
+            tipoSaida: 'json',
+            isConfigured: false
+          };
+        }
+        
         // First check local storage for cached config (fallback if API is unreachable)
         const cachedConfig = localStorage.getItem(`api_config_${type}`);
         let localConfig = null;
@@ -602,6 +632,23 @@ const apiService = {
     },
     save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
       try {
+        // Check if we're in preview mode
+        if (localStorageService.isPreviewEnvironment()) {
+          console.log(`Preview environment detected, saving ${config.type} config to localStorage`);
+          const success = localStorageService.saveConfig(config.type, config);
+          
+          if (success) {
+            return {
+              ...config,
+              isConfigured: !!(config.empresa && config.codigo && config.chave),
+              savedLocally: true,
+              savedAt: new Date().toISOString()
+            };
+          } else {
+            throw new Error('Failed to save to localStorage');
+          }
+        }
+        
         // Check if user is authenticated first
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
@@ -679,11 +726,15 @@ const apiService = {
         
         // Save to local storage as fallback if it was a network error
         if (error.message.includes('Network Error') || error.message.includes('Não foi possível conectar')) {
-          localStorage.setItem(`api_config_${config.type}`, JSON.stringify({
+          const savedConfig = {
             ...config,
             isConfigured: !!(config.empresa && config.codigo && config.chave),
-            _offline: true // Mark as saved offline
-          }));
+            savedLocally: true,
+            savedAt: new Date().toISOString()
+          };
+          localStorage.setItem(`api_config_${config.type}`, JSON.stringify(savedConfig));
+          
+          // Still throw, but now we've saved the data
           throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
         }
         
@@ -692,6 +743,18 @@ const apiService = {
     },
     test: async (type: 'company' | 'employee' | 'absenteeism'): Promise<{success: boolean, message: string}> => {
       try {
+        // Check if we're in preview mode
+        if (localStorageService.isPreviewEnvironment()) {
+          console.log(`Preview environment detected, simulating test for ${type} API`);
+          // Simulate a delay to make it feel like a real test
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          return {
+            success: true,
+            message: 'Conexão simulada bem-sucedida no ambiente de prévia. No ambiente de produção, uma conexão real seria testada.'
+          };
+        }
+        
         const config = await apiService.getApiConfig(type);
         if (!config) {
           throw new Error(`No ${type} API config found`);
@@ -712,6 +775,18 @@ const apiService = {
   },
   testApiConnection: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<{success: boolean, message: string}> => {
     try {
+      // Check if we're in preview mode
+      if (localStorageService.isPreviewEnvironment()) {
+        console.log(`Preview environment detected, simulating test for API connection`);
+        // Simulate a delay to make it feel like a real test
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        return {
+          success: true,
+          message: 'Conexão simulada bem-sucedida no ambiente de prévia. No ambiente de produção, uma conexão real seria testada.'
+        };
+      }
+      
       console.log('Testing API connection with config:', config);
       
       // Use retry logic for connection testing
