@@ -109,12 +109,12 @@ interface ApiService {
     getMe: () => Promise<User | null>;
   };
   apiConfig: {
-    get: (type: 'company' | 'employee' | 'absenteeism') => Promise<ApiConfig | null>;
+    get: (type: 'company' | 'employee' | 'absenteeism') => Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null>;
     save: (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig) => Promise<ApiConfig | null>;
     test: (type: 'company' | 'employee' | 'absenteeism') => Promise<{success: boolean, message: string}>;
   };
   testApiConnection: (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig) => Promise<{success: boolean, message: string}>;
-  getApiConfig: (type: 'company' | 'employee' | 'absenteeism') => Promise<ApiConfig | null>;
+  getApiConfig: (type: 'company' | 'employee' | 'absenteeism') => Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null>;
   saveApiConfig: (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig) => Promise<ApiConfig | null>;
   getDashboardData: () => Promise<any>;
 }
@@ -344,9 +344,9 @@ const apiService: ApiService = {
     },
   },
   apiConfig: {
-    get: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | null> => {
+    get: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
       try {
-        const response = await axios.get<ApiConfig>(`/api/api-config/${type}`);
+        const response = await axios.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api/api-config/${type}`);
         return response.data;
       } catch (error) {
         console.error('Error fetching API config:', error);
@@ -372,13 +372,13 @@ const apiService: ApiService = {
       }
     }
   },
-  getApiConfig: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | null> => {
+  getApiConfig: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
     return apiService.apiConfig.get(type);
   },
-  saveApiConfig: async (config: ApiConfig): Promise<ApiConfig | null> => {
+  saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
     return apiService.apiConfig.save(config);
   },
-  testApiConnection: async (config: ApiConfig): Promise<{success: boolean, message: string}> => {
+  testApiConnection: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<{success: boolean, message: string}> => {
     try {
       const response = await axios.post('/api/test-connection', config);
       return response.data;

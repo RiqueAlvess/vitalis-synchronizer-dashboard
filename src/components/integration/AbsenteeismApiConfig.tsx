@@ -5,11 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
-import apiService from '@/services/api';
+import apiService, { AbsenteeismApiConfig as AbsenteeismApiConfigType } from '@/services/api';
 import { DatePicker } from '@/components/ui/date-picker';
 import { format } from 'date-fns';
 import { Loader2 } from 'lucide-react';
-import { AbsenteeismApiConfig as AbsenteeismApiConfigType } from '@/services/api';
 
 const AbsenteeismApiConfig = () => {
   const { toast } = useToast();
@@ -41,11 +40,11 @@ const AbsenteeismApiConfig = () => {
         if (savedConfig) {
           setConfig(savedConfig as AbsenteeismApiConfigType);
           
-          if (savedConfig.dataInicio) {
-            setStartDate(new Date(savedConfig.dataInicio));
+          if ((savedConfig as AbsenteeismApiConfigType).dataInicio) {
+            setStartDate(new Date((savedConfig as AbsenteeismApiConfigType).dataInicio));
           }
-          if (savedConfig.dataFim) {
-            setEndDate(new Date(savedConfig.dataFim));
+          if ((savedConfig as AbsenteeismApiConfigType).dataFim) {
+            setEndDate(new Date((savedConfig as AbsenteeismApiConfigType).dataFim));
           }
         }
       } catch (error) {

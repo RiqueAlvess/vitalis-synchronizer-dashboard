@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import apiService from '@/services/api';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ interface ApiConfig {
 }
 
 const ApiConfigForm = () => {
+  const { toast } = useToast();
   const [config, setConfig] = useState<ApiConfig>({
     apiKey: '',
     apiSecret: '',
@@ -72,7 +74,8 @@ const ApiConfigForm = () => {
     setIsSaving(true);
     
     try {
-      await apiService.apiConfig.save('company', {
+      await apiService.apiConfig.save({
+        type: 'company',
         empresa: config.baseUrl.includes('empresa=') ? config.baseUrl.split('empresa=')[1] : '423',
         codigo: config.apiKey,
         chave: config.apiSecret,

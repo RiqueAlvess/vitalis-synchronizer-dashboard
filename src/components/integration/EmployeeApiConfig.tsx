@@ -5,10 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import apiService from '@/services/api';
+import apiService, { EmployeeApiConfig as EmployeeApiConfigType } from '@/services/api';
 import { Loader2 } from 'lucide-react';
 import { useApiConfig } from '@/hooks/use-api-config';
-import { EmployeeApiConfig as EmployeeApiConfigType } from '@/services/api';
 
 const EmployeeApiConfig = () => {
   const { toast } = useToast();
@@ -86,8 +85,8 @@ const EmployeeApiConfig = () => {
       setIsLoading(true);
       
       // Create proper EmployeeApiConfig object
-      const configToSave = {
-        type: 'employee' as const,
+      const configToSave: EmployeeApiConfigType = {
+        type: 'employee',
         empresa: config.empresa,
         codigo: config.codigo,
         chave: config.chave,

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import apiService from '@/services/api';
+import apiService, { CompanyApiConfig as CompanyApiConfigType } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,16 +15,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-interface CompanyApiConfig {
-  empresa: string;
-  codigo: string;
-  chave: string;
-  tipoSaida: string;
-  isConfigured: boolean;
-}
-
 const CompanyApiConfig = () => {
-  const [config, setConfig] = useState<CompanyApiConfig>({
+  const { toast } = useToast();
+  const [config, setConfig] = useState<CompanyApiConfigType>({
+    type: 'company',
     empresa: '',
     codigo: '',
     chave: '',
@@ -50,6 +44,7 @@ const CompanyApiConfig = () => {
       // Fixed: Transform the API response to match our CompanyApiConfig interface
       if (data) {
         setConfig({
+          type: 'company',
           empresa: data.empresa || '',
           codigo: data.codigo || '',
           chave: data.chave || '',
@@ -84,7 +79,7 @@ const CompanyApiConfig = () => {
     setIsSaving(true);
     
     try {
-      await apiService.apiConfig.save('company', config);
+      await apiService.apiConfig.save(config);
       toast({
         title: 'Configurações salvas',
         description: 'As configurações da API de Empresas foram salvas com sucesso.',

@@ -1,14 +1,13 @@
 
 import { useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
-import apiService from '@/services/api';
-import { ApiConfig, EmployeeApiConfig, AbsenteeismApiConfig, CompanyApiConfig } from '@/services/api';
+import apiService, { ApiConfig, EmployeeApiConfig, AbsenteeismApiConfig, CompanyApiConfig } from '@/services/api';
 
 export type ApiConfigType = 'company' | 'employee' | 'absenteeism';
 
 export function useApiConfig(type: ApiConfigType) {
   const { toast } = useToast();
-  const [config, setConfig] = useState<ApiConfig | null>(null);
+  const [config, setConfig] = useState<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
