@@ -49,6 +49,17 @@ class ErrorBoundary extends Component<Props, State> {
     window.location.reload();
   };
 
+  private getReadableError(error: Error): string {
+    // Extract the meaningful part from the error message
+    const errorMessage = error.toString();
+    
+    if (errorMessage.includes("filter is not a function")) {
+      return "O formato dos dados recebidos não é uma lista. Verifique a configuração da API e tente novamente.";
+    }
+    
+    return errorMessage;
+  }
+
   public render() {
     if (this.state.hasError) {
       if (this.props.fallback) {
@@ -66,7 +77,7 @@ class ErrorBoundary extends Component<Props, State> {
           </p>
           {this.state.error && (
             <div className="text-sm text-red-700 mb-4 max-w-lg mx-auto overflow-auto">
-              <p className="font-medium">Erro: {this.state.error.toString()}</p>
+              <p className="font-medium">Erro: {this.getReadableError(this.state.error)}</p>
               {this.state.errorInfo && (
                 <details className="mt-2 text-left">
                   <summary className="cursor-pointer text-red-800">Ver detalhes do erro</summary>

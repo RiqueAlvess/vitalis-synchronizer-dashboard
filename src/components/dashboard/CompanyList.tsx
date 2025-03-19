@@ -23,21 +23,37 @@ const CompanyList = () => {
       const response = await apiService.companies.getAll();
       console.log('Companies data received:', response);
       
-      // Always ensure we have an array, even if the API returns null, undefined or a non-array
+      // Validate response is array before processing
       if (Array.isArray(response)) {
         setCompanies(response);
       } else {
-        console.warn('Company data is not an array:', response);
+        console.error('Invalid response format. Expected array, got:', typeof response);
         // Initialize with empty array instead of throwing error
         setCompanies([]);
-        // Only set error if response exists but isn't array format
-        if (response !== null && response !== undefined) {
-          setError('Os dados recebidos não estão no formato esperado. Contate o suporte.');
+        
+        // Set detailed error message based on response type
+        if (response === null || response === undefined) {
+          setError('Nenhum dado foi retornado da API. Verifique a configuração da API de empresas.');
+        } else if (typeof response === 'string') {
+          // Check if response is HTML (common when API returns error page)
+          if (response.includes('<!DOCTYPE html>') || response.includes('<html>')) {
+            setError('A API retornou uma página HTML ao invés de dados. Verifique a URL e as configurações da API.');
+          } else {
+            setError(`Resposta inesperada da API: ${response.substring(0, 100)}...`);
+          }
+        } else {
+          setError('Os dados recebidos não estão no formato esperado. Certifique-se de que a API está configurada corretamente.');
         }
+        
+        toast({
+          variant: 'destructive',
+          title: 'Formato de dados inválido',
+          description: 'A API retornou dados em um formato inesperado. Verifique a configuração da API.'
+        });
       }
     } catch (err) {
       console.error('Error fetching companies:', err);
-      setError('Não foi possível carregar as empresas. Verifique a configuração da API.');
+      setError(`Erro ao buscar empresas: ${err.message || 'Erro desconhecido'}`);
       toast({
         variant: 'destructive',
         title: 'Erro ao carregar empresas',
@@ -137,16 +153,30 @@ const CompanyList = () => {
               Gerencie suas empresas sincronizadas
             </CardDescription>
           </div>
+          <Button
+            size="sm"
+            onClick={fetchCompanies}
+            className="flex items-center"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Tentar novamente
+          </Button>
         </CardHeader>
         <CardContent>
           <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
             <AlertCircle className="mx-auto h-10 w-10 text-red-400 mb-3" />
             <h3 className="text-lg font-medium text-red-800 mb-1">Erro ao carregar dados</h3>
             <p className="text-red-600 mb-4">{error}</p>
-            <Button onClick={fetchCompanies} variant="outline" className="flex mx-auto items-center gap-2">
-              <RefreshCw className="h-4 w-4" />
-              Tentar novamente
-            </Button>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={fetchCompanies} variant="outline" className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Tentar novamente
+              </Button>
+              <Button onClick={() => window.location.href = "/api-config"} variant="default" className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Verificar configuração da API
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

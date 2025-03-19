@@ -22,7 +22,15 @@ Deno.serve(async (req) => {
     const validTypes = ['company', 'employee', 'absenteeism'];
     if (!validTypes.includes(configType)) {
       return new Response(
-        JSON.stringify({ error: `Invalid config type: ${configType}` }),
+        JSON.stringify({ 
+          error: `Invalid config type: ${configType}`,
+          type: configType,
+          empresa: '',
+          codigo: '',
+          chave: '',
+          tipoSaida: 'json',
+          isConfigured: false
+        }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -39,7 +47,15 @@ Deno.serve(async (req) => {
     // Require authentication
     if (!session) {
       return new Response(
-        JSON.stringify({ error: 'Not authenticated' }),
+        JSON.stringify({ 
+          error: 'Not authenticated',
+          type: configType,
+          empresa: '',
+          codigo: '',
+          chave: '',
+          tipoSaida: 'json',
+          isConfigured: false
+        }),
         { 
           status: 401, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -62,7 +78,15 @@ Deno.serve(async (req) => {
     if (error) {
       console.error('Error fetching API config:', error);
       return new Response(
-        JSON.stringify({ error: error.message }),
+        JSON.stringify({ 
+          error: error.message,
+          type: configType,
+          empresa: '',
+          codigo: '',
+          chave: '',
+          tipoSaida: 'json',
+          isConfigured: false
+        }),
         { 
           status: 500, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -90,7 +114,7 @@ Deno.serve(async (req) => {
     }
 
     // Log the config found
-    console.log(`Found ${configType} config for user ${session.user.id}:`, data);
+    console.log(`Found ${configType} config for user ${session.user.id}`);
 
     // Return the config with proper defaults to ensure all fields exist
     return new Response(
@@ -112,7 +136,15 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Unexpected error:', error);
     return new Response(
-      JSON.stringify({ error: error.message || 'An unexpected error occurred' }),
+      JSON.stringify({ 
+        error: error.message || 'An unexpected error occurred',
+        type: 'unknown',
+        empresa: '',
+        codigo: '',
+        chave: '',
+        tipoSaida: 'json',
+        isConfigured: false
+      }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
