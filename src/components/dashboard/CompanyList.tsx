@@ -51,7 +51,7 @@ const CompanyList = () => {
           description: 'A API retornou dados em um formato inesperado. Verifique a configuração da API.'
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching companies:', err);
       setError(`Erro ao buscar empresas: ${err.message || 'Erro desconhecido'}`);
       toast({
@@ -85,7 +85,7 @@ const CompanyList = () => {
       }
       // Add a slight delay before fetching to allow backend processing
       setTimeout(fetchCompanies, 1500);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error syncing companies:', err);
       toast({
         variant: 'destructive',

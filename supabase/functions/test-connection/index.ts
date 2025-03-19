@@ -70,8 +70,14 @@ Deno.serve(async (req) => {
     }
     
     try {
+      // Format the parameters as JSON string and append to the URL
+      const apiParamsJson = JSON.stringify(apiParams);
+      const apiUrl = `${socApiUrl}?parametro=${encodeURIComponent(apiParamsJson)}`;
+      
+      console.log(`Calling SOC API with URL: ${apiUrl}`);
+      
       // Test the connection by making a request to the SOC API
-      const response = await fetch(`${socApiUrl}?parametro=${JSON.stringify(apiParams)}`);
+      const response = await fetch(apiUrl);
       
       if (!response.ok) {
         return new Response(

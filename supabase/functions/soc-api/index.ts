@@ -121,9 +121,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Make the API request to SOC
+    // Make the API request to SOC using the correct URL format
     const socApiUrl = 'https://ws1.soc.com.br/WebSoc/exportadados'
-    const response = await fetch(`${socApiUrl}?parametro=${JSON.stringify(apiParams)}`)
+    const apiParamsJson = JSON.stringify(apiParams);
+    const apiUrl = `${socApiUrl}?parametro=${encodeURIComponent(apiParamsJson)}`;
+    
+    console.log(`Calling SOC API with URL: ${apiUrl}`);
+    const response = await fetch(apiUrl);
     
     if (!response.ok) {
       const errorMessage = `Erro na API SOC: ${response.status} ${response.statusText}`
