@@ -1,6 +1,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/components/ui/use-toast';
+import { supabaseAPI } from './apiClient';
 
 export interface User {
   id: string;

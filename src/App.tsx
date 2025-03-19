@@ -4,6 +4,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from './context/AuthContext';
 import PageTransition from './components/layout/PageTransition';
 import NavBar from './components/layout/NavBar';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 
 // Pages
 import Index from './pages/Index';
@@ -27,10 +28,26 @@ function App() {
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/employees" element={<Employees />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/sync" element={<Sync />} />
+            <Route path="/dashboard" element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/employees" element={
+              <ProtectedRoute>
+                <Employees />
+              </ProtectedRoute>
+            } />
+            <Route path="/settings" element={
+              <ProtectedRoute>
+                <Settings />
+              </ProtectedRoute>
+            } />
+            <Route path="/sync" element={
+              <ProtectedRoute>
+                <Sync />
+              </ProtectedRoute>
+            } />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </PageTransition>

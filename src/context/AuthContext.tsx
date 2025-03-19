@@ -3,7 +3,6 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from '@/components/ui/use-toast';
-import { supabase } from '@/integrations/supabase/client';
 
 interface AuthContextType {
   user: User | null;
@@ -46,7 +45,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Check if user is logged in on app load and set up auth state listener
+  // Check if user is logged in on app load
   useEffect(() => {
     const verifyAuth = async () => {
       try {
@@ -60,31 +59,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     verifyAuth();
-
-    // Subscribe to auth changes
-    const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session ? 'Session exists' : 'No session');
-      
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        if (session) {
-          try {
-            const userData = await authService.getCurrentUser();
-            setUser(userData);
-            console.log('User data updated after auth state change');
-          } catch (error) {
-            console.error('Error getting user data after auth state change:', error);
-          }
-        }
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        console.log('User signed out');
-      }
-    });
-
-    // Cleanup subscription
-    return () => {
-      data.subscription.unsubscribe();
-    };
   }, []);
 
   // Redirect unauthenticated users from protected routes
