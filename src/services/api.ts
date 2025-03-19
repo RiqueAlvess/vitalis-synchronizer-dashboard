@@ -4,7 +4,6 @@ import { DashboardData, MonthlyTrendData, SectorData, ApiStorageProps, MonthlyAb
 import type { MockCompanyData, MockEmployeeData } from '@/types/dashboard';
 import { localStorageService } from '@/services/localStorageService';
 import { supabaseAPI, retryRequest } from './apiClient';
-import { syncLogsService } from './syncLogsService';
 
 export type ApiConfigType = 'company' | 'employee' | 'absenteeism';
 
@@ -199,11 +198,7 @@ const apiService = {
       const employeeConfig = await apiService.apiConfig.get('employee');
       const absenteeismConfig = await apiService.apiConfig.get('absenteeism');
       
-      if (!companyConfig?.isConfigured || !employeeConfig?.isConfigured || !absenteeismConfig?.isConfigured) {
-        console.warn('Um ou mais serviços de API não configurados, retornando dados simulados');
-        return generateMockData('dashboard') as DashboardData;
-      }
-      
+      // Try to get data from API first
       try {
         const response = await supabaseAPI.get<DashboardData>('/api/dashboard');
         if (response.data) {
@@ -213,10 +208,28 @@ const apiService = {
         console.error('Erro ao buscar dados do dashboard da API:', err);
       }
       
-      return generateMockData('dashboard') as DashboardData;
+      // If no data, return zeros instead of mock data
+      return {
+        absenteeismRate: 0,
+        totalAbsenceDays: 0,
+        employeesAbsent: 0,
+        costImpact: 'R$ 0,00',
+        trend: 'stable',
+        monthlyTrend: [],
+        bySector: []
+      };
     } catch (error) {
-      console.error('Erro ao buscar dados do dashboard, usando dados simulados:', error);
-      return generateMockData('dashboard') as DashboardData;
+      console.error('Erro ao buscar dados do dashboard:', error);
+      // Return zeros instead of mock data
+      return {
+        absenteeismRate: 0,
+        totalAbsenceDays: 0,
+        employeesAbsent: 0,
+        costImpact: 'R$ 0,00',
+        trend: 'stable',
+        monthlyTrend: [],
+        bySector: []
+      };
     }
   },
   
@@ -225,22 +238,21 @@ const apiService = {
       try {
         const config = await apiService.apiConfig.get('company');
         
-        if (!config || !config.isConfigured) {
-          console.warn('Company API not configured, returning mock data');
-          return generateMockData('companies') as MockCompanyData[];
+        try {
+          const response = await supabaseAPI.get<MockCompanyData[]>('/api/companies');
+          
+          if (Array.isArray(response.data) && response.data.length > 0) {
+            return response.data;
+          }
+        } catch (error) {
+          console.error('Error fetching companies:', error);
         }
         
-        const response = await supabaseAPI.get<MockCompanyData[]>('/api/companies');
-        
-        if (Array.isArray(response.data) && response.data.length > 0) {
-          return response.data;
-        } else {
-          console.warn('Empty response from API, returning mock data');
-          return generateMockData('companies') as MockCompanyData[];
-        }
+        // Return empty array if no data
+        return [];
       } catch (error) {
-        console.error('Error fetching companies, using mock data:', error);
-        return generateMockData('companies') as MockCompanyData[];
+        console.error('Error fetching companies:', error);
+        return [];
       }
     },
     getById: async (id: number): Promise<MockCompanyData | null> => {
@@ -301,22 +313,21 @@ const apiService = {
       try {
         const config = await apiService.apiConfig.get('employee');
         
-        if (!config || !config.isConfigured) {
-          console.warn('Employee API not configured, returning mock data');
-          return generateMockData('employees') as MockEmployeeData[];
+        try {
+          const response = await supabaseAPI.get<MockEmployeeData[]>('/api/employees');
+          
+          if (Array.isArray(response.data) && response.data.length > 0) {
+            return response.data;
+          }
+        } catch (error) {
+          console.error('Error fetching employees:', error);
         }
         
-        const response = await supabaseAPI.get<MockEmployeeData[]>('/api/employees');
-        
-        if (Array.isArray(response.data) && response.data.length > 0) {
-          return response.data;
-        } else {
-          console.warn('Empty response from API, returning mock data');
-          return generateMockData('employees') as MockEmployeeData[];
-        }
+        // Return empty array if no data
+        return [];
       } catch (error) {
-        console.error('Error fetching employees, using mock data:', error);
-        return generateMockData('employees') as MockEmployeeData[];
+        console.error('Error fetching employees:', error);
+        return [];
       }
     },
     getById: async (id: number): Promise<MockEmployeeData | null> => {
@@ -790,11 +801,11 @@ const apiService = {
           empresa: config.empresa,
           codigo: config.codigo,
           chave: config.chave,
-          tipoSaida: config.tipoSaida
+          tipoSaida: config.tipoSaida || 'json'
         };
         
         // Call the sync endpoint
-        const response = await supabaseAPI.post('/api/companies/sync', params);
+        const response = await supabaseAPI.post('/api/sync/companies', params);
         
         return {
           success: true,
@@ -828,7 +839,7 @@ const apiService = {
           empresa: employeeConfig.empresa,
           codigo: employeeConfig.codigo,
           chave: employeeConfig.chave,
-          tipoSaida: employeeConfig.tipoSaida,
+          tipoSaida: employeeConfig.tipoSaida || 'json',
           ativo: employeeConfig.ativo,
           inativo: employeeConfig.inativo,
           afastado: employeeConfig.afastado,
@@ -837,7 +848,7 @@ const apiService = {
         };
         
         // Call the sync endpoint
-        const response = await supabaseAPI.post('/api/employees/sync', params);
+        const response = await supabaseAPI.post('/api/sync/employees', params);
         
         return {
           success: true,
@@ -871,14 +882,14 @@ const apiService = {
           empresa: absenteeismConfig.empresa,
           codigo: absenteeismConfig.codigo,
           chave: absenteeismConfig.chave,
-          tipoSaida: absenteeismConfig.tipoSaida,
+          tipoSaida: absenteeismConfig.tipoSaida || 'json',
           empresaTrabalho: absenteeismConfig.empresaTrabalho,
           dataInicio: absenteeismConfig.dataInicio,
           dataFim: absenteeismConfig.dataFim
         };
         
         // Call the sync endpoint
-        const response = await supabaseAPI.post('/api/absenteeism/sync', params);
+        const response = await supabaseAPI.post('/api/sync/absenteeism', params);
         
         return {
           success: true,

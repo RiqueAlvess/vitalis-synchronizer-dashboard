@@ -1,0 +1,6 @@
+
+# project_id is a non-secret, so this is fine
+project_id = "rdrvashvfvjdtuuuqjio"
+
+[sync-logs]
+path = "sync-logs"

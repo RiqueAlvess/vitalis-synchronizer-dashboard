@@ -1,41 +1,37 @@
 
 import { ApiConfig, ApiConfigType } from './api';
 
-export interface LocalStorageConfig {
-  savedLocally: boolean;
-  savedAt: string;
-  [key: string]: any;
+interface LocalStorageService {
+  isPreviewEnvironment: () => boolean;
+  getConfig: <T>(type: ApiConfigType) => T | null;
+  saveConfig: (type: ApiConfigType, config: any) => boolean;
 }
 
-export const localStorageService = {
-  saveConfig: <T>(type: ApiConfigType, config: T): boolean => {
-    try {
-      localStorage.setItem(`api_config_${type}`, JSON.stringify({
-        ...config,
-        savedLocally: true,
-        savedAt: new Date().toISOString()
-      }));
-      return true;
-    } catch (error) {
-      console.error('Error saving to localStorage:', error);
-      return false;
-    }
+export const localStorageService: LocalStorageService = {
+  isPreviewEnvironment: () => {
+    return false; // Set to false to disable preview/mock mode entirely
   },
   
-  getConfig: <T>(type: ApiConfigType): (T & Partial<LocalStorageConfig>) | null => {
+  getConfig: <T>(type: ApiConfigType): T | null => {
     try {
-      const stored = localStorage.getItem(`api_config_${type}`);
-      if (!stored) return null;
-      return JSON.parse(stored) as T & Partial<LocalStorageConfig>;
+      const storedConfig = localStorage.getItem(`api_config_${type}`);
+      if (storedConfig) {
+        return JSON.parse(storedConfig) as T;
+      }
+      return null;
     } catch (error) {
-      console.error('Error reading from localStorage:', error);
+      console.error(`Error retrieving ${type} config from localStorage:`, error);
       return null;
     }
   },
   
-  isPreviewEnvironment: (): boolean => {
-    return window.location.hostname.includes('preview--') || 
-           window.location.hostname.includes('.preview.') ||
-           window.location.hostname.includes('.lovable.app');
+  saveConfig: (type: ApiConfigType, config: any): boolean => {
+    try {
+      localStorage.setItem(`api_config_${type}`, JSON.stringify(config));
+      return true;
+    } catch (error) {
+      console.error(`Error saving ${type} config to localStorage:`, error);
+      return false;
+    }
   }
 };
