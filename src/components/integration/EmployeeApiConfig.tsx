@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -5,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import apiService, { EmployeeApiConfig as EmployeeApiConfigType } from '@/services/api';
-import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { localStorageService } from '@/services/localStorageService';
@@ -16,8 +17,17 @@ const EmployeeApiConfig = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Status checkboxes
+  const [isAtivo, setIsAtivo] = useState(false);
+  const [isInativo, setIsInativo] = useState(false);
+  const [isAfastado, setIsAfastado] = useState(false);
+  const [isPendente, setIsPendente] = useState(false);
+  const [isFerias, setIsFerias] = useState(false);
 
   // Initialize config with the correct structure including savedLocally
   const initialConfig: EmployeeApiConfigType = {
@@ -26,7 +36,7 @@ const EmployeeApiConfig = () => {
     codigo: '',
     chave: '',
     tipoSaida: 'json',
-    ativo: 'Sim',
+    ativo: '',
     inativo: '',
     afastado: '',
     pendente: '',
@@ -44,12 +54,18 @@ const EmployeeApiConfig = () => {
         const data = await apiService.getApiConfig('employee');
         if (data) {
           const typedData = data as EmployeeApiConfigType;
+          
+          // Set checkboxes based on config values
+          setIsAtivo(typedData.ativo === 'Sim');
+          setIsInativo(typedData.inativo === 'Sim');
+          setIsAfastado(typedData.afastado === 'Sim');
+          setIsPendente(typedData.pendente === 'Sim');
+          setIsFerias(typedData.ferias === 'Sim');
+          
           setConfig({
             ...typedData,
             // Force tipoSaida to always be 'json'
             tipoSaida: 'json',
-            // Set ativo default if not provided
-            ativo: typedData.ativo || 'Sim',
             isConfigured: !!typedData.empresa && !!typedData.codigo && !!typedData.chave,
             savedLocally: typedData.savedLocally
           });
@@ -74,6 +90,43 @@ const EmployeeApiConfig = () => {
     setConfig(prev => ({ ...prev, [name]: value }));
     if (testResult) {
       setTestResult(null);
+    }
+    if (syncResult) {
+      setSyncResult(null);
+    }
+  };
+
+  const handleCheckboxChange = (name: string, checked: boolean) => {
+    // Update the config with "Sim" if checked, empty string if not
+    setConfig(prev => ({ 
+      ...prev, 
+      [name]: checked ? 'Sim' : '' 
+    }));
+    
+    // Update the checkbox state
+    switch (name) {
+      case 'ativo':
+        setIsAtivo(checked);
+        break;
+      case 'inativo':
+        setIsInativo(checked);
+        break;
+      case 'afastado':
+        setIsAfastado(checked);
+        break;
+      case 'pendente':
+        setIsPendente(checked);
+        break;
+      case 'ferias':
+        setIsFerias(checked);
+        break;
+    }
+    
+    if (testResult) {
+      setTestResult(null);
+    }
+    if (syncResult) {
+      setSyncResult(null);
     }
   };
 
@@ -133,6 +186,51 @@ const EmployeeApiConfig = () => {
     }
   };
 
+  // Add sync function
+  const handleSync = async () => {
+    try {
+      setIsSyncing(true);
+      setSyncResult(null);
+      
+      // First, we need to make sure the config is saved
+      if (!config.isConfigured) {
+        await handleSave();
+      }
+      
+      // Now sync the employee data
+      const result = await apiService.employees.sync();
+      
+      setSyncResult({
+        success: result.success,
+        message: result.message || (result.success 
+          ? 'Sincronização de funcionários concluída com sucesso!' 
+          : 'Falha ao sincronizar dados de funcionários.')
+      });
+      
+      toast({
+        title: result.success ? "Sincronização concluída" : "Erro na sincronização",
+        description: result.success 
+          ? "Dados de funcionários sincronizados com sucesso." 
+          : "Não foi possível sincronizar dados de funcionários. Verifique as configurações.",
+        variant: result.success ? "default" : "destructive"
+      });
+    } catch (error) {
+      console.error('Error syncing employee data:', error);
+      setSyncResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Erro desconhecido ao sincronizar dados'
+      });
+      
+      toast({
+        title: "Erro na sincronização",
+        description: "Não foi possível sincronizar dados de funcionários. Verifique as configurações.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // Ensure the handleSave function properly updates with all required fields
   const handleSave = async () => {
     try {
@@ -145,11 +243,11 @@ const EmployeeApiConfig = () => {
         codigo: config.codigo,
         chave: config.chave,
         tipoSaida: 'json',
-        ativo: config.ativo || 'Sim',
-        inativo: config.inativo || '',
-        afastado: config.afastado || '',
-        pendente: config.pendente || '',
-        ferias: config.ferias || '',
+        ativo: isAtivo ? 'Sim' : '',
+        inativo: isInativo ? 'Sim' : '',
+        afastado: isAfastado ? 'Sim' : '',
+        pendente: isPendente ? 'Sim' : '',
+        ferias: isFerias ? 'Sim' : '',
         isConfigured: true,
         savedLocally: config.savedLocally
       };
@@ -292,56 +390,78 @@ const EmployeeApiConfig = () => {
           </label>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="ativo">Filtro Ativo</Label>
-            <Input
-              id="ativo"
-              name="ativo"
-              value={config.ativo}
-              onChange={handleChange}
-              placeholder="Ex: Sim"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="inativo">Filtro Inativo</Label>
-            <Input
-              id="inativo"
-              name="inativo"
-              value={config.inativo}
-              onChange={handleChange}
-              placeholder="Ex: Não"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="afastado">Filtro Afastado</Label>
-            <Input
-              id="afastado"
-              name="afastado"
-              value={config.afastado}
-              onChange={handleChange}
-              placeholder="Ex: Afastado"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="pendente">Filtro Pendente</Label>
-            <Input
-              id="pendente"
-              name="pendente"
-              value={config.pendente}
-              onChange={handleChange}
-              placeholder="Ex: Pendente"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="ferias">Filtro Férias</Label>
-            <Input
-              id="ferias"
-              name="ferias"
-              value={config.ferias}
-              onChange={handleChange}
-              placeholder="Ex: Férias"
-            />
+        <div className="border rounded-md p-4 mt-4">
+          <h3 className="text-sm font-medium mb-3">Filtros de status</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="ativoCheck"
+                checked={isAtivo}
+                onCheckedChange={(checked) => handleCheckboxChange('ativo', !!checked)}
+              />
+              <label
+                htmlFor="ativoCheck"
+                className="text-sm font-medium leading-none"
+              >
+                Ativo
+              </label>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="inativoCheck"
+                checked={isInativo}
+                onCheckedChange={(checked) => handleCheckboxChange('inativo', !!checked)}
+              />
+              <label
+                htmlFor="inativoCheck"
+                className="text-sm font-medium leading-none"
+              >
+                Inativo
+              </label>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="afastadoCheck"
+                checked={isAfastado}
+                onCheckedChange={(checked) => handleCheckboxChange('afastado', !!checked)}
+              />
+              <label
+                htmlFor="afastadoCheck"
+                className="text-sm font-medium leading-none"
+              >
+                Afastado
+              </label>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="pendenteCheck"
+                checked={isPendente}
+                onCheckedChange={(checked) => handleCheckboxChange('pendente', !!checked)}
+              />
+              <label
+                htmlFor="pendenteCheck"
+                className="text-sm font-medium leading-none"
+              >
+                Pendente
+              </label>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="feriasCheck"
+                checked={isFerias}
+                onCheckedChange={(checked) => handleCheckboxChange('ferias', !!checked)}
+              />
+              <label
+                htmlFor="feriasCheck"
+                className="text-sm font-medium leading-none"
+              >
+                Férias
+              </label>
+            </div>
           </div>
         </div>
         
@@ -355,12 +475,24 @@ const EmployeeApiConfig = () => {
             <span>{testResult.message}</span>
           </div>
         )}
+        
+        {syncResult && (
+          <div className={`p-4 rounded-md ${syncResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'} flex items-center space-x-3`}>
+            {syncResult.success ? (
+              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
+            )}
+            <span>{syncResult.message}</span>
+          </div>
+        )}
       </CardContent>
-      <CardFooter className="flex justify-between">
+      <CardFooter className="flex flex-col sm:flex-row gap-2">
         <Button 
           variant="outline" 
           onClick={handleTest} 
-          disabled={isTesting || isLoading || isSaving || !config.empresa || !config.codigo || !config.chave}
+          disabled={isTesting || isLoading || isSaving || isSyncing || !config.empresa || !config.codigo || !config.chave}
+          className="w-full sm:w-auto"
         >
           {isTesting ? (
             <>
@@ -371,9 +503,30 @@ const EmployeeApiConfig = () => {
             'Testar Conexão'
           )}
         </Button>
+        
+        <Button 
+          variant="outline"
+          onClick={handleSync}
+          disabled={isLoading || isTesting || isSaving || isSyncing || !config.empresa || !config.codigo || !config.chave}
+          className="w-full sm:w-auto flex items-center gap-2"
+        >
+          {isSyncing ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Sincronizando...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="h-4 w-4" />
+              Sincronizar Dados
+            </>
+          )}
+        </Button>
+        
         <Button 
           onClick={handleSave} 
-          disabled={isLoading || isSaving || !config.empresa || !config.codigo || !config.chave}
+          disabled={isLoading || isTesting || isSaving || isSyncing || !config.empresa || !config.codigo || !config.chave}
+          className="w-full sm:w-auto"
         >
           {isSaving ? (
             <>

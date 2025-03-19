@@ -266,6 +266,8 @@ async function processEmployeeData(supabase: any, data: any[], userId: string) {
   let success = 0;
   let failed = 0;
   
+  console.log(`Processing ${data.length} employee records`);
+  
   for (const item of data) {
     try {
       // Find company by SOC code
@@ -276,10 +278,33 @@ async function processEmployeeData(supabase: any, data: any[], userId: string) {
         .eq('user_id', userId)
         .maybeSingle();
       
+      // If company not found, let's create a placeholder one
+      let companyId;
+      
       if (!company) {
-        console.warn(`Company with SOC code ${item.CODIGOEMPRESA} not found for employee ${item.CODIGO}`);
-        failed++;
-        continue;
+        console.log(`Company with SOC code ${item.CODIGOEMPRESA} not found, creating placeholder...`);
+        
+        // Create a placeholder company
+        const { data: newCompany, error: companyError } = await supabase
+          .from('companies')
+          .insert({
+            soc_code: item.CODIGOEMPRESA,
+            short_name: item.NOMEEMPRESA || 'Empresa sem nome',
+            corporate_name: item.NOMEEMPRESA || 'Empresa sem nome',
+            user_id: userId
+          })
+          .select('id')
+          .single();
+          
+        if (companyError) {
+          console.error(`Error creating placeholder company for ${item.CODIGOEMPRESA}:`, companyError);
+          failed++;
+          continue;
+        }
+        
+        companyId = newCompany.id;
+      } else {
+        companyId = company.id;
       }
       
       // Check if the employee already exists
@@ -293,7 +318,7 @@ async function processEmployeeData(supabase: any, data: any[], userId: string) {
       
       const employeeData = {
         soc_code: item.CODIGO,
-        company_id: company.id,
+        company_id: companyId,
         company_soc_code: item.CODIGOEMPRESA,
         company_name: item.NOMEEMPRESA,
         full_name: item.NOME,

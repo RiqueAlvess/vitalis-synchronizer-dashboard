@@ -7,6 +7,7 @@ import {
   ApiStorageProps,
   MockEmployeeData
 } from '@/types/dashboard';
+import { localStorageService } from '@/services/localStorageService';
 
 const retryRequest = async (fn: () => Promise<any>, maxRetries = 3, delay = 1000) => {
   let lastError;

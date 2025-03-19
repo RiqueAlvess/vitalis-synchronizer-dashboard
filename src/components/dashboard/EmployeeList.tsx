@@ -1,242 +1,193 @@
 
 import React, { useState, useEffect } from 'react';
-import apiService from '@/services/api';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui-custom/Card';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { RefreshCw, Search, AlertCircle, Users } from 'lucide-react';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { RefreshCw, Search, Filter, UserRound } from 'lucide-react';
+import apiService from '@/services/api';
+import { MockEmployeeData } from '@/types/dashboard';
+import { Loader2 } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 
 const EmployeeList = () => {
-  const { toast } = useToast();
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<MockEmployeeData[]>([]);
+  const [filteredEmployees, setFilteredEmployees] = useState<MockEmployeeData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
-  const fetchEmployees = async () => {
-    setIsLoading(true);
-    setError(null);
+  // Function to load employees
+  const loadEmployees = async () => {
     try {
+      setIsLoading(true);
       const data = await apiService.employees.getAll();
-      if (!data) {
-        throw new Error('Nenhum dado recebido');
-      }
+      console.log('Loaded employees:', data);
       setEmployees(data);
-    } catch (err) {
-      console.error('Error fetching employees:', err);
-      setError('Não foi possível carregar os funcionários. Verifique a configuração da API.');
+      setFilteredEmployees(data);
+    } catch (error) {
+      console.error('Error loading employees:', error);
       toast({
-        variant: 'destructive',
         title: 'Erro ao carregar funcionários',
-        description: 'Não foi possível carregar os dados de funcionários.'
+        description: 'Não foi possível carregar a lista de funcionários. Tente novamente mais tarde.',
+        variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchEmployees();
-  }, []);
-
-  const syncEmployees = async () => {
-    setIsSyncing(true);
+  // Function to refresh employee data
+  const handleRefresh = async () => {
     try {
-      const result = await apiService.employees.sync();
-      if (result) {
-        toast({
-          title: 'Sincronização concluída',
-          description: 'Dados de funcionários sincronizados com sucesso.'
-        });
-      } else {
-        throw new Error('Falha na sincronização');
-      }
-      setTimeout(fetchEmployees, 1500);
-    } catch (err) {
-      console.error('Error syncing employees:', err);
+      setIsRefreshing(true);
+      await apiService.employees.sync();
       toast({
-        variant: 'destructive',
+        title: 'Sincronização iniciada',
+        description: 'A sincronização dos dados de funcionários foi iniciada. Isso pode levar alguns minutos.',
+      });
+      
+      // Reload the employee list after a brief delay
+      setTimeout(loadEmployees, 3000);
+    } catch (error) {
+      console.error('Error syncing employees:', error);
+      toast({
         title: 'Erro na sincronização',
-        description: 'Não foi possível sincronizar os funcionários. Verifique a configuração da API.'
+        description: 'Não foi possível sincronizar os dados de funcionários. Verifique as configurações.',
+        variant: 'destructive',
       });
     } finally {
-      setIsSyncing(false);
+      setIsRefreshing(false);
     }
   };
 
+  // Load employees on component mount
+  useEffect(() => {
+    loadEmployees();
+  }, []);
+
+  // Filter employees when search term changes
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setFilteredEmployees(employees);
+      return;
+    }
+
+    const lowercasedTerm = searchTerm.toLowerCase();
+    const filtered = employees.filter(
+      employee =>
+        employee.name.toLowerCase().includes(lowercasedTerm) ||
+        employee.full_name?.toLowerCase().includes(lowercasedTerm) ||
+        employee.position_name?.toLowerCase().includes(lowercasedTerm) ||
+        employee.sector_name?.toLowerCase().includes(lowercasedTerm)
+    );
+    setFilteredEmployees(filtered);
+  }, [searchTerm, employees]);
+
+  // Helper function to get status badge color
   const getStatusBadge = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'ativo':
-        return (
-          <span className="bg-green-50 text-green-700 rounded-full px-2.5 py-0.5 text-xs font-medium">
-            Ativo
-          </span>
-        );
-      case 'afastado':
-        return (
-          <span className="bg-amber-50 text-amber-700 rounded-full px-2.5 py-0.5 text-xs font-medium">
-            Afastado
-          </span>
-        );
-      case 'inativo':
-        return (
-          <span className="bg-gray-100 text-gray-700 rounded-full px-2.5 py-0.5 text-xs font-medium">
-            Inativo
-          </span>
-        );
-      default:
-        return (
-          <span className="bg-gray-100 text-gray-700 rounded-full px-2.5 py-0.5 text-xs font-medium">
-            {status || 'Desconhecido'}
-          </span>
-        );
-    }
+    const lowerStatus = status?.toLowerCase() || '';
+    if (lowerStatus.includes('ativo')) return 'bg-green-100 text-green-800';
+    if (lowerStatus.includes('inativo') || lowerStatus.includes('demit')) return 'bg-red-100 text-red-800';
+    if (lowerStatus.includes('afastado')) return 'bg-yellow-100 text-yellow-800';
+    if (lowerStatus.includes('férias')) return 'bg-blue-100 text-blue-800';
+    return 'bg-gray-100 text-gray-800';
   };
 
-  const filteredEmployees = employees.filter(employee =>
-    (employee.name || employee.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (employee.position || employee.position_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (employee.sector || employee.sector_name || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  if (error) {
+  if (isLoading) {
     return (
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Funcionários</CardTitle>
-            <CardDescription>
-              Lista de funcionários das suas empresas
-            </CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-            <AlertCircle className="mx-auto h-10 w-10 text-red-400 mb-3" />
-            <h3 className="text-lg font-medium text-red-800 mb-1">Erro ao carregar dados</h3>
-            <p className="text-red-600 mb-4">{error}</p>
-            <Button onClick={fetchEmployees} variant="outline" className="flex mx-auto items-center gap-2">
-              <RefreshCw className="h-4 w-4" />
-              Tentar novamente
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="w-full h-64 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2 text-muted-foreground">Carregando funcionários...</span>
+      </div>
     );
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle>Funcionários</CardTitle>
-          <CardDescription>
-            Lista de funcionários das suas empresas
-          </CardDescription>
-        </div>
-        <Button
-          size="sm"
-          onClick={syncEmployees}
-          disabled={isSyncing}
-          className="flex items-center"
-        >
-          <RefreshCw className={cn("h-4 w-4 mr-2", isSyncing && "animate-spin")} />
-          Sincronizar
-        </Button>
-      </CardHeader>
-      <CardContent>
-        <div className="mb-4 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+        <div className="relative w-full sm:w-auto flex-1 max-w-md">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar funcionários..."
+            placeholder="Buscar funcionário..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
+            className="pl-8"
           />
         </div>
-        
-        {isLoading ? (
-          <div className="space-y-4">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="flex items-start justify-between py-3">
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-40" />
-                  <Skeleton className="h-3 w-24" />
-                </div>
-                <Skeleton className="h-5 w-20" />
-              </div>
-            ))}
-          </div>
-        ) : employees.length === 0 ? (
-          <div className="py-8 text-center">
-            <Users className="mx-auto h-10 w-10 text-muted-foreground mb-3 opacity-40" />
-            <p className="text-muted-foreground">Nenhum funcionário encontrado</p>
-            <Button onClick={syncEmployees} variant="outline" className="mt-4">
-              Sincronizar Funcionários
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-1"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          >
+            {isRefreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Sincronizar
+          </Button>
+        </div>
+      </div>
+
+      {filteredEmployees.length === 0 ? (
+        <div className="text-center py-12 bg-muted/20 rounded-md">
+          <UserRound className="h-12 w-12 mx-auto text-muted-foreground/50" />
+          <h3 className="mt-4 text-lg font-medium">Nenhum funcionário encontrado</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {employees.length === 0
+              ? 'Parece que você ainda não sincronizou seus funcionários. Clique em "Sincronizar" para começar.'
+              : 'Nenhum funcionário encontrado com o filtro atual. Tente outro termo de busca.'}
+          </p>
+          {employees.length === 0 && (
+            <Button onClick={handleRefresh} className="mt-4" disabled={isRefreshing}>
+              {isRefreshing ? 'Sincronizando...' : 'Sincronizar Agora'}
             </Button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="px-2 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Nome
-                  </th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Cargo
-                  </th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Setor
-                  </th>
-                  <th className="px-2 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Dias Ausentes
-                  </th>
-                  <th className="px-2 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredEmployees.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-2 py-6 text-center text-muted-foreground">
-                      Nenhum funcionário encontrado.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredEmployees.map((employee) => (
-                    <tr key={employee.id} className="border-b last:border-0 hover:bg-muted/20">
-                      <td className="px-2 py-3 text-sm font-medium">
-                        {employee.name || employee.full_name || 'Sem nome'}
-                      </td>
-                      <td className="px-2 py-3 text-sm text-muted-foreground">
-                        {employee.position || employee.position_name || 'Não informado'}
-                      </td>
-                      <td className="px-2 py-3 text-sm text-muted-foreground">
-                        {employee.sector || employee.sector_name || 'Não informado'}
-                      </td>
-                      <td className="px-2 py-3 text-sm text-center">
-                        <span className={employee.absentDays > 0 ? "text-amber-600 font-medium" : "text-muted-foreground"}>
-                          {employee.absentDays || 0}
-                        </span>
-                      </td>
-                      <td className="px-2 py-3 text-right">
-                        {getStatusBadge(employee.status)}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          )}
+        </div>
+      ) : (
+        <div className="border rounded-md">
+          <Table>
+            <TableCaption>Lista de funcionários ({filteredEmployees.length})</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome</TableHead>
+                <TableHead>Cargo</TableHead>
+                <TableHead>Setor</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredEmployees.map((employee) => (
+                <TableRow key={employee.id}>
+                  <TableCell className="font-medium">{employee.full_name || employee.name}</TableCell>
+                  <TableCell>{employee.position_name || employee.position || '-'}</TableCell>
+                  <TableCell>{employee.sector_name || employee.sector || '-'}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={getStatusBadge(employee.status)}>
+                      {employee.status || 'Desconhecido'}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
   );
 };
 
