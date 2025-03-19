@@ -5,6 +5,7 @@ import ApiConfigTabs from '@/components/integration/ApiConfigTabs';
 import { Loader2 } from 'lucide-react';
 import apiService from '@/services/api';
 import { useToast } from '@/components/ui/use-toast';
+import ErrorBoundary from '@/components/ui-custom/ErrorBoundary';
 
 const Settings = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -75,9 +76,11 @@ const Settings = () => {
       title="Configurações" 
       subtitle="Configure as integrações com APIs externas"
     >
-      <div className="max-w-5xl mx-auto">
-        <ApiConfigTabs />
-      </div>
+      <ErrorBoundary>
+        <div className="max-w-5xl mx-auto">
+          <ApiConfigTabs />
+        </div>
+      </ErrorBoundary>
     </DashboardLayout>
   );
 };

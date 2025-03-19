@@ -9,19 +9,22 @@ export function useApiConfig(type: ApiConfigType) {
   const { toast } = useToast();
   const [config, setConfig] = useState<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     const fetchConfig = async () => {
       try {
         setIsLoading(true);
+        setError(null);
         const data = await apiService.getApiConfig(type);
         setConfig(data);
       } catch (error) {
         console.error(`Error fetching ${type} API config:`, error);
+        setError(error instanceof Error ? error : new Error('Unknown error'));
         toast({
           variant: 'destructive',
-          title: 'Error',
-          description: `Could not load ${type} API configuration.`
+          title: 'Erro ao carregar configuração',
+          description: `Não foi possível carregar a configuração da API de ${type === 'company' ? 'empresas' : type === 'employee' ? 'funcionários' : 'absenteísmo'}.`
         });
       } finally {
         setIsLoading(false);
@@ -34,25 +37,64 @@ export function useApiConfig(type: ApiConfigType) {
   const saveConfig = async (configData: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig) => {
     try {
       setIsLoading(true);
-      const result = await apiService.saveApiConfig(configData);
+      setError(null);
+      
+      // Ensure we're sending the right format to the API
+      const result = await apiService.saveApiConfig({
+        ...configData,
+        tipoSaida: 'json'
+      });
+      
+      if (!result) {
+        throw new Error('Failed to save API configuration');
+      }
+      
       setConfig(result);
+      
+      toast({
+        title: 'Configuração salva',
+        description: `A configuração da API de ${type === 'company' ? 'empresas' : type === 'employee' ? 'funcionários' : 'absenteísmo'} foi salva com sucesso.`
+      });
+      
       return result;
-    } catch (error) {
-      console.error(`Error saving ${type} API config:`, error);
+    } catch (err) {
+      console.error(`Error saving ${type} API config:`, err);
+      
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(err instanceof Error ? err : new Error('Unknown error'));
+      
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: `Could not save ${type} API configuration.`
+        title: 'Erro ao salvar configuração',
+        description: `Não foi possível salvar a configuração da API de ${type === 'company' ? 'empresas' : type === 'employee' ? 'funcionários' : 'absenteísmo'}.`
       });
-      throw error;
+      
+      throw err;
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const testConnection = async (configData: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig) => {
+    try {
+      // Ensure we're sending the right format to the API
+      const result = await apiService.testApiConnection({
+        ...configData,
+        tipoSaida: 'json'
+      });
+      
+      return result;
+    } catch (err) {
+      console.error(`Error testing ${type} API connection:`, err);
+      throw err;
     }
   };
 
   return {
     config,
     saveConfig,
-    isLoading
+    testConnection,
+    isLoading,
+    error
   };
 }
