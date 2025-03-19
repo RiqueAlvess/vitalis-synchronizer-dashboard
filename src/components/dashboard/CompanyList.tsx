@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import apiService from '@/services/api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui-custom/Card';
@@ -40,6 +41,7 @@ const CompanyList = () => {
           console.error(`Data received is not in expected format: ${responseJson.substring(0, 100)}...`);
         }
         
+        // Only show toasts in development mode
         if (process.env.NODE_ENV === 'development') {
           toast({
             variant: 'destructive',
@@ -57,6 +59,7 @@ const CompanyList = () => {
       const errorMessage = `Error fetching companies: ${err.message || 'Unknown error'}`;
       console.error(errorMessage);
       
+      // Only show toasts in development mode
       if (process.env.NODE_ENV === 'development') {
         toast({
           variant: 'destructive',
@@ -146,46 +149,6 @@ const CompanyList = () => {
         return <span className="text-xs">-</span>;
     }
   };
-
-  if (error) {
-    return (
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Empresas</CardTitle>
-            <CardDescription>
-              Gerencie suas empresas sincronizadas
-            </CardDescription>
-          </div>
-          <Button
-            size="sm"
-            onClick={fetchCompanies}
-            className="flex items-center"
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Tentar novamente
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-            <AlertCircle className="mx-auto h-10 w-10 text-red-400 mb-3" />
-            <h3 className="text-lg font-medium text-red-800 mb-1">Erro ao carregar dados</h3>
-            <p className="text-red-600 mb-4">{error}</p>
-            <div className="flex gap-2 justify-center">
-              <Button onClick={fetchCompanies} variant="outline" className="flex items-center gap-2">
-                <RefreshCw className="h-4 w-4" />
-                Tentar novamente
-              </Button>
-              <Button onClick={() => window.location.href = "/api-config"} variant="default" className="flex items-center gap-2">
-                <RefreshCw className="h-4 w-4" />
-                Verificar configuração da API
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <Card>

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui-custom/Card';
 import StatCard from '@/components/ui-custom/StatCard';
 import apiService from '@/services/api';
-import { BarChart3, Users, CalendarDays, DollarSign, AlertTriangle, RefreshCw } from 'lucide-react';
+import { BarChart3, Users, CalendarDays, DollarSign, AlertTriangle, RefreshCw, Info } from 'lucide-react';
 import AbsenteeismChart from './AbsenteeismChart';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -14,18 +14,25 @@ const DashboardOverview = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [isUsingMockData, setIsUsingMockData] = useState(false);
 
   const fetchDashboardData = async () => {
     try {
       setIsLoading(true);
       setError(null);
       
+      console.log("Fetching dashboard data...");
       const data = await apiService.getDashboardData();
       console.log("Dashboard data received:", data);
       
       if (!data) {
         throw new Error('Dados não recebidos');
       }
+      
+      // Check if we're using mock data by looking at the exact absenteeism rate value
+      // This is a heuristic, since our mock data always returns 3.42%
+      setIsUsingMockData(data.absenteeismRate === 3.42);
       
       // Ensure we have default values for all needed properties
       const processedData = {
@@ -39,14 +46,18 @@ const DashboardOverview = () => {
       };
       
       setDashboardData(processedData);
+      setLastRefresh(new Date());
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
       setError('Não foi possível carregar os dados do dashboard. Verifique a configuração da API.');
-      toast({
-        variant: 'destructive',
-        title: 'Erro ao carregar dados',
-        description: 'Não foi possível carregar os dados do dashboard. Verifique a configuração da API.'
-      });
+      // Only show error toast in development mode
+      if (process.env.NODE_ENV === 'development') {
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao carregar dados',
+          description: 'Não foi possível carregar os dados do dashboard. Verifique a configuração da API.'
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -60,22 +71,27 @@ const DashboardOverview = () => {
     fetchDashboardData();
   };
 
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-        <AlertTriangle className="mx-auto h-10 w-10 text-red-400 mb-3" />
-        <h3 className="text-lg font-medium text-red-800 mb-1">Erro ao carregar dados</h3>
-        <p className="text-red-600 mb-4">{error}</p>
-        <Button onClick={handleRefresh} variant="outline" className="flex mx-auto items-center gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Tentar novamente
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-8 animate-fade-in">
+      {/* Add refresh info and button */}
+      <div className="flex justify-between items-center">
+        <div className="text-sm text-muted-foreground">
+          {lastRefresh && (
+            <>Última atualização: {lastRefresh.toLocaleTimeString()}</>
+          )}
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={handleRefresh} 
+          disabled={isLoading}
+          className="flex items-center gap-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          Atualizar
+        </Button>
+      </div>
+
       {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {isLoading ? (
@@ -88,13 +104,17 @@ const DashboardOverview = () => {
               </Card>
             ))}
           </>
-        ) : (
+        ) : dashboardData ? (
           <>
             <StatCard 
               title="Taxa de Absenteísmo" 
               value={`${dashboardData?.absenteeismRate?.toFixed(2) || '0'}%`}
               description="Este mês"
-              trend={dashboardData?.trend}
+              trend={dashboardData?.trend === 'up' 
+                ? { value: 5.2, positive: false } 
+                : dashboardData?.trend === 'down' 
+                  ? { value: 3.8, positive: true } 
+                  : undefined}
               icon={<BarChart3 className="h-5 w-5" />}
             />
             
@@ -119,6 +139,25 @@ const DashboardOverview = () => {
               icon={<DollarSign className="h-5 w-5" />}
             />
           </>
+        ) : (
+          // Empty state when no data and not loading
+          <>
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Card key={index} className="p-6">
+                <h3 className="text-sm font-medium text-muted-foreground mb-2">
+                  {index === 0 ? "Taxa de Absenteísmo" : 
+                   index === 1 ? "Dias de Ausência" : 
+                   index === 2 ? "Funcionários Ausentes" : "Impacto Financeiro"}
+                </h3>
+                <p className="text-2xl font-bold">
+                  {index === 0 ? "0.00%" : 
+                   index === 1 ? "0" : 
+                   index === 2 ? "0" : "R$ 0,00"}
+                </p>
+                <p className="text-xs text-muted-foreground">Sem dados</p>
+              </Card>
+            ))}
+          </>
         )}
       </div>
 
@@ -131,8 +170,20 @@ const DashboardOverview = () => {
           <CardContent>
             {isLoading ? (
               <Skeleton className="h-[300px] w-full" />
+            ) : dashboardData?.monthlyTrend && dashboardData.monthlyTrend.length > 0 ? (
+              <AbsenteeismChart data={dashboardData.monthlyTrend} />
             ) : (
-              <AbsenteeismChart data={dashboardData?.monthlyTrend || []} />
+              <div className="h-[300px] flex items-center justify-center flex-col">
+                <p className="text-muted-foreground">Nenhum dado de evolução disponível</p>
+                <Button 
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={handleRefresh}
+                >
+                  Tentar novamente
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -144,36 +195,71 @@ const DashboardOverview = () => {
           <CardContent>
             {isLoading ? (
               <Skeleton className="h-[300px] w-full" />
-            ) : (
+            ) : dashboardData?.bySector && dashboardData.bySector.length > 0 ? (
               <div className="space-y-4">
-                {dashboardData?.bySector && dashboardData.bySector.length > 0 ? (
-                  dashboardData.bySector.map((sector: any, index: number) => (
-                    <div key={index}>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-sm font-medium">{sector.name || 'Setor desconhecido'}</span>
-                        <span className="text-sm text-muted-foreground">{sector.value || 0} dias</span>
-                      </div>
-                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-vitalis-500"
-                          style={{ 
-                            width: `${(sector.value && dashboardData.bySector.some((s: any) => s.value > 0)) ? 
-                              (sector.value / Math.max(...dashboardData.bySector.map((s: any) => s.value || 0))) * 100 : 0}%` 
-                          }}
-                        />
-                      </div>
+                {dashboardData.bySector.map((sector: any, index: number) => (
+                  <div key={index}>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm font-medium">{sector.name || 'Setor desconhecido'}</span>
+                      <span className="text-sm text-muted-foreground">{sector.value || 0} dias</span>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center text-muted-foreground py-8">
-                    Nenhum dado de setor disponível
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-vitalis-500"
+                        style={{ 
+                          width: `${(sector.value && dashboardData.bySector.some((s: any) => s.value > 0)) ? 
+                            (sector.value / Math.max(...dashboardData.bySector.map((s: any) => s.value || 0))) * 100 : 0}%` 
+                        }}
+                      />
+                    </div>
                   </div>
-                )}
+                ))}
+              </div>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center">
+                <p className="text-muted-foreground">Nenhum dado de setor disponível</p>
               </div>
             )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Demo Data Notice - Show only if using mock data */}
+      {isUsingMockData && !isLoading && (
+        <Card className="bg-amber-50 border-amber-200">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-4">
+              <Info className="h-6 w-6 text-amber-500 flex-shrink-0 mt-1" />
+              <div>
+                <h3 className="text-lg font-medium text-amber-800 mb-2">Dados de demonstração</h3>
+                <p className="text-amber-700 mb-1">
+                  Os dados mostrados são apenas para demonstração. Para visualizar dados reais, configure as APIs do SOC nas configurações do sistema.
+                </p>
+                <Button 
+                  variant="outline" 
+                  className="mt-3 bg-white border-amber-300 text-amber-800 hover:bg-amber-100"
+                  onClick={() => window.location.href = '/settings'}
+                >
+                  Configurar API
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error state - Only show if there's an error and we're not using mock data */}
+      {error && !isUsingMockData && !isLoading && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+          <AlertTriangle className="mx-auto h-10 w-10 text-red-400 mb-3" />
+          <h3 className="text-lg font-medium text-red-800 mb-1">Erro ao carregar dados</h3>
+          <p className="text-red-600 mb-4">{error}</p>
+          <Button onClick={handleRefresh} variant="outline" className="flex mx-auto items-center gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Tentar novamente
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
