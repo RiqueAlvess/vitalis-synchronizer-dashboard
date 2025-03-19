@@ -1,5 +1,5 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import LoginForm from '@/components/auth/LoginForm';
 import GlassPanel from '@/components/ui-custom/GlassPanel';
@@ -9,6 +9,7 @@ import { Loader2 } from 'lucide-react';
 
 const Login = () => {
   const { isLoading, isAuthenticated } = useAuth();
+  const [checkTimeout, setCheckTimeout] = useState(false);
   const navigate = useNavigate();
 
   // Effect to redirect if already authenticated
@@ -16,10 +17,17 @@ const Login = () => {
     if (isAuthenticated && !isLoading) {
       navigate('/dashboard', { replace: true });
     }
+    
+    // Set a timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      setCheckTimeout(true);
+    }, 3000);
+    
+    return () => clearTimeout(timeoutId);
   }, [isAuthenticated, isLoading, navigate]);
 
-  // Show loading state
-  if (isLoading) {
+  // Show loading state, but not indefinitely
+  if (isLoading && !checkTimeout) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
         <Loader2 className="h-8 w-8 animate-spin text-vitalis-600 mb-4" />
