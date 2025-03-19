@@ -34,13 +34,13 @@ const DashboardOverview = () => {
           // Map monthly trend data with correct property names
           monthlyTrend: (data.monthlyTrend || []).map(item => ({
             month: item.month,
-            value: 'value' in item ? item.value : ('rate' in item ? item.rate : 0)
+            value: 'value' in item ? item.value : ('rate' in item && typeof item.rate === 'number' ? item.rate : 0)
           })),
           
           // Map sector data with correct property names
           bySector: (data.bySector || []).map(item => ({
-            name: 'name' in item ? item.name : ('sector' in item ? item.sector : 'Setor desconhecido'),
-            value: 'value' in item ? item.value : ('rate' in item ? item.rate : 0),
+            name: 'name' in item ? item.name : ('sector' in item && typeof item.sector === 'string' ? item.sector : 'Setor desconhecido'),
+            value: 'value' in item ? item.value : ('rate' in item && typeof item.rate === 'number' ? item.rate : 0),
             count: item.count || 0
           })),
           
