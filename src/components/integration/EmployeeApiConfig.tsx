@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,7 +19,7 @@ const EmployeeApiConfig = () => {
   const [showSecrets, setShowSecrets] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Initialize config with the correct structure
+  // Initialize config with the correct structure including savedLocally
   const initialConfig: EmployeeApiConfigType = {
     type: 'employee',
     empresa: '',
@@ -32,7 +31,8 @@ const EmployeeApiConfig = () => {
     afastado: '',
     pendente: '',
     ferias: '',
-    isConfigured: false
+    isConfigured: false,
+    savedLocally: false
   };
 
   const [config, setConfig] = useState<EmployeeApiConfigType>(initialConfig);
@@ -50,7 +50,8 @@ const EmployeeApiConfig = () => {
             tipoSaida: 'json',
             // Set ativo default if not provided
             ativo: typedData.ativo || 'Sim',
-            isConfigured: !!typedData.empresa && !!typedData.codigo && !!typedData.chave
+            isConfigured: !!typedData.empresa && !!typedData.codigo && !!typedData.chave,
+            savedLocally: typedData.savedLocally
           });
         }
       } catch (error) {
@@ -149,7 +150,8 @@ const EmployeeApiConfig = () => {
         afastado: config.afastado || '',
         pendente: config.pendente || '',
         ferias: config.ferias || '',
-        isConfigured: true
+        isConfigured: true,
+        savedLocally: config.savedLocally
       };
       
       let result;

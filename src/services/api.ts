@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
-import { DashboardData, MonthlyTrendData, SectorData } from '@/types/dashboard';
+import { DashboardData, MonthlyTrendData, SectorData, ApiStorageProps } from '@/types/dashboard';
 import type { MockCompanyData, MockEmployeeData } from '@/types/dashboard';
 import { localStorageService } from '@/services/localStorageService';
 
@@ -94,7 +94,7 @@ supabaseAPI.interceptors.response.use(
 
 export type ApiConfigType = 'company' | 'employee' | 'absenteeism';
 
-export interface ApiConfig {
+export interface ApiConfig extends ApiStorageProps {
   type: ApiConfigType;
   empresa: string;
   codigo: string;
@@ -1046,7 +1046,7 @@ const apiService = {
   },
   
   testApiConnection: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<{success: boolean, message: string}> => {
-    return apiService.apiConfig.test(config);
+    return apiService.apiConfig.test(config.type);
   },
   
   getDashboardData: async (): Promise<DashboardData> => {
@@ -1106,11 +1106,11 @@ function calculateDashboardData(data: any[]): DashboardData {
       }
       acc[sector] += item.days_absent || 0;
       return acc;
-    }, {});
+    }, {} as Record<string, number>);
     
-    const bySector = Object.entries(sectorCounts)
+    const bySector: SectorData[] = Object.entries(sectorCounts)
       .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => (b.value as number) - (a.value as number))
+      .sort((a, b) => b.value - a.value)
       .slice(0, 5);
       
     // Calculate monthly trend
@@ -1133,9 +1133,9 @@ function calculateDashboardData(data: any[]): DashboardData {
       acc[monthYear].hours += (item.days_absent || 0) * 8;
       
       return acc;
-    }, {});
+    }, {} as Record<string, {count: number, days: number, hours: number}>);
     
-    const monthlyTrend = Object.entries(monthlyData)
+    const monthlyTrend: MonthlyTrendData[] = Object.entries(monthlyData)
       .map(([month, data]) => ({
         month,
         count: data.count,
@@ -1196,3 +1196,4 @@ function getMockDashboardData(): DashboardData {
 }
 
 export default apiService;
+

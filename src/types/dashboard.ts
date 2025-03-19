@@ -44,3 +44,9 @@ export interface MockEmployeeData {
   status: string;
   absentDays: number;
 }
+
+// Add API configuration interfaces with savedLocally property
+export interface ApiStorageProps {
+  savedLocally?: boolean;
+  savedAt?: string;
+}

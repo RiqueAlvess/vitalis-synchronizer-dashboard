@@ -26,6 +26,7 @@ const CompanyApiConfig = () => {
     chave: '',
     tipoSaida: 'json',
     isConfigured: false,
+    savedLocally: false,
   });
   
   const [isLoading, setIsLoading] = useState(true);
@@ -52,7 +53,8 @@ const CompanyApiConfig = () => {
           codigo: data.codigo || '',
           chave: data.chave || '',
           tipoSaida: data.tipoSaida || 'json',
-          isConfigured: !!data.empresa && !!data.codigo && !!data.chave
+          isConfigured: !!data.empresa && !!data.codigo && !!data.chave,
+          savedLocally: data.savedLocally || false,
         });
         console.log('Config state updated with received data');
       } else {

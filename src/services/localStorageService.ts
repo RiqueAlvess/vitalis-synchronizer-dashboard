@@ -1,4 +1,6 @@
 
+import { ApiConfig, ApiConfigType } from './api';
+
 export interface LocalStorageConfig {
   savedLocally: boolean;
   savedAt: string;
@@ -6,7 +8,7 @@ export interface LocalStorageConfig {
 }
 
 export const localStorageService = {
-  saveConfig: (type: string, config: any): boolean => {
+  saveConfig: (type: ApiConfigType, config: any): boolean => {
     try {
       localStorage.setItem(`api_config_${type}`, JSON.stringify({
         ...config,
@@ -20,7 +22,7 @@ export const localStorageService = {
     }
   },
   
-  getConfig: <T>(type: string): (T & Partial<LocalStorageConfig>) | null => {
+  getConfig: <T>(type: ApiConfigType): (T & Partial<LocalStorageConfig>) | null => {
     try {
       const stored = localStorage.getItem(`api_config_${type}`);
       if (!stored) return null;

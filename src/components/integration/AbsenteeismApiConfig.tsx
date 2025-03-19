@@ -29,7 +29,8 @@ const AbsenteeismApiConfig = () => {
     empresaTrabalho: '',
     dataInicio: '',
     dataFim: '',
-    isConfigured: false
+    isConfigured: false,
+    savedLocally: false
   };
 
   const [config, setConfig] = useState<AbsenteeismApiConfigType>(initialConfig);
