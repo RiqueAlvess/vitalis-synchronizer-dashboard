@@ -1,7 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService, User } from '@/services/authService';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from '@/components/ui/use-toast';
 
 interface AuthContextType {
@@ -12,6 +12,7 @@ interface AuthContextType {
   register: (email: string, password: string, companyName: string) => Promise<void>;
   logout: () => void;
   error: string | null;
+  checkAuth: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,21 +22,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Verify authentication status
+  const checkAuth = async (): Promise<boolean> => {
+    try {
+      console.log("Checking authentication status...");
+      const userData = await authService.getCurrentUser();
+      
+      if (userData) {
+        setUser(userData);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Authentication check failed:', err);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Check if user is logged in on app load
   useEffect(() => {
     const verifyAuth = async () => {
       try {
-        console.log("Verifying authentication...");
-        const userData = await authService.getCurrentUser();
-        console.log("Authentication verification result:", userData);
-        
-        if (userData) {
-          setUser(userData);
-        }
+        console.log("Verifying authentication on app load...");
+        await checkAuth();
       } catch (err) {
         console.error('Authentication verification failed:', err);
-        // Don't show an error toast here since this is a background check
       } finally {
         setIsLoading(false);
       }
@@ -43,6 +58,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     verifyAuth();
   }, []);
+
+  // Redirect unauthenticated users from protected routes
+  useEffect(() => {
+    const protectedRoutes = ['/dashboard', '/settings', '/companies', '/employees', '/sync'];
+    
+    const checkProtectedRoute = async () => {
+      if (protectedRoutes.includes(location.pathname)) {
+        const isAuth = await checkAuth();
+        
+        if (!isAuth && !isLoading) {
+          console.log('Redirecting unauthenticated user from protected route:', location.pathname);
+          navigate('/login', { 
+            replace: true,
+            state: { from: location.pathname } 
+          });
+          toast({
+            variant: 'destructive',
+            title: 'Acesso negado',
+            description: 'Você precisa estar logado para acessar esta página.',
+          });
+        }
+      }
+    };
+
+    if (!isLoading) {
+      checkProtectedRoute();
+    }
+  }, [location.pathname, isLoading, navigate]);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
@@ -54,7 +97,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log("Login successful:", userData);
       
       setUser(userData);
-      navigate('/dashboard');
+      
+      // Redirect to intended page or dashboard
+      const intendedPath = location.state?.from || '/dashboard';
+      navigate(intendedPath);
+      
       toast({
         title: 'Login bem-sucedido',
         description: 'Bem-vindo de volta!',
@@ -131,6 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         error,
+        checkAuth,
       }}
     >
       {children}

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import ApiConfigTabs from '@/components/integration/ApiConfigTabs';
@@ -6,33 +7,54 @@ import apiService from '@/services/api';
 import { useToast } from '@/components/ui/use-toast';
 import ErrorBoundary from '@/components/ui-custom/ErrorBoundary';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const Settings = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [apiConnectivity, setApiConnectivity] = useState<boolean | null>(null);
   const { toast } = useToast();
+  const { user, isAuthenticated, isLoading: authLoading, checkAuth } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     // Check if user is authenticated
-    const checkAuth = async () => {
+    const verifyAuthentication = async () => {
       try {
-        console.log('Checking authentication status...');
-        const { data } = await supabase.auth.getSession();
-        const isAuth = !!data.session;
-        console.log('Authentication status:', isAuth ? 'Authenticated' : 'Not authenticated');
-        setIsAuthenticated(isAuth);
+        console.log('Verifying authentication for settings page...');
+        if (!isAuthenticated && !authLoading) {
+          const isAuth = await checkAuth();
+          
+          if (!isAuth) {
+            console.log('User not authenticated, redirecting to login');
+            navigate('/login', { 
+              replace: true,
+              state: { from: '/settings' } 
+            });
+            
+            toast({
+              variant: 'destructive',
+              title: 'Acesso negado',
+              description: 'Você precisa estar logado para acessar as configurações.',
+            });
+            return;
+          }
+        }
+        
+        // If we reach here, the user is authenticated, proceed with loading configs
+        loadAllConfigs();
       } catch (error) {
-        console.error('Error checking authentication:', error);
-        setIsAuthenticated(false);
+        console.error('Error verifying authentication:', error);
+        setHasError(true);
+        setErrorMessage('Erro ao verificar autenticação');
+        setIsLoading(false);
       }
     };
     
-    checkAuth();
-  }, []);
+    verifyAuthentication();
+  }, [isAuthenticated, authLoading]);
 
   // Check API connectivity
   const checkApiConnectivity = async () => {
@@ -65,14 +87,6 @@ const Settings = () => {
     try {
       setIsLoading(true);
       setHasError(false);
-      
-      // If user is not authenticated, show an error
-      if (isAuthenticated === false) {
-        setHasError(true);
-        setErrorMessage('Você precisa estar autenticado para acessar as configurações');
-        setIsLoading(false);
-        return;
-      }
       
       // Check API connectivity first
       const isConnected = await checkApiConnectivity();
@@ -120,14 +134,23 @@ const Settings = () => {
     }
   };
 
-  useEffect(() => {
-    // Only try to load configs if authentication status has been determined
-    if (isAuthenticated !== null) {
-      loadAllConfigs();
-    }
-  }, [isAuthenticated]);
+  if (authLoading) {
+    return (
+      <DashboardLayout 
+        title="Configurações" 
+        subtitle="Configure as integrações com APIs externas"
+      >
+        <div className="flex items-center justify-center h-64">
+          <div className="flex flex-col items-center space-y-4">
+            <Loader2 className="h-8 w-8 animate-spin text-vitalis-600" />
+            <p className="text-muted-foreground">Verificando autenticação...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
-  if (isAuthenticated === false) {
+  if (!isAuthenticated) {
     return (
       <DashboardLayout 
         title="Configurações" 
@@ -140,7 +163,7 @@ const Settings = () => {
             Você precisa estar autenticado para acessar as configurações. Por favor, faça login e tente novamente.
           </p>
           <Button 
-            onClick={() => window.location.href = '/login'} 
+            onClick={() => navigate('/login', { state: { from: '/settings' } })} 
             variant="outline" 
             className="flex mx-auto items-center gap-2 bg-white text-amber-700 border-amber-300"
           >

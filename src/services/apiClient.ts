@@ -21,6 +21,15 @@ supabaseAPI.interceptors.request.use(async (config) => {
       console.log('Added auth token to request:', config.url);
     } else {
       console.warn('No active session found when making API request to:', config.url);
+      
+      // Try to refresh the session
+      const { data: refreshData } = await supabase.auth.refreshSession();
+      if (refreshData.session) {
+        config.headers.Authorization = `Bearer ${refreshData.session.access_token}`;
+        console.log('Added refreshed auth token to request:', config.url);
+      } else {
+        console.error('Failed to refresh session, no valid session found');
+      }
     }
   } catch (error) {
     console.error('Error adding auth token to request:', error);
@@ -53,6 +62,12 @@ supabaseAPI.interceptors.response.use(
       error: error.message
     });
     
+    // Handle authentication errors specifically
+    if (error.response?.status === 401) {
+      console.error('Authentication error (401 Unauthorized)');
+      // Could trigger a logout or authentication refresh here
+    }
+    
     if (typeof error.response?.data === 'string' && 
         error.response.data.includes('<!DOCTYPE html>')) {
       console.error('Received HTML instead of JSON - possible auth or endpoint issue');
@@ -66,7 +81,7 @@ supabaseAPI.interceptors.response.use(
         url: error.config?.url,
         method: error.config?.method,
       });
-      error.message = 'Falha na conexão com o servidor. Verifique sua conexão de internet.';
+      error.message = 'Falha na conexão com o servidor. Verifique sua conexão com a internet.';
     }
     
     return Promise.reject(error);
