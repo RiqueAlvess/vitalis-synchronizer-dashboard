@@ -18,22 +18,34 @@ export function useApiConfig(type: ApiConfigType) {
         setError(null);
         console.log(`Fetching ${type} API config...`);
         
-        // Ensure we have a valid session before proceeding
+        // Verificar a sessão explicitamente antes de prosseguir
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
-          await supabase.auth.refreshSession();
+          console.log('No active session, attempting to refresh...');
+          const { data } = await supabase.auth.refreshSession();
+          if (!data.session) {
+            console.error('Failed to refresh session for config fetch');
+            throw new Error('Sua sessão expirou. Por favor, faça login novamente para carregar as configurações.');
+          }
         }
         
-        const data = await apiService.getApiConfig(type);
+        // Usar o mecanismo de retry para obter a configuração
+        const data = await retryRequest(
+          () => apiService.getApiConfig(type),
+          3,  // Tentar até 3 vezes
+          1000 // Começar com 1 segundo de atraso
+        );
+        
         console.log(`Fetched ${type} config:`, data);
         setConfig(data);
       } catch (error) {
         console.error(`Error fetching ${type} API config:`, error);
-        setError(error instanceof Error ? error : new Error('Unknown error'));
+        setError(error instanceof Error ? error : new Error('Erro desconhecido'));
         toast({
           variant: 'destructive',
           title: 'Erro ao carregar configuração',
-          description: `Não foi possível carregar a configuração da API de ${type === 'employee' ? 'funcionários' : 'absenteísmo'}.`
+          description: `Não foi possível carregar a configuração da API de ${type === 'employee' ? 'funcionários' : 'absenteísmo'}. ${error instanceof Error ? error.message : ''}`,
+          duration: 5000
         });
       } finally {
         setIsLoading(false);
@@ -50,30 +62,35 @@ export function useApiConfig(type: ApiConfigType) {
       
       console.log(`Saving ${type} config:`, configData);
       
-      // Ensure we have a valid session before proceeding
+      // Verificar a sessão explicitamente antes de prosseguir
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
+        console.log('No active session, attempting to refresh before save...');
         const { data } = await supabase.auth.refreshSession();
         if (!data.session) {
-          throw new Error('Not authenticated. Please log in again to save configuration.');
+          console.error('Failed to refresh session before save');
+          throw new Error('Sua sessão expirou. Por favor, faça login novamente para salvar a configuração.');
         }
+        console.log('Session refreshed successfully');
+      } else {
+        console.log('Using existing session for save operation');
       }
       
-      // Ensure we're sending the right format to the API
+      // Garantir que estamos enviando o formato correto para a API
       const configToSave = {
         ...configData,
         tipoSaida: 'json'
       };
       
-      // Use the retry utility to attempt the save multiple times if needed
+      // Usar o mecanismo de retry com backoff exponencial para tentar o salvamento múltiplas vezes
       const result = await retryRequest(
         () => apiService.saveApiConfig(configToSave),
-        3,  // Try up to 3 times
-        1000 // Start with 1 second delay
+        3,  // Tentar até 3 vezes
+        1000 // Começar com 1 segundo de atraso
       );
       
       if (!result) {
-        throw new Error('Failed to save API configuration');
+        throw new Error('Falha ao salvar a configuração da API');
       }
       
       console.log(`Saved ${type} config result:`, result);
@@ -81,20 +98,22 @@ export function useApiConfig(type: ApiConfigType) {
       
       toast({
         title: 'Configuração salva',
-        description: `A configuração da API de ${type === 'employee' ? 'funcionários' : 'absenteísmo'} foi salva com sucesso.`
+        description: `A configuração da API de ${type === 'employee' ? 'funcionários' : 'absenteísmo'} foi salva com sucesso.`,
+        duration: 3000
       });
       
       return result;
     } catch (err) {
       console.error(`Error saving ${type} API config:`, err);
       
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setError(err instanceof Error ? err : new Error('Unknown error'));
+      const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
+      setError(err instanceof Error ? err : new Error('Erro desconhecido'));
       
       toast({
         variant: 'destructive',
         title: 'Erro ao salvar configuração',
-        description: `Não foi possível salvar a configuração da API de ${type === 'employee' ? 'funcionários' : 'absenteísmo'}.`
+        description: `Não foi possível salvar a configuração da API de ${type === 'employee' ? 'funcionários' : 'absenteísmo'}. ${errorMessage}`,
+        duration: 5000
       });
       
       throw err;
@@ -107,25 +126,38 @@ export function useApiConfig(type: ApiConfigType) {
     try {
       console.log(`Testing ${type} connection:`, configData);
       
-      // Ensure we have a valid session before proceeding
+      // Verificar a sessão explicitamente antes de prosseguir
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        await supabase.auth.refreshSession();
+        const { data } = await supabase.auth.refreshSession();
+        if (!data.session) {
+          throw new Error('Sua sessão expirou. Por favor, faça login novamente para testar a conexão.');
+        }
       }
       
-      // Ensure we're sending the right format to the API
+      // Garantir que estamos enviando o formato correto para a API
       const configToTest = {
         ...configData,
         tipoSaida: 'json'
       };
       
-      const result = await apiService.testApiConnection(configToTest);
+      // Usar o mecanismo de retry para teste também
+      const result = await retryRequest(
+        () => apiService.testApiConnection(configToTest),
+        2,  // Tentar até 2 vezes
+        1000 // Começar com 1 segundo de atraso
+      );
       
       console.log(`Test connection result:`, result);
       return result;
     } catch (err) {
       console.error(`Error testing ${type} API connection:`, err);
-      throw err;
+      
+      // Retornar um objeto de erro formatado
+      return {
+        success: false,
+        message: err instanceof Error ? err.message : 'Erro ao testar conexão com a API'
+      };
     }
   };
 

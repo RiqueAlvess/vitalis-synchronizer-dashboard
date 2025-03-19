@@ -4,6 +4,7 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
 Deno.serve(async (req) => {
   // Handle CORS
@@ -38,17 +39,17 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Initialize Supabase client
+    // Initialize Supabase clients - regular for auth, admin for data operations
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const adminSupabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Get user session
-    const { data: { session } } = await supabase.auth.getSession();
-
-    // Require authentication
-    if (!session) {
+    // Get auth header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.error('Missing authorization header');
       return new Response(
         JSON.stringify({ 
-          error: 'Not authenticated',
+          error: 'Missing authorization header',
           type: configType,
           empresa: '',
           codigo: '',
@@ -63,20 +64,47 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Looking for ${configType} config for user ${session.user.id}`);
+    // Get user from token
+    const token = authHeader.replace('Bearer ', '');
+    console.log('Verifying token:', token.substring(0, 10) + '...');
+    
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    // Check if authentication is valid
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Not authenticated',
+          details: authError?.message,
+          type: configType,
+          empresa: '',
+          codigo: '',
+          chave: '',
+          tipoSaida: 'json',
+          isConfigured: false
+        }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
 
-    // Try to get from api_credentials table first
-    const { data: credentials, error: credentialsError } = await supabase
+    console.log(`Looking for ${configType} config for user ${user.id}`);
+
+    // Try to get from api_credentials table first using admin client
+    const { data: credentials, error: credentialsError } = await adminSupabase
       .from('api_credentials')
       .select('*')
       .eq('type', configType)
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .maybeSingle();
       
     if (credentialsError) {
       console.error('Error fetching from api_credentials:', credentialsError);
     } else if (credentials) {
-      console.log(`Found ${configType} config in api_credentials table`);
+      console.log(`Found ${configType} config in api_credentials table:`, credentials);
       
       // Convert from database format to API format
       const response: any = {
@@ -111,11 +139,11 @@ Deno.serve(async (req) => {
     }
 
     // If not found in api_credentials, try the legacy api_configs table
-    const { data, error } = await supabase
+    const { data, error } = await adminSupabase
       .from('api_configs')
       .select('*')
       .eq('type', configType)
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -141,7 +169,7 @@ Deno.serve(async (req) => {
 
     // If no config found, return empty object with default values but still 200 status
     if (!data) {
-      console.log(`No ${configType} config found for user ${session.user.id}`);
+      console.log(`No ${configType} config found for user ${user.id}`);
       return new Response(
         JSON.stringify({
           type: configType,
@@ -159,7 +187,7 @@ Deno.serve(async (req) => {
     }
 
     // Log the config found
-    console.log(`Found ${configType} config for user ${session.user.id}`);
+    console.log(`Found ${configType} config in legacy table for user ${user.id}`);
 
     // Return the config with proper defaults to ensure all fields exist
     return new Response(

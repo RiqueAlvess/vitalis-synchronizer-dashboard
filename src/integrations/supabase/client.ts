@@ -35,3 +35,25 @@ export const hasStoredSession = () => {
     return false;
   }
 };
+
+// Helper to get current token with validation
+export const getCurrentToken = async () => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      // Verify token expiration
+      const now = Math.floor(Date.now() / 1000);
+      if (session.expires_at && session.expires_at > now) {
+        return session.access_token;
+      }
+      
+      // Token expired, try to refresh
+      const { data } = await supabase.auth.refreshSession();
+      return data.session?.access_token;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting current token:', error);
+    return null;
+  }
+};
