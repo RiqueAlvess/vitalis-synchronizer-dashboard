@@ -45,6 +45,11 @@ class ErrorBoundary extends Component<Props, State> {
     }
   };
 
+  private handleReload = () => {
+    console.log("Performing full page reload");
+    window.location.reload();
+  };
+
   public render() {
     if (this.state.hasError) {
       if (this.props.fallback) {
@@ -73,14 +78,24 @@ class ErrorBoundary extends Component<Props, State> {
               )}
             </div>
           )}
-          <Button
-            onClick={this.handleRetry}
-            variant="outline"
-            className="flex mx-auto items-center gap-2"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Tentar novamente
-          </Button>
+          <div className="flex gap-2 justify-center">
+            <Button
+              onClick={this.handleRetry}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Tentar novamente
+            </Button>
+            <Button
+              onClick={this.handleReload}
+              variant="default"
+              className="flex items-center gap-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Recarregar página
+            </Button>
+          </div>
         </div>
       );
     }

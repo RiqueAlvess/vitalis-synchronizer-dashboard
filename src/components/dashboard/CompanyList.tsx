@@ -7,7 +7,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Building2, RefreshCw, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
-import ErrorBoundary from '@/components/ui-custom/ErrorBoundary';
 
 const CompanyList = () => {
   const { toast } = useToast();
@@ -22,9 +21,12 @@ const CompanyList = () => {
     try {
       const data = await apiService.companies.getAll();
       // Ensure data is an array before setting it to state
-      setCompanies(Array.isArray(data) ? data : []);
-      if (!data || !Array.isArray(data)) {
+      if (Array.isArray(data)) {
+        setCompanies(data);
+      } else {
         console.warn('Company data is not an array:', data);
+        setCompanies([]);
+        setError('Os dados recebidos não estão no formato esperado. Contate o suporte.');
       }
     } catch (err) {
       console.error('Error fetching companies:', err);
