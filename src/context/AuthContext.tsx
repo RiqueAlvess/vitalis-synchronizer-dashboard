@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -13,6 +14,8 @@ interface AuthContextType {
   logout: () => void;
   error: string | null;
   checkAuth: () => Promise<boolean>;
+  saveSettings: (settings: any) => Promise<boolean>;
+  getSettings: () => Promise<any>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -26,26 +29,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Set up auth state change listener
   useEffect(() => {
+    console.log("Configurando listener de alteração de estado de autenticação");
+    
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event, session ? 'User is authenticated' : 'User is not authenticated');
+        console.log(`Evento de autenticação detectado: ${event}`, session ? 'Com sessão' : 'Sem sessão');
         
         if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
           // User has signed in or token refreshed
           try {
+            console.log("Obtendo dados do usuário após evento de autenticação");
             const userData = await authService.getCurrentUser();
             if (userData) {
+              console.log("Dados do usuário atualizados após evento:", userData.email);
               setUser(userData);
-              console.log('User data updated after token refresh or sign in');
+              setIsLoading(false);
+              
+              // Redirecionar para dashboard apenas em caso de login inicial
+              if (event === 'SIGNED_IN' && location.pathname === '/login') {
+                console.log("Redirecionando para dashboard após login");
+                navigate('/dashboard');
+              }
             }
           } catch (err) {
-            console.error('Error getting user data after auth state change:', err);
-          } finally {
+            console.error('Erro ao obter dados do usuário após alteração de estado de autenticação:', err);
             setIsLoading(false);
           }
         } else if (event === 'SIGNED_OUT') {
           // User has signed out
+          console.log("Usuário desconectado, limpando estado");
           setUser(null);
+          setIsLoading(false);
+        } else {
+          // Para outros eventos, garanta que isLoading não fique preso
           setIsLoading(false);
         }
       }
@@ -53,49 +69,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Cleanup subscription
     return () => {
+      console.log("Limpando inscrição de eventos de autenticação");
       subscription.unsubscribe();
     };
-  }, []);
+  }, [navigate, location.pathname]);
 
   // Verify authentication status
   const checkAuth = async (): Promise<boolean> => {
     try {
-      console.log("Checking authentication status...");
+      console.log("Verificando status de autenticação...");
+      setIsLoading(true);
       
       // First check if we have a session
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
         // Try to refresh the session if no session exists
-        console.log("No session found, attempting to refresh...");
+        console.log("Nenhuma sessão encontrada, tentando atualizar...");
         const { data, error } = await supabase.auth.refreshSession();
         
         if (error || !data.session) {
-          console.log("Session refresh failed:", error?.message);
+          console.log("Falha na atualização da sessão:", error?.message);
           setUser(null);
           setIsLoading(false);
           return false;
         }
         
-        console.log("Session refreshed successfully");
+        console.log("Sessão atualizada com sucesso");
       }
       
       // Now that we have a session (either existing or refreshed), get user data
       const userData = await authService.getCurrentUser();
       
       if (userData) {
+        console.log("Usuário autenticado:", userData.email);
         setUser(userData);
-        console.log("User is authenticated:", userData.email);
         setIsLoading(false);
         return true;
       }
       
-      console.log("User is not authenticated");
+      console.log("Usuário não autenticado");
       setUser(null);
       setIsLoading(false);
       return false;
     } catch (err) {
-      console.error('Authentication check failed:', err);
+      console.error('Verificação de autenticação falhou:', err);
       setUser(null);
       setIsLoading(false);
       return false;
@@ -106,16 +124,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const verifyAuth = async () => {
       try {
-        console.log("Verifying authentication on app load...");
-        await checkAuth();
+        console.log("Verificando autenticação na inicialização do aplicativo...");
+        const isAuthenticated = await checkAuth();
+        
+        // Se o usuário estiver na página inicial ou de login e estiver autenticado, redirecione para o dashboard
+        if (isAuthenticated && (location.pathname === '/' || location.pathname === '/login')) {
+          console.log("Redirecionando usuário autenticado para o dashboard");
+          navigate('/dashboard');
+        }
       } catch (err) {
-        console.error('Authentication verification failed:', err);
+        console.error('Verificação de autenticação falhou:', err);
         setIsLoading(false);
       }
     };
 
     verifyAuth();
-  }, []);
+  }, [navigate, location.pathname]);
 
   // Redirect unauthenticated users from protected routes
   useEffect(() => {
@@ -124,10 +148,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const checkProtectedRoute = async () => {
       if (protectedRoutes.includes(location.pathname)) {
         if (!isLoading) {
+          console.log(`Verificando acesso à rota protegida: ${location.pathname}`);
           const isAuth = await checkAuth();
           
           if (!isAuth) {
-            console.log('Redirecting unauthenticated user from protected route:', location.pathname);
+            console.log('Redirecionando usuário não autenticado da rota protegida:', location.pathname);
             navigate('/login', { 
               replace: true,
               state: { from: location.pathname } 
@@ -152,9 +177,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
     
     try {
-      console.log("Attempting login...");
+      console.log("Tentando login...");
       const userData = await authService.login(email, password);
-      console.log("Login successful:", userData);
+      console.log("Login bem-sucedido:", userData.email);
       
       setUser(userData);
       
@@ -164,19 +189,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           access_token: userData.token,
           refresh_token: userData.refreshToken || ''
         });
-        console.log("Session configured explicitly after login");
+        console.log("Sessão configurada explicitamente após login");
       }
       
       // Redirect to intended page or dashboard
       const intendedPath = location.state?.from || '/dashboard';
-      navigate(intendedPath);
+      console.log(`Redirecionando para: ${intendedPath}`);
+      navigate(intendedPath, { replace: true });
       
       toast({
         title: 'Login bem-sucedido',
         description: 'Bem-vindo de volta!',
       });
     } catch (err) {
-      console.error('Login error:', err);
+      console.error('Erro de login:', err);
       const errorMessage = err instanceof Error ? err.message : 'Falha no login';
       setError(errorMessage);
       toast({
@@ -194,9 +220,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
     
     try {
-      console.log("Attempting registration...");
+      console.log("Tentando registro...");
       const userData = await authService.register(email, password, companyName);
-      console.log("Registration successful:", userData);
+      console.log("Registro bem-sucedido:", userData.email);
       
       setUser(userData);
       
@@ -206,16 +232,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           access_token: userData.token,
           refresh_token: userData.refreshToken || ''
         });
-        console.log("Session configured after registration");
+        console.log("Sessão configurada após registro");
       }
       
-      navigate('/dashboard');
+      console.log("Redirecionando para dashboard após registro");
+      navigate('/dashboard', { replace: true });
+      
       toast({
         title: 'Cadastro realizado',
         description: 'Sua conta foi criada com sucesso!',
       });
     } catch (err) {
-      console.error('Registration error:', err);
+      console.error('Erro de registro:', err);
       const errorMessage = err instanceof Error ? err.message : 'Falha no cadastro';
       setError(errorMessage);
       toast({
@@ -230,21 +258,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
+      console.log("Iniciando logout...");
+      setIsLoading(true);
       await authService.logout();
       setUser(null);
-      navigate('/login');
+      console.log("Redirecionando para página de login após logout");
+      navigate('/login', { replace: true });
       toast({
         title: 'Logout realizado',
         description: 'Você foi desconectado com sucesso.',
       });
     } catch (err) {
-      console.error('Logout error:', err);
+      console.error('Erro no logout:', err);
       toast({
         variant: 'destructive',
         title: 'Erro ao sair',
         description: 'Ocorreu um erro ao tentar sair do sistema.',
       });
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  // Função para salvar configurações do usuário atual
+  const saveSettings = async (settings: any): Promise<boolean> => {
+    if (!user) {
+      console.error("Tentativa de salvar configurações sem usuário autenticado");
+      toast({
+        variant: 'destructive',
+        title: 'Erro de autenticação',
+        description: 'Você precisa estar logado para salvar configurações',
+      });
+      return false;
+    }
+    
+    return await authService.saveSettings(user.id, settings);
+  };
+
+  // Função para obter configurações do usuário atual
+  const getSettings = async (): Promise<any> => {
+    if (!user) {
+      console.error("Tentativa de obter configurações sem usuário autenticado");
+      return {};
+    }
+    
+    return await authService.getSettings(user.id);
   };
 
   return (
@@ -258,6 +316,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         error,
         checkAuth,
+        saveSettings,
+        getSettings
       }}
     >
       {children}

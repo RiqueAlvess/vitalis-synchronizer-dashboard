@@ -1,3 +1,4 @@
+
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/components/ui/use-toast';
 import { supabaseAPI } from './apiClient';
@@ -17,11 +18,14 @@ export const authService = {
   // Register a new user
   async register(email: string, password: string, companyName: string): Promise<User> {
     try {
+      console.log("Iniciando registro de usuário:", email);
+      
       // Check if the email is from a free provider
       const freeEmailProviders = ['gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 'live.com', 'aol.com', 'icloud.com'];
       const emailDomain = email.split('@')[1].toLowerCase();
       
       if (freeEmailProviders.includes(emailDomain)) {
+        console.log("Email de provedor gratuito rejeitado:", emailDomain);
         throw new Error('Por favor, utilize um e-mail corporativo para se registrar.');
       }
 
@@ -36,15 +40,22 @@ export const authService = {
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Erro no registro via Supabase:", error);
+        throw error;
+      }
       
       if (!data.user) {
+        console.error("Usuário não criado após registro");
         throw new Error('Erro ao criar usuário');
       }
+
+      console.log("Usuário registrado com sucesso:", data.user.id);
 
       // Create a profile record
       if (data.user && data.session) {
         try {
+          console.log("Criando perfil para o novo usuário");
           const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .insert({
@@ -58,15 +69,18 @@ export const authService = {
             .select();
             
           if (profileError) {
-            console.error('Error creating profile:', profileError);
+            console.error('Erro ao criar perfil:', profileError);
+          } else {
+            console.log("Perfil criado com sucesso");
           }
         } catch (profileErr) {
-          console.error('Error creating profile:', profileErr);
+          console.error('Erro ao criar perfil:', profileErr);
         }
       }
 
       // Explicitly set the session
       if (data.session) {
+        console.log("Configurando sessão após registro");
         await supabase.auth.setSession({
           access_token: data.session.access_token,
           refresh_token: data.session.refresh_token
@@ -83,7 +97,7 @@ export const authService = {
         refreshToken: data.session?.refresh_token
       };
     } catch (error: any) {
-      console.error('Registration error:', error);
+      console.error('Erro de registro detalhado:', error);
       throw new Error(error.message || 'Falha no registro');
     }
   },
@@ -91,17 +105,26 @@ export const authService = {
   // Login an existing user
   async login(email: string, password: string): Promise<User> {
     try {
+      console.log("Iniciando login para:", email);
+      
       // Option 1: Use Supabase Auth directly
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Erro no login via Supabase:", error);
+        throw error;
+      }
       
       if (!data.user || !data.session) {
+        console.error("Login sem retorno de usuário ou sessão");
         throw new Error('Erro ao fazer login');
       }
+
+      console.log("Login bem-sucedido, token obtido:", !!data.session.access_token);
+      console.log("Expira em:", new Date(data.session.expires_at * 1000).toLocaleString());
 
       // Configure the session explicitly
       await supabase.auth.setSession({
@@ -109,11 +132,7 @@ export const authService = {
         refresh_token: data.session.refresh_token
       });
 
-      console.log("Session set after login:", {
-        hasAccessToken: !!data.session.access_token,
-        hasRefreshToken: !!data.session.refresh_token,
-        expiresAt: new Date(data.session.expires_at * 1000).toISOString()
-      });
+      console.log("Sessão configurada após login");
 
       // Get user profile data
       const { data: profileData, error: profileError } = await supabase
@@ -123,11 +142,12 @@ export const authService = {
         .single();
 
       if (profileError && profileError.code !== 'PGRST116') {
-        console.error('Error fetching profile:', profileError);
+        console.error('Erro ao buscar perfil:', profileError);
         
         // If profile doesn't exist, create one
         if (profileError.code === 'PGRST104') {
           try {
+            console.log("Perfil não encontrado, criando novo perfil");
             const { data: newProfileData, error: createProfileError } = await supabase
               .from('profiles')
               .insert({
@@ -141,16 +161,17 @@ export const authService = {
               .select();
               
             if (createProfileError) {
-              console.error('Error creating profile:', createProfileError);
+              console.error('Erro ao criar perfil:', createProfileError);
             } else {
-              console.log('Created missing profile for user');
+              console.log('Perfil criado com sucesso');
             }
           } catch (createErr) {
-            console.error('Error creating profile:', createErr);
+            console.error('Erro ao criar perfil:', createErr);
           }
         }
       }
 
+      console.log("Login completo, retornando dados do usuário");
       return {
         id: data.user.id,
         email: data.user.email || email,
@@ -162,7 +183,7 @@ export const authService = {
         refreshToken: data.session?.refresh_token
       };
     } catch (error: any) {
-      console.error('Login error:', error);
+      console.error('Erro de login detalhado:', error);
 
       // Handle specific Supabase errors with user-friendly messages
       if (error.message.includes('Invalid login credentials')) {
@@ -175,22 +196,28 @@ export const authService = {
 
   // Logout the current user
   async logout(): Promise<void> {
+    console.log("Iniciando logout do usuário");
     const { error } = await supabase.auth.signOut();
     if (error) {
-      console.error('Logout error:', error);
+      console.error('Erro ao fazer logout:', error);
       throw error;
     }
+    console.log("Logout realizado com sucesso");
   },
 
   // Get the current user if logged in
   async getCurrentUser(): Promise<User | null> {
     try {
+      console.log("Verificando usuário atual");
       const { data: { session } } = await supabase.auth.getSession();
       const { data: { user } } = await supabase.auth.getUser();
       
       if (!user) {
+        console.log("Nenhum usuário autenticado encontrado");
         return null;
       }
+
+      console.log("Usuário autenticado encontrado:", user.id);
 
       // Get user profile data
       const { data: profileData, error: profileError } = await supabase
@@ -200,11 +227,12 @@ export const authService = {
         .single();
 
       if (profileError && profileError.code !== 'PGRST116') {
-        console.error('Error fetching profile:', profileError);
+        console.error('Erro ao buscar perfil:', profileError);
         
         // If profile doesn't exist, create one
         if (profileError.code === 'PGRST104') {
           try {
+            console.log("Perfil não encontrado, criando novo perfil");
             const { data: newProfileData, error: createProfileError } = await supabase
               .from('profiles')
               .insert({
@@ -218,12 +246,12 @@ export const authService = {
               .select();
               
             if (createProfileError) {
-              console.error('Error creating profile:', createProfileError);
+              console.error('Erro ao criar perfil:', createProfileError);
             } else {
-              console.log('Created missing profile for user');
+              console.log('Perfil criado com sucesso');
             }
           } catch (createErr) {
-            console.error('Error creating profile:', createErr);
+            console.error('Erro ao criar perfil:', createErr);
           }
         }
       }
@@ -239,8 +267,103 @@ export const authService = {
         refreshToken: session?.refresh_token
       };
     } catch (error) {
-      console.error('Get current user error:', error);
+      console.error('Erro ao obter usuário atual:', error);
       return null;
+    }
+  },
+
+  // Função para salvar configurações do usuário
+  async saveSettings(userId: string, settingsData: any): Promise<boolean> {
+    try {
+      console.log("Iniciando salvamento de configurações para usuário:", userId);
+      
+      // Verificar se já existem configurações para este usuário
+      const { data: existingSettings, error: fetchError } = await supabase
+        .from('settings')
+        .select('id')
+        .eq('user_id', userId)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        console.error('Erro ao verificar configurações existentes:', fetchError);
+      }
+
+      let result;
+      
+      // Se já existe uma configuração, atualize-a
+      if (existingSettings) {
+        console.log("Atualizando configurações existentes");
+        result = await supabase
+          .from('settings')
+          .update({ 
+            data: settingsData,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', userId);
+      } else {
+        // Caso contrário, crie uma nova
+        console.log("Criando novas configurações");
+        result = await supabase
+          .from('settings')
+          .insert({
+            user_id: userId,
+            data: settingsData,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+      }
+
+      if (result.error) {
+        console.error('Erro ao salvar configurações:', result.error);
+        throw result.error;
+      }
+
+      console.log("Configurações salvas com sucesso");
+      return true;
+    } catch (error: any) {
+      console.error('Erro ao salvar configurações:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao salvar configurações',
+        description: error.message || 'Não foi possível salvar as configurações'
+      });
+      return false;
+    }
+  },
+
+  // Função para recuperar configurações do usuário
+  async getSettings(userId: string): Promise<any> {
+    try {
+      console.log("Buscando configurações para usuário:", userId);
+      
+      const { data, error } = await supabase
+        .from('settings')
+        .select('data')
+        .eq('user_id', userId)
+        .single();
+
+      if (error) {
+        console.error('Erro ao recuperar configurações:', error);
+        
+        // Se não encontrou nenhuma configuração, retorne um objeto vazio
+        if (error.code === 'PGRST116') {
+          console.log("Nenhuma configuração encontrada, retornando objeto vazio");
+          return {};
+        }
+        
+        throw error;
+      }
+
+      console.log("Configurações recuperadas com sucesso");
+      return data?.data || {};
+    } catch (error: any) {
+      console.error('Erro ao buscar configurações:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao carregar configurações',
+        description: error.message || 'Não foi possível carregar as configurações'
+      });
+      return {};
     }
   },
 
