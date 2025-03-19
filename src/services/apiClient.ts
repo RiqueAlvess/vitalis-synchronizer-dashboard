@@ -10,21 +10,25 @@ export const supabaseAPI = axios.create({
     'Content-Type': 'application/json',
   },
   timeout: 15000,
-  withCredentials: true, // Enable sending cookies with requests
 });
 
 // Add request interceptor to include authentication headers
 supabaseAPI.interceptors.request.use(
   async config => {
-    // Get the current session from Supabase
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    // Add Authorization header if session exists
-    if (session) {
-      config.headers['Authorization'] = `Bearer ${session.access_token}`;
+    try {
+      // Get the current session from Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // Add Authorization header if session exists
+      if (session) {
+        config.headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+      
+      return config;
+    } catch (error) {
+      console.error('Error setting auth header:', error);
+      return config;
     }
-    
-    return config;
   },
   error => {
     return Promise.reject(error);

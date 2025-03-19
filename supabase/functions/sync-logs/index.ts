@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     
     // Set auth token
-    supabase.auth.setSession({
+    await supabase.auth.setSession({
       access_token: token,
       refresh_token: ''
     });
