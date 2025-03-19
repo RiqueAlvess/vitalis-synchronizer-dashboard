@@ -15,24 +15,37 @@ export const supabaseAPI = axios.create({
 
 supabaseAPI.interceptors.request.use(async (config) => {
   try {
+    // Get the current session
     const { data: { session } } = await supabase.auth.getSession();
+    
     if (session) {
+      // Set the Authorization header with the access token
       config.headers.Authorization = `Bearer ${session.access_token}`;
       console.log('Added auth token to request:', config.url);
     } else {
       console.warn('No active session found when making API request to:', config.url);
       
       // Try to refresh the session
-      const { data: refreshData } = await supabase.auth.refreshSession();
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      
+      if (refreshError) {
+        console.error('Failed to refresh session:', refreshError.message);
+        // Could redirect to login page here or throw an error
+        throw new Error('Authentication failed: ' + refreshError.message);
+      }
+      
       if (refreshData.session) {
         config.headers.Authorization = `Bearer ${refreshData.session.access_token}`;
         console.log('Added refreshed auth token to request:', config.url);
       } else {
-        console.error('Failed to refresh session, no valid session found');
+        console.error('No valid session after refresh attempt');
+        throw new Error('No valid authentication session');
       }
     }
   } catch (error) {
     console.error('Error adding auth token to request:', error);
+    // Don't throw here, let the request proceed and fail naturally
+    // so the response interceptor can handle it
   }
   return config;
 }, (error) => {
@@ -52,7 +65,7 @@ supabaseAPI.interceptors.response.use(
     }
     return response;
   },
-  error => {
+  async error => {
     console.error('API request failed:', {
       url: error.config?.url,
       method: error.config?.method,
@@ -65,7 +78,26 @@ supabaseAPI.interceptors.response.use(
     // Handle authentication errors specifically
     if (error.response?.status === 401) {
       console.error('Authentication error (401 Unauthorized)');
-      // Could trigger a logout or authentication refresh here
+      
+      // Try to refresh the session
+      try {
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        
+        if (refreshError) {
+          console.error('Failed to refresh session on 401:', refreshError.message);
+          // Don't automatically redirect - let the AuthContext handle redirects
+          return Promise.reject(new Error('Authentication failed. Please log in again.'));
+        }
+        
+        if (refreshData.session) {
+          // If we successfully refreshed, retry the original request
+          error.config.headers.Authorization = `Bearer ${refreshData.session.access_token}`;
+          console.log('Retrying request with new token after 401:', error.config.url);
+          return axios(error.config);
+        }
+      } catch (refreshError) {
+        console.error('Error during session refresh after 401:', refreshError);
+      }
     }
     
     if (typeof error.response?.data === 'string' && 
