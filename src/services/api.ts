@@ -1,11 +1,104 @@
+
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
-import { DashboardData, MonthlyTrendData, SectorData, ApiStorageProps, MonthlyAbsenceData } from '@/types/dashboard';
-import type { MockCompanyData, MockEmployeeData } from '@/types/dashboard';
+import { 
+  DashboardData, 
+  MonthlyTrendData, 
+  SectorData, 
+  ApiStorageProps 
+} from '@/types/dashboard';
+import type { MockEmployeeData } from '@/types/dashboard';
 import { localStorageService } from '@/services/localStorageService';
-import { supabaseAPI, retryRequest } from './apiClient';
 
-export type ApiConfigType = 'company' | 'employee' | 'absenteeism';
+const retryRequest = async (fn: () => Promise<any>, maxRetries = 3, delay = 1000) => {
+  let lastError;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      console.log(`Attempt ${i + 1} failed:`, error.message);
+      lastError = error;
+      if (i < maxRetries - 1) {
+        await new Promise(res => setTimeout(res, delay));
+        delay *= 1.5;
+      }
+    }
+  }
+  throw lastError;
+};
+
+const supabaseAPI = axios.create({
+  baseURL: import.meta.env.DEV 
+    ? '/api'
+    : 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 15000,
+  withCredentials: false,
+});
+
+supabaseAPI.interceptors.request.use(async (config) => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      config.headers.Authorization = `Bearer ${session.access_token}`;
+      console.log('Added auth token to request:', config.url);
+    } else {
+      console.warn('No active session found when making API request to:', config.url);
+    }
+  } catch (error) {
+    console.error('Error adding auth token to request:', error);
+  }
+  return config;
+}, (error) => {
+  console.error('Request interceptor error:', error);
+  return Promise.reject(error);
+});
+
+supabaseAPI.interceptors.response.use(
+  response => {
+    if (typeof response.data === 'string' && response.data.includes('<!DOCTYPE html>')) {
+      console.error('Received HTML instead of JSON:', {
+        url: response.config?.url,
+        status: response.status,
+        data: response.data.substring(0, 200) + '...'
+      });
+      return Promise.reject(new Error('Received HTML instead of JSON. Authentication may have failed.'));
+    }
+    return response;
+  },
+  error => {
+    console.error('API request failed:', {
+      url: error.config?.url,
+      method: error.config?.method,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      error: error.message
+    });
+    
+    if (typeof error.response?.data === 'string' && 
+        error.response.data.includes('<!DOCTYPE html>')) {
+      console.error('Received HTML instead of JSON - possible auth or endpoint issue');
+      error.isHtmlResponse = true;
+      error.message = 'Authentication error. Please log in and try again.';
+    }
+    
+    if (error.message === 'Network Error') {
+      console.error('Network error details:', {
+        navigator: navigator?.onLine ? 'Online' : 'Offline',
+        url: error.config?.url,
+        method: error.config?.method,
+      });
+      error.message = 'Falha na conexão com o servidor. Verifique sua conexão de internet.';
+    }
+    
+    return Promise.reject(error);
+  }
+);
+
+export type ApiConfigType = 'employee' | 'absenteeism';
 
 export interface ApiConfig extends ApiStorageProps {
   type: ApiConfigType;
@@ -14,10 +107,6 @@ export interface ApiConfig extends ApiStorageProps {
   chave: string;
   tipoSaida: string;
   isConfigured?: boolean;
-}
-
-export interface CompanyApiConfig extends ApiConfig {
-  type: 'company';
 }
 
 export interface EmployeeApiConfig extends ApiConfig {
@@ -36,41 +125,6 @@ export interface AbsenteeismApiConfig extends ApiConfig {
   dataFim: string;
 }
 
-interface ApiResponse<T> {
-  data: T[] | null;
-  error: string | null;
-}
-
-export interface Company {
-  id: number;
-  name: string;
-  cnpj: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface Employee {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-  companyId: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface Absenteeism {
-  id: number;
-  employeeId: number;
-  companyId: number;
-  startDate: Date;
-  endDate: Date;
-  reason: string;
-  cid: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 export interface User {
   id: number;
   name: string;
@@ -78,57 +132,6 @@ export interface User {
   createdAt: Date;
   updatedAt: Date;
 }
-
-const generateMockData = (type: string): MockCompanyData[] | MockEmployeeData[] | DashboardData => {
-  if (type === 'dashboard') {
-    return {
-      absenteeismRate: 3.42,
-      totalAbsenceDays: 128,
-      employeesAbsent: 24,
-      costImpact: 'R$ 18.750,00',
-      trend: 'down',
-      monthlyTrend: [
-        { month: '1/2023', count: 10, hours: 80, value: 2.8 },
-        { month: '2/2023', count: 12, hours: 96, value: 3.1 },
-        { month: '3/2023', count: 14, hours: 112, value: 3.6 },
-        { month: '4/2023', count: 16, hours: 128, value: 4.2 },
-        { month: '5/2023', count: 15, hours: 120, value: 3.9 },
-        { month: '6/2023', count: 13, hours: 104, value: 3.4 },
-      ],
-      bySector: [
-        { name: 'Administrativo', value: 45 },
-        { name: 'Produção', value: 32 },
-        { name: 'Comercial', value: 24 },
-        { name: 'Logística', value: 18 },
-        { name: 'Manutenção', value: 9 }
-      ]
-    } as DashboardData;
-  } else if (type === 'companies') {
-    return Array.from({ length: 5 }, (_, i) => ({
-      id: i + 1,
-      name: `Empresa ${i + 1} Ltda`,
-      short_name: `Empresa ${i + 1}`,
-      corporate_name: `Empresa ${i + 1} Ltda`,
-      tax_id: `${10000000000000 + i}`,
-      employees: Math.floor(Math.random() * 100) + 10,
-      syncStatus: ['synced', 'pending', 'error'][Math.floor(Math.random() * 3)],
-      lastSync: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString()
-    })) as MockCompanyData[];
-  } else if (type === 'employees') {
-    return Array.from({ length: 10 }, (_, i) => ({
-      id: i + 1,
-      name: `Funcionário ${i + 1}`,
-      full_name: `Funcionário Exemplo ${i + 1}`,
-      position: `Cargo ${Math.floor(i / 3) + 1}`,
-      position_name: `Cargo ${Math.floor(i / 3) + 1}`,
-      sector: `Setor ${Math.floor(i / 2) + 1}`,
-      sector_name: `Setor ${Math.floor(i / 2) + 1}`,
-      status: ['Ativo', 'Afastado', 'Inativo'][Math.floor(Math.random() * 3)],
-      absentDays: Math.floor(Math.random() * 20)
-    })) as MockEmployeeData[];
-  }
-  return [] as MockCompanyData[];
-};
 
 const hoursToDecimal = (hoursString: string): number => {
   if (!hoursString) return 0;
@@ -140,36 +143,6 @@ const hoursToDecimal = (hoursString: string): number => {
   
   return hours + (minutes / 60);
 };
-
-async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiResponse<T>> {
-  try {
-    if (!config) {
-      throw new Error('API configuration not found');
-    }
-
-    let url = '';
-    if (config.type === 'company') {
-      url = `/companies?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
-    } else if (config.type === 'employee') {
-      url = `/employees?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
-    } else if (config.type === 'absenteeism') {
-      url = `/absenteeism?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
-    } else {
-      throw new Error('Invalid API type');
-    }
-
-    const response = await retryRequest(() => supabaseAPI.get(url), 2);
-
-    if (response.status !== 200) {
-      throw new Error(`Request failed with status ${response.status}`);
-    }
-
-    return { data: response.data as T[], error: null };
-  } catch (error: any) {
-    console.error('Error fetching data from external API:', error);
-    return { data: null, error: error.message || 'Failed to fetch data from external API' };
-  }
-}
 
 const checkApiConnectivity = async (): Promise<boolean> => {
   try {
@@ -194,11 +167,22 @@ const checkApiConnectivity = async (): Promise<boolean> => {
 const apiService = {
   getDashboardData: async (): Promise<DashboardData> => {
     try {
-      const companyConfig = await apiService.apiConfig.get('company');
       const employeeConfig = await apiService.apiConfig.get('employee');
       const absenteeismConfig = await apiService.apiConfig.get('absenteeism');
       
-      // Try to get data from API first
+      if (!employeeConfig?.isConfigured || !absenteeismConfig?.isConfigured) {
+        console.warn('Um ou mais serviços de API não configurados');
+        return {
+          absenteeismRate: 0,
+          totalAbsenceDays: 0,
+          employeesAbsent: 0,
+          costImpact: 'R$ 0,00',
+          trend: 'neutral',
+          monthlyTrend: [],
+          bySector: []
+        } as DashboardData;
+      }
+      
       try {
         const response = await supabaseAPI.get<DashboardData>('/api/dashboard');
         if (response.data) {
@@ -208,123 +192,47 @@ const apiService = {
         console.error('Erro ao buscar dados do dashboard da API:', err);
       }
       
-      // If no data, return zeros instead of mock data
       return {
         absenteeismRate: 0,
         totalAbsenceDays: 0,
         employeesAbsent: 0,
         costImpact: 'R$ 0,00',
-        trend: 'stable',
+        trend: 'neutral',
         monthlyTrend: [],
         bySector: []
-      };
+      } as DashboardData;
     } catch (error) {
       console.error('Erro ao buscar dados do dashboard:', error);
-      // Return zeros instead of mock data
       return {
         absenteeismRate: 0,
         totalAbsenceDays: 0,
         employeesAbsent: 0,
         costImpact: 'R$ 0,00',
-        trend: 'stable',
+        trend: 'neutral',
         monthlyTrend: [],
         bySector: []
-      };
+      } as DashboardData;
     }
   },
   
-  companies: {
-    getAll: async (): Promise<MockCompanyData[]> => {
-      try {
-        const config = await apiService.apiConfig.get('company');
-        
-        try {
-          const response = await supabaseAPI.get<MockCompanyData[]>('/api/companies');
-          
-          if (Array.isArray(response.data) && response.data.length > 0) {
-            return response.data;
-          }
-        } catch (error) {
-          console.error('Error fetching companies:', error);
-        }
-        
-        // Return empty array if no data
-        return [];
-      } catch (error) {
-        console.error('Error fetching companies:', error);
-        return [];
-      }
-    },
-    getById: async (id: number): Promise<MockCompanyData | null> => {
-      try {
-        const response = await supabaseAPI.get<MockCompanyData>(`/api/companies/${id}`);
-        return response.data;
-      } catch (error) {
-        console.error('Error fetching company:', error);
-        return null;
-      }
-    },
-    create: async (data: Omit<MockCompanyData, 'id' | 'createdAt' | 'updatedAt'>): Promise<MockCompanyData | null> => {
-      try {
-        const response = await supabaseAPI.post<MockCompanyData>('/api/companies', data);
-        return response.data;
-      } catch (error) {
-        console.error('Error creating company:', error);
-        return null;
-      }
-    },
-    update: async (id: number, data: Omit<MockCompanyData, 'createdAt' | 'updatedAt' | 'id'>): Promise<MockCompanyData | null> => {
-      try {
-        const response = await supabaseAPI.put<MockCompanyData>(`/api/companies/${id}`, data);
-        return response.data;
-      } catch (error) {
-        console.error('Error updating company:', error);
-        return null;
-      }
-    },
-    delete: async (id: number): Promise<boolean> => {
-      try {
-        await supabaseAPI.delete(`/api/companies/${id}`);
-        return true;
-      } catch (error) {
-        console.error('Error deleting company:', error);
-        return false;
-      }
-    },
-    sync: async (): Promise<boolean> => {
-      try {
-        const config = await apiService.apiConfig.get('company');
-        
-        if (!config || !config.isConfigured) {
-          console.warn('Company API not configured, sync not attempted');
-          return false;
-        }
-        
-        await supabaseAPI.post('/api/companies/sync');
-        return true;
-      } catch (error) {
-        console.error('Error syncing companies:', error);
-        return false;
-      }
-    }
-  },
   employees: {
     getAll: async (): Promise<MockEmployeeData[]> => {
       try {
         const config = await apiService.apiConfig.get('employee');
         
-        try {
-          const response = await supabaseAPI.get<MockEmployeeData[]>('/api/employees');
-          
-          if (Array.isArray(response.data) && response.data.length > 0) {
-            return response.data;
-          }
-        } catch (error) {
-          console.error('Error fetching employees:', error);
+        if (!config || !config.isConfigured) {
+          console.warn('Employee API not configured');
+          return [];
         }
         
-        // Return empty array if no data
-        return [];
+        const response = await supabaseAPI.get<MockEmployeeData[]>('/api/employees');
+        
+        if (Array.isArray(response.data) && response.data.length > 0) {
+          return response.data;
+        } else {
+          console.warn('Empty response from API');
+          return [];
+        }
       } catch (error) {
         console.error('Error fetching employees:', error);
         return [];
@@ -339,16 +247,7 @@ const apiService = {
         return null;
       }
     },
-    create: async (data: Omit<MockEmployeeData, 'id' | 'createdAt' | 'updatedAt'>): Promise<MockEmployeeData | null> => {
-      try {
-        const response = await supabaseAPI.post<MockEmployeeData>('/api/employees', data);
-        return response.data;
-      } catch (error) {
-        console.error('Error creating employee:', error);
-        return null;
-      }
-    },
-    update: async (id: number, data: Omit<MockEmployeeData, 'createdAt' | 'updatedAt' | 'id'>): Promise<MockEmployeeData | null> => {
+    update: async (id: number, data: Partial<MockEmployeeData>): Promise<MockEmployeeData | null> => {
       try {
         const response = await supabaseAPI.put<MockEmployeeData>(`/api/employees/${id}`, data);
         return response.data;
@@ -357,88 +256,101 @@ const apiService = {
         return null;
       }
     },
-    delete: async (id: number): Promise<boolean> => {
-      try {
-        await supabaseAPI.delete(`/api/employees/${id}`);
-        return true;
-      } catch (error) {
-        console.error('Error deleting employee:', error);
-        return false;
-      }
-    },
-    sync: async (): Promise<boolean> => {
+    sync: async (): Promise<{success: boolean, message: string, data?: any}> => {
       try {
         const config = await apiService.apiConfig.get('employee');
         
         if (!config || !config.isConfigured) {
           console.warn('Employee API not configured, sync not attempted');
-          return false;
+          return {
+            success: false, 
+            message: 'Configuração da API de funcionários não encontrada'
+          };
         }
         
-        await supabaseAPI.post('/api/employees/sync');
-        return true;
+        const params = {
+          type: 'employee',
+          empresa: config.empresa,
+          codigo: config.codigo,
+          chave: config.chave,
+          tipoSaida: 'json',
+          ativo: (config as EmployeeApiConfig).ativo || 'Sim',
+          inativo: (config as EmployeeApiConfig).inativo || '',
+          afastado: (config as EmployeeApiConfig).afastado || '',
+          pendente: (config as EmployeeApiConfig).pendente || '',
+          ferias: (config as EmployeeApiConfig).ferias || ''
+        };
+        
+        console.log('Initiating employee sync with params:', params);
+        
+        const response = await supabaseAPI.post('/sync-soc-data', {
+          type: 'employee',
+          params
+        });
+        
+        return {
+          success: response.data.success,
+          message: response.data.message,
+          data: response.data.data
+        };
       } catch (error) {
         console.error('Error syncing employees:', error);
-        return false;
-      }
-    },
-    testConnection: async (config: EmployeeApiConfig): Promise<{success: boolean, count: number}> => {
-      try {
-        const response = await supabaseAPI.post('/api/employees/test-connection', config);
-        return response.data;
-      } catch (error) {
-        console.error('Error testing employee API connection:', error);
-        throw error;
+        return {
+          success: false,
+          message: error.message || 'Erro desconhecido durante a sincronização'
+        };
       }
     }
   },
+  
   absenteeism: {
-    getAll: async (): Promise<Absenteeism[]> => {
+    sync: async (): Promise<{success: boolean, message: string, data?: any}> => {
       try {
-        const response = await supabaseAPI.get<Absenteeism[]>('/api/absenteeism');
-        return response.data;
+        const config = await apiService.apiConfig.get('absenteeism');
+        
+        if (!config || !config.isConfigured) {
+          console.warn('Absenteeism API not configured, sync not attempted');
+          return {
+            success: false, 
+            message: 'Configuração da API de absenteísmo não encontrada'
+          };
+        }
+        
+        const absConfig = config as AbsenteeismApiConfig;
+        
+        const params = {
+          type: 'absenteeism',
+          empresa: config.empresa,
+          codigo: config.codigo,
+          chave: config.chave,
+          tipoSaida: 'json',
+          empresaTrabalho: absConfig.empresaTrabalho || '',
+          dataInicio: absConfig.dataInicio || '',
+          dataFim: absConfig.dataFim || ''
+        };
+        
+        console.log('Initiating absenteeism sync with params:', params);
+        
+        const response = await supabaseAPI.post('/sync-soc-data', {
+          type: 'absenteeism',
+          params
+        });
+        
+        return {
+          success: response.data.success,
+          message: response.data.message,
+          data: response.data.data
+        };
       } catch (error) {
-        console.error('Error fetching absenteeism:', error);
-        return [];
-      }
-    },
-    getById: async (id: number): Promise<Absenteeism | null> => {
-      try {
-        const response = await supabaseAPI.get<Absenteeism>(`/api/absenteeism/${id}`);
-        return response.data;
-      } catch (error) {
-        console.error('Error fetching absenteeism:', error);
-        return null;
-      }
-    },
-    create: async (data: Omit<Absenteeism, 'id' | 'createdAt' | 'updatedAt'>): Promise<Absenteeism | null> => {
-      try {
-        const response = await supabaseAPI.post<Absenteeism>('/api/absenteeism', data);
-        return response.data;
-      } catch (error) {
-        console.error('Error creating absenteeism:', error);
-        return null;
-      }
-    },
-    update: async (id: number, data: Omit<Absenteeism, 'createdAt' | 'updatedAt' | 'id'>): Promise<Absenteeism | null> => {
-      try {
-        const response = await supabaseAPI.put<Absenteeism>(`/api/absenteeism/${id}`, data);
-        return response.data;
-      } catch (error) {
-        console.error('Error updating absenteeism:', error);
-        return null;
-      }
-    },
-    delete: async (id: number): Promise<boolean> => {
-      try {
-        await supabaseAPI.delete(`/api/absenteeism/${id}`);
-        return true;
-      } catch (error) {
-        console.error('Error deleting absenteeism:', error);
-        return false;
+        console.error('Error syncing absenteeism data:', error);
+        return {
+          success: false,
+          message: error.message || 'Erro desconhecido durante a sincronização'
+        };
       }
     }
   },
+  
   users: {
     getMe: async (): Promise<User | null> => {
       try {
@@ -458,8 +370,9 @@ const apiService = {
       }
     },
   },
+  
   apiConfig: {
-    get: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
+    get: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | null> => {
       try {
         console.log(`Fetching ${type} API config...`);
         
@@ -586,7 +499,7 @@ const apiService = {
       }
     },
     
-    save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
+    save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig): Promise<ApiConfig | null> => {
       try {
         if (localStorageService.isPreviewEnvironment()) {
           console.log(`Preview environment detected, saving ${config.type} config to localStorage`);
@@ -784,180 +697,118 @@ const apiService = {
       }
     }
   },
+  
+  // Sync service functions
   sync: {
-    companies: async (): Promise<{success: boolean, message: string, data?: any}> => {
-      try {
-        // Get the company API config
-        const config = await apiService.getApiConfig('company');
-        
-        if (!config) {
-          return {
-            success: false,
-            message: 'Configuração da API de empresas não encontrada'
-          };
-        }
-        
-        const params = {
-          empresa: config.empresa,
-          codigo: config.codigo,
-          chave: config.chave,
-          tipoSaida: config.tipoSaida || 'json'
-        };
-        
-        // Call the sync endpoint
-        const response = await supabaseAPI.post('/api/sync/companies', params);
-        
-        return {
-          success: true,
-          message: 'Sincronização de empresas iniciada com sucesso',
-          data: response.data
-        };
-      } catch (error) {
-        console.error('Error syncing companies:', error);
-        return {
-          success: false,
-          message: error.message || 'Erro ao sincronizar empresas'
-        };
-      }
-    },
-    
     employees: async (): Promise<{success: boolean, message: string, data?: any}> => {
       try {
-        // Get the employee API config
-        const config = await apiService.getApiConfig('employee');
-        
-        if (!config) {
-          return {
-            success: false,
-            message: 'Configuração da API de funcionários não encontrada'
-          };
-        }
-        
-        // Use the employee-specific config fields
-        const employeeConfig = config as EmployeeApiConfig;
-        const params = {
-          empresa: employeeConfig.empresa,
-          codigo: employeeConfig.codigo,
-          chave: employeeConfig.chave,
-          tipoSaida: employeeConfig.tipoSaida || 'json',
-          ativo: employeeConfig.ativo,
-          inativo: employeeConfig.inativo,
-          afastado: employeeConfig.afastado,
-          pendente: employeeConfig.pendente,
-          ferias: employeeConfig.ferias
-        };
-        
-        // Call the sync endpoint
-        const response = await supabaseAPI.post('/api/sync/employees', params);
-        
-        return {
-          success: true,
-          message: 'Sincronização de funcionários iniciada com sucesso',
-          data: response.data
-        };
+        return await apiService.employees.sync();
       } catch (error) {
-        console.error('Error syncing employees:', error);
+        console.error('Error in sync.employees:', error);
         return {
           success: false,
-          message: error.message || 'Erro ao sincronizar funcionários'
+          message: error.message || 'Erro desconhecido durante a sincronização de funcionários'
         };
       }
     },
     
     absenteeism: async (): Promise<{success: boolean, message: string, data?: any}> => {
       try {
-        // Get the absenteeism API config
-        const config = await apiService.getApiConfig('absenteeism');
-        
-        if (!config) {
-          return {
-            success: false,
-            message: 'Configuração da API de absenteísmo não encontrada'
-          };
-        }
-        
-        // Use the absenteeism-specific config fields
-        const absenteeismConfig = config as AbsenteeismApiConfig;
-        const params = {
-          empresa: absenteeismConfig.empresa,
-          codigo: absenteeismConfig.codigo,
-          chave: absenteeismConfig.chave,
-          tipoSaida: absenteeismConfig.tipoSaida || 'json',
-          empresaTrabalho: absenteeismConfig.empresaTrabalho,
-          dataInicio: absenteeismConfig.dataInicio,
-          dataFim: absenteeismConfig.dataFim
-        };
-        
-        // Call the sync endpoint
-        const response = await supabaseAPI.post('/api/sync/absenteeism', params);
-        
-        return {
-          success: true,
-          message: 'Sincronização de absenteísmo iniciada com sucesso',
-          data: response.data
-        };
+        return await apiService.absenteeism.sync();
       } catch (error) {
-        console.error('Error syncing absenteeism:', error);
+        console.error('Error in sync.absenteeism:', error);
         return {
           success: false,
-          message: error.message || 'Erro ao sincronizar dados de absenteísmo'
+          message: error.message || 'Erro desconhecido durante a sincronização de absenteísmo'
         };
       }
     },
     
-    status: async (): Promise<{
-      companies: string;
-      employees: string;
-      absenteeism: string;
-      lastSync?: string;
-    }> => {
+    status: async () => {
       try {
-        const response = await supabaseAPI.get('/api/sync/status');
+        const response = await supabaseAPI.get('/sync-status');
         return response.data;
       } catch (error) {
         console.error('Error fetching sync status:', error);
-        return {
-          companies: 'unknown',
-          employees: 'unknown',
-          absenteeism: 'unknown'
-        };
+        return null;
       }
     }
   },
   
-  testApiConnection: async (config: ApiConfig): Promise<{success: boolean, message: string}> => {
+  // Helper function to test API connections
+  testApiConnection: async (config: ApiConfig): Promise<{success: boolean; message: string}> => {
     try {
-      if (!config.empresa || !config.codigo || !config.chave) {
-        return {
-          success: false,
-          message: 'Configuração incompleta. Por favor, preencha todos os campos obrigatórios.'
-        };
+      if (!config) {
+        throw new Error('API configuration not found');
       }
       
-      // Create a test request config
-      const testConfig = { ...config };
+      console.log(`Testing API connection for ${config.type}:`, {
+        empresa: config.empresa,
+        codigo: '****',
+        chave: '****',
+        type: config.type
+      });
       
-      // Send the test request
-      const response = await supabaseAPI.post('/test-connection', testConfig);
+      let params;
       
-      return {
-        success: true,
-        message: response.data?.message || 'Conexão testada com sucesso'
-      };
+      if (config.type === 'employee') {
+        const empConfig = config as EmployeeApiConfig;
+        params = {
+          type: 'employee',
+          empresa: config.empresa,
+          codigo: config.codigo,
+          chave: config.chave,
+          tipoSaida: 'json',
+          ativo: empConfig.ativo || 'Sim',
+          inativo: empConfig.inativo || '',
+          afastado: empConfig.afastado || '',
+          pendente: empConfig.pendente || '',
+          ferias: empConfig.ferias || ''
+        };
+      } else if (config.type === 'absenteeism') {
+        const absConfig = config as AbsenteeismApiConfig;
+        params = {
+          type: 'absenteeism',
+          empresa: config.empresa,
+          codigo: config.codigo,
+          chave: config.chave,
+          tipoSaida: 'json',
+          empresaTrabalho: absConfig.empresaTrabalho || '',
+          dataInicio: absConfig.dataInicio || '',
+          dataFim: absConfig.dataFim || ''
+        };
+      } else {
+        throw new Error('Invalid API type');
+      }
+      
+      // Use the test-connection endpoint
+      const response = await supabaseAPI.post('/test-connection', params);
+      
+      if (response.data.success) {
+        return {
+          success: true,
+          message: `Conexão com a API de ${config.type === 'employee' ? 'Funcionários' : 'Absenteísmo'} estabelecida com sucesso!`
+        };
+      } else {
+        return {
+          success: false,
+          message: response.data.message || `Falha ao conectar com a API de ${config.type === 'employee' ? 'Funcionários' : 'Absenteísmo'}.`
+        };
+      }
     } catch (error) {
       console.error('Error testing API connection:', error);
       return {
         success: false,
-        message: error.message || 'Erro ao testar conexão com a API'
+        message: `Falha ao conectar com a API: ${error.message || 'Erro desconhecido'}`
       };
     }
   },
   
-  getApiConfig: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
+  getApiConfig: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | null> => {
     return await apiService.apiConfig.get(type);
   },
   
-  saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
+  saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig): Promise<ApiConfig | null> => {
     return await apiService.apiConfig.save(config);
   }
 };

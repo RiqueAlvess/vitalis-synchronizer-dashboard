@@ -4,3 +4,9 @@ project_id = "rdrvashvfvjdtuuuqjio"
 
 [sync-logs]
 path = "sync-logs"
+
+[sync-soc-data]
+path = "sync-soc-data"
+
+[test-connection]
+path = "test-connection"

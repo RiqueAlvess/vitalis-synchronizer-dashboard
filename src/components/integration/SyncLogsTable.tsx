@@ -1,40 +1,38 @@
+
 import React, { useState, useEffect } from 'react';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from '@/components/ui/table';
-import { 
-  Loader2, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
-  AlertTriangle,
-  RefreshCw
-} from 'lucide-react';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { RefreshCw, CalendarDays, Users, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
+import { pt } from 'date-fns/locale';
 import apiService from '@/services/api';
-import { syncLogsService, SyncLog } from '@/services/syncLogsService';
+import { SyncLog } from '@/types/sync';
+import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { syncLogsService } from '@/services/syncLogsService';
 
 interface SyncLogsTableProps {
-  onSync?: (type: 'company' | 'employee' | 'absenteeism') => Promise<void>;
+  onSync: (type: 'employee' | 'absenteeism') => Promise<any>;
 }
 
 const SyncLogsTable: React.FC<SyncLogsTableProps> = ({ onSync }) => {
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncType, setSyncType] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState<{ [key: string]: boolean }>({});
 
   const fetchLogs = async () => {
     try {
       setIsLoading(true);
-      const data = await syncLogsService.getLogs();
-      setLogs(data);
+      const syncLogs = await syncLogsService.getLogs();
+      setLogs(syncLogs);
     } catch (error) {
       console.error('Error fetching sync logs:', error);
     } finally {
@@ -44,69 +42,72 @@ const SyncLogsTable: React.FC<SyncLogsTableProps> = ({ onSync }) => {
 
   useEffect(() => {
     fetchLogs();
-    
-    // Poll for updates every 5 seconds if there's an in-progress sync
-    const hasInProgressSync = logs.some(log => log.status === 'pending' || log.status === 'in_progress');
-    
-    if (hasInProgressSync) {
-      const interval = setInterval(fetchLogs, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [logs]);
+  }, []);
 
-  const handleSync = async (type: 'company' | 'employee' | 'absenteeism') => {
-    if (onSync) {
-      setIsSyncing(true);
-      setSyncType(type);
-      try {
-        await onSync(type);
-        fetchLogs();
-      } finally {
-        setIsSyncing(false);
-        setSyncType(null);
-      }
+  const handleSync = async (type: 'employee' | 'absenteeism') => {
+    try {
+      setIsSyncing(prev => ({ ...prev, [type]: true }));
+      await onSync(type);
+      await fetchLogs(); // Refresh logs after sync
+    } catch (error) {
+      console.error(`Error syncing ${type}:`, error);
+    } finally {
+      setIsSyncing(prev => ({ ...prev, [type]: false }));
     }
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleString('pt-BR');
+  const formatDateTime = (dateString: string) => {
+    if (!dateString) return '-';
+    try {
+      return format(new Date(dateString), "dd/MM/yyyy 'às' HH:mm", { locale: pt });
+    } catch (e) {
+      console.error('Error formatting date:', e);
+      return 'Data inválida';
+    }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'success':
-        return <Badge className="bg-green-500">Sucesso</Badge>;
-      case 'error':
-        return <Badge variant="destructive">Erro</Badge>;
-      case 'in_progress':
-        return <Badge className="bg-blue-500">Em andamento</Badge>;
+        return (
+          <span className="flex items-center text-green-700 bg-green-50 rounded-full px-2.5 py-0.5 text-xs font-medium">
+            <CheckCircle2 className="w-3 h-3 mr-1" />
+            Sucesso
+          </span>
+        );
       case 'pending':
-        return <Badge variant="outline" className="border-blue-500 text-blue-500">Pendente</Badge>;
+      case 'in_progress':
+        return (
+          <span className="flex items-center text-amber-700 bg-amber-50 rounded-full px-2.5 py-0.5 text-xs font-medium">
+            <Clock className="w-3 h-3 mr-1" />
+            {status === 'pending' ? 'Pendente' : 'Em Progresso'}
+          </span>
+        );
+      case 'error':
+        return (
+          <span className="flex items-center text-red-700 bg-red-50 rounded-full px-2.5 py-0.5 text-xs font-medium">
+            <AlertCircle className="w-3 h-3 mr-1" />
+            Erro
+          </span>
+        );
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return <span className="text-xs">{status}</span>;
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'success':
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
-      case 'error':
-        return <XCircle className="h-5 w-5 text-red-500" />;
-      case 'in_progress':
-        return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />;
-      case 'pending':
-        return <Clock className="h-5 w-5 text-blue-500" />;
-      default:
-        return <AlertTriangle className="h-5 w-5 text-yellow-500" />;
-    }
-  };
-
-  const getTypeLabel = (type: string) => {
+  const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'company':
-        return 'Empresas';
+      case 'employee':
+        return <Users className="h-4 w-4 text-blue-500" />;
+      case 'absenteeism':
+        return <CalendarDays className="h-4 w-4 text-purple-500" />;
+      default:
+        return null;
+    }
+  };
+
+  const getTypeName = (type: string) => {
+    switch (type) {
       case 'employee':
         return 'Funcionários';
       case 'absenteeism':
@@ -116,142 +117,131 @@ const SyncLogsTable: React.FC<SyncLogsTableProps> = ({ onSync }) => {
     }
   };
 
-  const calculateDuration = (startDate: string, endDate: string | null) => {
-    if (!endDate) return 'Em andamento';
-    
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const durationMs = end.getTime() - start.getTime();
-    
-    const seconds = Math.floor(durationMs / 1000);
-    
-    if (seconds < 60) {
-      return `${seconds} segundos`;
-    }
-    
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    
-    return `${minutes} min ${remainingSeconds} seg`;
-  };
-
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-medium">Histórico de sincronização</h3>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleSync('company')}
-            disabled={isSyncing}
-          >
-            {isSyncing && syncType === 'company' ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Sincronizar Empresas
-          </Button>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleSync('employee')}
-            disabled={isSyncing}
-          >
-            {isSyncing && syncType === 'employee' ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Sincronizar Funcionários
-          </Button>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleSync('absenteeism')}
-            disabled={isSyncing}
-          >
-            {isSyncing && syncType === 'absenteeism' ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Sincronizar Absenteísmo
-          </Button>
-        </div>
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="p-5">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 mb-1">
+              <Users className="h-5 w-5 text-blue-500" />
+              <h3 className="font-medium">Sincronizar Funcionários</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              Sincronize dados de funcionários da API SOC.
+            </p>
+            <Button 
+              onClick={() => handleSync('employee')} 
+              disabled={isSyncing.employee}
+              className="mt-auto"
+            >
+              {isSyncing.employee ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Sincronizando...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Sincronizar Funcionários
+                </>
+              )}
+            </Button>
+          </div>
+        </Card>
+        
+        <Card className="p-5">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 mb-1">
+              <CalendarDays className="h-5 w-5 text-purple-500" />
+              <h3 className="font-medium">Sincronizar Absenteísmo</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              Sincronize dados de absenteísmo da API SOC.
+            </p>
+            <Button 
+              onClick={() => handleSync('absenteeism')} 
+              disabled={isSyncing.absenteeism}
+              className="mt-auto"
+            >
+              {isSyncing.absenteeism ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Sincronizando...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Sincronizar Absenteísmo
+                </>
+              )}
+            </Button>
+          </div>
+        </Card>
       </div>
       
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[50px]">Status</TableHead>
-            <TableHead>Tipo</TableHead>
-            <TableHead className="w-[250px]">Data</TableHead>
-            <TableHead>Duração</TableHead>
-            <TableHead>Mensagem</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {isLoading ? (
-            <TableRow>
-              <TableCell colSpan={5} className="text-center py-8">
-                <div className="flex justify-center items-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-muted-foreground">Carregando logs...</span>
-                </div>
-              </TableCell>
-            </TableRow>
-          ) : logs.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                Nenhum log de sincronização encontrado
-              </TableCell>
-            </TableRow>
-          ) : (
-            logs.map((log) => (
-              <TableRow key={log.id}>
-                <TableCell>
-                  <div className="flex items-center justify-center">
-                    {getStatusIcon(log.status)}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-col">
-                    <span className="font-medium">{getTypeLabel(log.type)}</span>
-                    <span className="text-xs text-muted-foreground mt-1">
-                      {getStatusBadge(log.status)}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-col">
-                    <span className="font-medium">Iniciado:</span>
-                    <span className="text-sm">{formatDate(log.created_at)}</span>
-                    
-                    {log.completed_at && (
-                      <>
-                        <span className="font-medium mt-1">Concluído:</span>
-                        <span className="text-sm">{formatDate(log.completed_at)}</span>
-                      </>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {calculateDuration(log.created_at, log.completed_at)}
-                </TableCell>
-                <TableCell>
-                  <div className="max-w-md truncate">
-                    {log.message || 'Sem mensagem'}
-                  </div>
-                </TableCell>
+      <h3 className="text-lg font-medium mt-8 mb-4">Histórico de Sincronização</h3>
+      
+      {isLoading ? (
+        Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="flex items-center space-x-4 mb-4">
+            <Skeleton className="h-12 w-full rounded" />
+          </div>
+        ))
+      ) : logs.length === 0 ? (
+        <div className="text-center py-8 border rounded-lg">
+          <p className="text-muted-foreground">Nenhum registro de sincronização encontrado</p>
+        </div>
+      ) : (
+        <div className="rounded-md border overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Mensagem</TableHead>
+                <TableHead>Iniciado em</TableHead>
+                <TableHead>Concluído em</TableHead>
               </TableRow>
-            ))
+            </TableHeader>
+            <TableBody>
+              {logs.map((log) => (
+                <TableRow key={log.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      {getTypeIcon(log.type)}
+                      <span>{getTypeName(log.type)}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>{getStatusBadge(log.status)}</TableCell>
+                  <TableCell>
+                    <div className="max-w-md text-sm truncate" title={log.message}>
+                      {log.message || '-'}
+                    </div>
+                  </TableCell>
+                  <TableCell>{formatDateTime(log.started_at)}</TableCell>
+                  <TableCell>{log.completed_at ? formatDateTime(log.completed_at) : '-'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+      
+      <div className="flex justify-end mt-4">
+        <Button variant="outline" onClick={fetchLogs} disabled={isLoading}>
+          {isLoading ? (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              Atualizando...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Atualizar
+            </>
           )}
-        </TableBody>
-      </Table>
+        </Button>
+      </div>
     </div>
   );
 };

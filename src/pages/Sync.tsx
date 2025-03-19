@@ -16,14 +16,11 @@ const SyncPage = () => {
     message: string;
   } | null>(null);
   
-  const handleSync = async (type: 'company' | 'employee' | 'absenteeism') => {
+  const handleSync = async (type: 'employee' | 'absenteeism') => {
     try {
       setSyncResult(null);
       
-      const typeLabel = 
-        type === 'company' ? 'empresas' : 
-        type === 'employee' ? 'funcionários' : 
-        'absenteísmo';
+      const typeLabel = type === 'employee' ? 'funcionários' : 'absenteísmo';
         
       toast({
         title: 'Sincronização iniciada',
@@ -33,9 +30,6 @@ const SyncPage = () => {
       let result;
       
       switch (type) {
-        case 'company':
-          result = await apiService.sync.companies();
-          break;
         case 'employee':
           result = await apiService.sync.employees();
           break;
@@ -63,7 +57,7 @@ const SyncPage = () => {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       
       setSyncResult({
-        type: type === 'company' ? 'empresas' : type === 'employee' ? 'funcionários' : 'absenteísmo',
+        type: type === 'employee' ? 'funcionários' : 'absenteísmo',
         success: false,
         message: errorMessage
       });

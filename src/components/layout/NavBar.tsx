@@ -1,15 +1,16 @@
+
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { 
   LayoutDashboard, 
-  Building2, 
   Users, 
   Settings, 
   Menu, 
   X, 
-  LogOut 
+  LogOut,
+  RefreshCw
 } from 'lucide-react';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useAuth } from '@/context/AuthContext';
@@ -24,8 +25,8 @@ const NavBar = () => {
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-5 w-5" /> },
-    { path: '/companies', label: 'Empresas', icon: <Building2 className="h-5 w-5" /> },
     { path: '/employees', label: 'Funcionários', icon: <Users className="h-5 w-5" /> },
+    { path: '/sync', label: 'Sincronização', icon: <RefreshCw className="h-5 w-5" /> },
     { path: '/settings', label: 'Configurações', icon: <Settings className="h-5 w-5" /> },
   ];
 
