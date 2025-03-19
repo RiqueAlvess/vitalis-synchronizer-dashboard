@@ -1,5 +1,5 @@
 
-import axios from 'axios';
+import axios, { AxiosRequestConfig } from 'axios';
 import { supabase } from '@/integrations/supabase/client';
 
 export const supabaseAPI = axios.create({
@@ -9,181 +9,156 @@ export const supabaseAPI = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // Increased timeout
-  withCredentials: true, // Enable sending cookies with cross-origin requests
+  timeout: 30000,
+  withCredentials: true,
 });
 
-// Adicionando um lock para evitar múltiplas atualizações de token simultaneamente
-let isRefreshing = false;
-let refreshPromise = null;
+// Lock para evitar múltiplas atualizações de token simultaneamente
+let refreshPromise: Promise<any> | null = null;
 
-// Função para obter token atualizado
+// Função para obter token atualizado com lock
 const getUpdatedToken = async () => {
-  if (isRefreshing) {
-    return refreshPromise;
+  if (!refreshPromise) {
+    refreshPromise = supabase.auth.refreshSession()
+      .finally(() => {
+        refreshPromise = null;
+      });
   }
-
-  try {
-    isRefreshing = true;
-    refreshPromise = supabase.auth.refreshSession();
-    const result = await refreshPromise;
-    return result;
-  } finally {
-    isRefreshing = false;
-    refreshPromise = null;
-  }
+  return refreshPromise;
 };
 
-// Function to check if token is expired
-function isTokenExpired(token) {
+// Verificar se o token está expirado
+const isTokenExpired = (token: string | undefined): boolean => {
   if (!token) return true;
   
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
-    const expiryTime = payload.exp * 1000;
-    // Consider token expired 5 minutes before actual expiry to ensure smooth refreshes
-    return Date.now() >= expiryTime - 300000;
+    // Considerando expirado 5 minutos antes para garantir renovação tranquila
+    return Date.now() >= (payload.exp * 1000) - 300000;
   } catch (e) {
     console.error('Error checking token expiry:', e);
     return true;
   }
-}
+};
 
-// Add request interceptor to include authentication headers
+// Interceptor para adicionar cabeçalhos de autenticação
 supabaseAPI.interceptors.request.use(
-  async config => {
+  async (config) => {
     try {
-      // Get current session
+      // Obter sessão atual
       const { data: { session } } = await supabase.auth.getSession();
       
-      // If no session or token expired, try to refresh
+      // Se não há sessão ou o token expirou, tentar atualizar
       if (!session || isTokenExpired(session.access_token)) {
-        console.log('Token expired or missing, refreshing...');
+        console.log('Token expirado ou ausente, atualizando...');
         const { data, error } = await getUpdatedToken();
         
         if (data.session) {
-          console.log('Session refreshed successfully');
           config.headers['Authorization'] = `Bearer ${data.session.access_token}`;
         } else {
-          console.error('Session refresh failed:', error);
-          
-          // Tentar novamente após um pequeno delay
-          await new Promise(resolve => setTimeout(resolve, 500));
-          const secondAttempt = await getUpdatedToken();
-          
-          if (secondAttempt.data.session) {
-            console.log('Session refreshed successfully on second attempt');
-            config.headers['Authorization'] = `Bearer ${secondAttempt.data.session.access_token}`;
-          } else {
-            // If unable to refresh, remove any stale session data
-            await supabase.auth.signOut();
-            throw new Error('Authentication session expired');
-          }
+          console.error('Falha na atualização da sessão:', error);
+          // Se falhar, limpar sessão e requerer novo login
+          await supabase.auth.signOut();
+          throw new Error('Sessão de autenticação expirada');
         }
       } else {
-        // Use existing valid token
+        // Usar token existente válido
         config.headers['Authorization'] = `Bearer ${session.access_token}`;
       }
       
       return config;
     } catch (error) {
-      console.error('Error in request interceptor:', error);
+      console.error('Erro no interceptor de requisição:', error);
       return Promise.reject(error);
     }
   },
-  error => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Add response interceptor to handle authentication errors
+// Interceptor para tratar erros de resposta
 supabaseAPI.interceptors.response.use(
-  response => {
-    return response;
-  },
-  async error => {
+  (response) => response,
+  async (error) => {
     const originalRequest = error.config;
     
-    // Log detailed error information
-    console.error('API request failed:', {
-      url: originalRequest?.url,
-      method: originalRequest?.method,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      message: error.message,
-      data: error.response?.data
-    });
-    
-    // Handle authentication errors (token expired)
+    // Erro 401 (não autorizado) - token expirado
     if (error.response?.status === 401 && !originalRequest._retry) {
-      console.log('Received 401, attempting to refresh token...');
       originalRequest._retry = true;
       
       try {
-        // Try to refresh the session
         const { data, error: refreshError } = await getUpdatedToken();
         
         if (refreshError || !data.session) {
-          console.error('Session refresh failed during 401 handling:', refreshError);
-          // Force sign out to clear any stale session data
+          // Limpar sessão e redirecionar para login
           await supabase.auth.signOut();
-          
-          // Redirect to login page with current location
-          const currentPath = window.location.pathname;
-          window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
-          return Promise.reject(new Error('Authentication session expired. Please log in again.'));
+          window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+          return Promise.reject(new Error('Sessão expirada. Faça login novamente.'));
         }
         
-        // Retry the original request with the new token
+        // Retentar requisição original com novo token
         originalRequest.headers['Authorization'] = `Bearer ${data.session.access_token}`;
         return axios(originalRequest);
       } catch (refreshError) {
-        console.error('Error during token refresh:', refreshError);
+        console.error('Erro ao atualizar token:', refreshError);
         window.location.href = '/login';
-        return Promise.reject(new Error('Authentication failed. Please log in again.'));
+        return Promise.reject(new Error('Autenticação falhou. Faça login novamente.'));
       }
     }
     
-    // Melhorar o tratamento de erros de rede
-    if (error.message === 'Network Error') {
-      // Verificar conectividade
-      const isOnline = navigator.onLine;
+    // Melhorar tratamento de erros de rede com retry automático
+    if (error.message === 'Network Error' && !originalRequest._networkRetry) {
+      originalRequest._networkRetry = true;
       
-      if (isOnline) {
-        error.message = 'Erro de conexão com o servidor. Por favor, tente novamente mais tarde.';
-      } else {
-        error.message = 'Sem conexão com a internet. Por favor, verifique sua conexão e tente novamente.';
-      }
-      
-      // Tentar novamente automaticamente se estiver online
-      if (isOnline && !originalRequest._networkRetry && originalRequest) {
-        console.log('Retrying request after network error');
-        originalRequest._networkRetry = true;
+      // Verificar se está online antes de retentar
+      if (navigator.onLine) {
+        console.log('Retentando requisição após erro de rede');
         return new Promise(resolve => {
-          setTimeout(() => {
-            resolve(axios(originalRequest));
-          }, 1000);
+          setTimeout(() => resolve(axios(originalRequest)), 1000);
         });
       }
+      
+      error.message = navigator.onLine 
+        ? 'Erro de conexão com o servidor. Tente novamente mais tarde.' 
+        : 'Sem conexão com a internet. Verifique sua conexão e tente novamente.';
     }
     
     return Promise.reject(error);
   }
 );
 
-export const retryRequest = async (fn, maxRetries = 3, delay = 1000) => {
-  let lastError;
-  for (let i = 0; i < maxRetries; i++) {
+// Função de retry com backoff exponencial
+export const retryRequest = async <T>(
+  fn: () => Promise<T>, 
+  maxRetries: number = 3, 
+  initialDelay: number = 1000
+): Promise<T> => {
+  let delay = initialDelay;
+  let lastError: any;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error) {
-      console.log(`Attempt ${i + 1} failed:`, error.message);
+      console.log(`Tentativa ${attempt + 1} falhou:`, error);
       lastError = error;
-      if (i < maxRetries - 1) {
-        await new Promise(res => setTimeout(res, delay));
-        delay *= 1.5; // Exponential backoff
+      
+      if (attempt < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 1.5; // Backoff exponencial
       }
     }
   }
+  
   throw lastError;
+};
+
+// Função utilitária para executar API calls com retry automático
+export const apiCall = async <T>(
+  config: AxiosRequestConfig, 
+  retries: number = 2
+): Promise<T> => {
+  return retryRequest<T>(
+    () => supabaseAPI(config).then(res => res.data),
+    retries
+  );
 };

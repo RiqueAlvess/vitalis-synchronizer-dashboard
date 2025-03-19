@@ -14,8 +14,7 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     autoRefreshToken: true,
     persistSession: true,
     storageKey: 'vitalis-auth-token',
-    detectSessionInUrl: false, // Disable session detection in URL to avoid redirection issues
-    flowType: 'implicit'
+    detectSessionInUrl: false
   }
 });
 
@@ -28,37 +27,22 @@ export const hasStoredSession = () => {
     
     try {
       const parsedData = JSON.parse(stored);
-      // Check if current session exists
       if (!parsedData?.currentSession) return false;
       
       // Se não tiver expiresAt, considere válido por 1 hora
       if (!parsedData.currentSession.expires_at) {
-        // Verificar se o token foi criado há menos de 1 hora
         if (parsedData.currentSession.created_at) {
           const createdAt = new Date(parsedData.currentSession.created_at * 1000);
           const oneHourLater = new Date(createdAt.getTime() + 60 * 60 * 1000);
           return oneHourLater > new Date();
         }
-        return true; // Se não tiver created_at, consideramos válido para forçar o refresh
+        return false; // Se não tiver created_at, não consideramos válido
       }
       
-      const expiresAt = new Date(parsedData.currentSession.expires_at * 1000);
-      const hasValidSession = expiresAt > new Date();
-      
-      // Se a sessão estiver próxima de expirar (dentro de 5 minutos), força atualização
-      if (hasValidSession) {
-        const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
-        if (expiresAt < fiveMinutesFromNow) {
-          console.log('Session is close to expiration, should refresh');
-          return true; // Ainda retorna true mas vai disparar refresh em breve
-        }
-      }
-      
-      return hasValidSession;
+      return new Date(parsedData.currentSession.expires_at * 1000) > new Date();
     } catch (parseError) {
       console.error('Error parsing stored session:', parseError);
-      // Se houver erro ao analisar, considere que há sessão para forçar uma verificação/refresh
-      return true;
+      return false;
     }
   } catch (error) {
     console.error('Error checking stored session:', error);
