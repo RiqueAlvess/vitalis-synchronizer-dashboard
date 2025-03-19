@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Building2, RefreshCw, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
+import ErrorBoundary from '@/components/ui-custom/ErrorBoundary';
 
 const CompanyList = () => {
   const { toast } = useToast();
@@ -20,10 +21,11 @@ const CompanyList = () => {
     setError(null);
     try {
       const data = await apiService.companies.getAll();
-      if (!data) {
-        throw new Error('Nenhum dado recebido');
+      // Ensure data is an array before setting it to state
+      setCompanies(Array.isArray(data) ? data : []);
+      if (!data || !Array.isArray(data)) {
+        console.warn('Company data is not an array:', data);
       }
-      setCompanies(data);
     } catch (err) {
       console.error('Error fetching companies:', err);
       setError('Não foi possível carregar as empresas. Verifique a configuração da API.');
@@ -165,7 +167,7 @@ const CompanyList = () => {
               </div>
             ))}
           </div>
-        ) : companies.length === 0 ? (
+        ) : !companies || companies.length === 0 ? (
           <div className="py-8 text-center">
             <Building2 className="mx-auto h-10 w-10 text-muted-foreground mb-3 opacity-40" />
             <p className="text-muted-foreground">Nenhuma empresa encontrada</p>
@@ -175,8 +177,8 @@ const CompanyList = () => {
           </div>
         ) : (
           <div className="space-y-5">
-            {companies.map((company) => (
-              <div key={company.id} className="flex items-center justify-between py-3 border-b last:border-0">
+            {companies.map((company, index) => (
+              <div key={index} className="flex items-center justify-between py-3 border-b last:border-0">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-vitalis-100 flex items-center justify-center">
                     <Building2 className="h-5 w-5 text-vitalis-600" />

@@ -23,6 +23,7 @@ class ErrorBoundary extends Component<Props, State> {
   };
 
   public static getDerivedStateFromError(error: Error): State {
+    console.error("Error caught by ErrorBoundary:", error);
     return { hasError: true, error, errorInfo: null };
   }
 
@@ -33,11 +34,14 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   private handleRetry = () => {
+    console.log("Resetting error boundary state");
     this.setState({ hasError: false, error: null, errorInfo: null });
     if (this.props.onReset) {
       this.props.onReset();
     } else {
-      window.location.reload();
+      // Instead of full page reload, just clear the error state
+      // This allows the component to remount and try again
+      console.log("No onReset handler provided, just clearing error state");
     }
   };
 
@@ -57,8 +61,16 @@ class ErrorBoundary extends Component<Props, State> {
             Um erro ocorreu ao renderizar esta página.
           </p>
           {this.state.error && (
-            <div className="text-sm text-red-700 mb-4 max-w-lg mx-auto overflow-hidden">
+            <div className="text-sm text-red-700 mb-4 max-w-lg mx-auto overflow-auto">
               <p className="font-medium">Erro: {this.state.error.toString()}</p>
+              {this.state.errorInfo && (
+                <details className="mt-2 text-left">
+                  <summary className="cursor-pointer text-red-800">Ver detalhes do erro</summary>
+                  <pre className="mt-2 p-2 bg-red-100 rounded text-xs overflow-auto whitespace-pre-wrap">
+                    {this.state.errorInfo.componentStack}
+                  </pre>
+                </details>
+              )}
             </div>
           )}
           <Button

@@ -1,133 +1,156 @@
 
-import { corsHeaders } from '../_shared/cors.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
+import { corsHeaders } from '../_shared/cors.ts';
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
-const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
-
-interface ApiConfig {
-  type: 'company' | 'employee' | 'absenteeism';
-  empresa: string;
-  codigo: string;
-  chave: string;
-  tipoSaida: string;
-  isConfigured?: boolean;
-  [key: string]: any;
-}
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
 
 Deno.serve(async (req) => {
-  // Handle CORS
+  // Handle CORS preflight request
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-    
-    // Get session for authentication
-    const { data: { session } } = await supabase.auth.getSession()
-    
+    // Initialize Supabase client
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Get the session
+    const { data: { session } } = await supabase.auth.getSession();
+
+    // Check if user is authenticated
     if (!session) {
       return new Response(
-        JSON.stringify({ error: 'Não autorizado - Faça login para continuar' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+        JSON.stringify({ error: 'Not authenticated' }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
     }
 
-    // Get config data from request
-    const config: ApiConfig = await req.json()
-    
-    if (!config || !config.type || !config.empresa || !config.codigo || !config.chave) {
+    // Parse the request body
+    const config = await req.json();
+    console.log('Received config to save:', config);
+
+    // Validate config object
+    if (!config || !config.type) {
       return new Response(
-        JSON.stringify({ error: 'Parâmetros de configuração ausentes ou inválidos' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+        JSON.stringify({ error: 'Invalid config: missing type field' }),
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
     }
-    
-    console.log(`Saving ${config.type} API configuration`, { 
-      empresa: config.empresa, 
-      type: config.type 
-    })
-    
-    try {
-      // Create the record to save
-      const recordToSave = {
-        user_id: session.user.id,
-        type: config.type,
-        empresa: config.empresa,
-        codigo: config.codigo,
-        chave: config.chave,
-        tiposaida: config.tipoSaida || 'json',
-      };
-      
-      // Add type-specific fields
-      if (config.type === 'employee') {
-        recordToSave.ativo = config.ativo || 'Sim';
-        recordToSave.inativo = config.inativo || '';
-        recordToSave.afastado = config.afastado || '';
-        recordToSave.pendente = config.pendente || '';
-        recordToSave.ferias = config.ferias || '';
-      } else if (config.type === 'absenteeism') {
-        recordToSave.empresatrabalho = config.empresaTrabalho || '';
-        recordToSave.datainicio = config.dataInicio || '';
-        recordToSave.datafim = config.dataFim || '';
-      }
-      
-      // Perform upsert operation (insert or update)
-      const { data: savedConfig, error } = await supabase
+
+    const validTypes = ['company', 'employee', 'absenteeism'];
+    if (!validTypes.includes(config.type)) {
+      return new Response(
+        JSON.stringify({ error: `Invalid config type: ${config.type}` }),
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    // Check for existing config
+    const { data: existingConfig, error: fetchError } = await supabase
+      .from('api_configs')
+      .select('id')
+      .eq('type', config.type)
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('Error checking for existing config:', fetchError);
+      return new Response(
+        JSON.stringify({ error: fetchError.message }),
+        { 
+          status: 500, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    // Prepare the config data with user_id
+    const configData = {
+      ...config,
+      user_id: session.user.id,
+      updated_at: new Date().toISOString()
+    };
+
+    let result;
+
+    // Update or insert config
+    if (existingConfig) {
+      console.log(`Updating existing ${config.type} config with ID ${existingConfig.id}`);
+      const { data, error } = await supabase
         .from('api_configs')
-        .upsert(recordToSave, {
-          onConflict: 'user_id, type',
-          returning: 'representation'
+        .update(configData)
+        .eq('id', existingConfig.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error updating config:', error);
+        return new Response(
+          JSON.stringify({ error: error.message }),
+          { 
+            status: 500, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
+      result = data;
+    } else {
+      console.log(`Creating new ${config.type} config`);
+      const { data, error } = await supabase
+        .from('api_configs')
+        .insert({
+          ...configData,
+          created_at: new Date().toISOString()
         })
         .select()
         .single();
-      
+
       if (error) {
-        console.error('Error saving API configuration:', error);
-        throw error;
+        console.error('Error inserting config:', error);
+        return new Response(
+          JSON.stringify({ error: error.message }),
+          { 
+            status: 500, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
       }
-      
-      // Transform the saved data back to match the expected response format
-      const transformedResponse = {
-        type: savedConfig.type,
-        empresa: savedConfig.empresa,
-        codigo: savedConfig.codigo,
-        chave: savedConfig.chave,
-        tipoSaida: savedConfig.tiposaida || 'json',
-        isConfigured: true
-      };
-      
-      // Add type-specific properties
-      if (config.type === 'employee') {
-        transformedResponse.ativo = savedConfig.ativo || 'Sim';
-        transformedResponse.inativo = savedConfig.inativo || '';
-        transformedResponse.afastado = savedConfig.afastado || '';
-        transformedResponse.pendente = savedConfig.pendente || '';
-        transformedResponse.ferias = savedConfig.ferias || '';
-      } else if (config.type === 'absenteeism') {
-        transformedResponse.empresaTrabalho = savedConfig.empresatrabalho || '';
-        transformedResponse.dataInicio = savedConfig.datainicio || '';
-        transformedResponse.dataFim = savedConfig.datafim || '';
-      }
-      
-      return new Response(
-        JSON.stringify(transformedResponse),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    } catch (saveError) {
-      console.error('Error in save operation:', saveError);
-      return new Response(
-        JSON.stringify({ error: 'Erro ao salvar configuração da API' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+
+      result = data;
     }
-    
-  } catch (error) {
-    console.error('Error processing request:', error);
+
+    console.log('Config saved successfully:', result);
+
+    // Return the saved config
     return new Response(
-      JSON.stringify({ error: 'Erro interno ao processar a requisição' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+      JSON.stringify({
+        ...result,
+        isConfigured: !!result.empresa && !!result.codigo && !!result.chave
+      }),
+      { 
+        status: 200, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    );
+  } catch (error) {
+    console.error('Unexpected error:', error);
+    return new Response(
+      JSON.stringify({ error: error.message || 'An unexpected error occurred' }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    );
   }
-})
+});

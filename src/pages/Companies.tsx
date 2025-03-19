@@ -2,6 +2,7 @@
 import React from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import CompanyList from '@/components/dashboard/CompanyList';
+import ErrorBoundary from '@/components/ui-custom/ErrorBoundary';
 
 const Companies = () => {
   return (
@@ -9,7 +10,9 @@ const Companies = () => {
       title="Empresas" 
       subtitle="Gerencie empresas e sincronize dados"
     >
-      <CompanyList />
+      <ErrorBoundary>
+        <CompanyList />
+      </ErrorBoundary>
     </DashboardLayout>
   );
 };
