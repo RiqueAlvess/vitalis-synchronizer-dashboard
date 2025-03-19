@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { MetricCard } from "@/components/ui-custom/metrics/MetricCard";
 import { AreaChartCard } from "@/components/ui-custom/charts/AreaChartCard";
 import { DoughnutChartCard } from "@/components/ui-custom/charts/DoughnutChartCard";
-import { DashboardData } from '@/types/dashboard';
+import { DashboardData, MonthlyTrendData, SectorData } from '@/types/dashboard';
 import apiService from '@/services/api';
 import { Loader2 } from 'lucide-react';
 
@@ -32,15 +32,15 @@ const DashboardOverview = () => {
           trend: data.trend || 'stable',
           
           // Map monthly trend data with correct property names
-          monthlyTrend: (data.monthlyTrend || []).map(item => ({
+          monthlyTrend: (data.monthlyTrend || []).map((item: any) => ({
             month: item.month,
-            value: 'value' in item ? item.value : ('rate' in item && typeof item.rate === 'number' ? item.rate : 0)
+            value: item.value !== undefined ? item.value : (item.rate !== undefined ? item.rate : 0)
           })),
           
           // Map sector data with correct property names
-          bySector: (data.bySector || []).map(item => ({
-            name: 'name' in item ? item.name : ('sector' in item && typeof item.sector === 'string' ? item.sector : 'Setor desconhecido'),
-            value: 'value' in item ? item.value : ('rate' in item && typeof item.rate === 'number' ? item.rate : 0),
+          bySector: (data.bySector || []).map((item: any) => ({
+            name: item.name !== undefined ? item.name : (item.sector !== undefined ? item.sector : 'Setor desconhecido'),
+            value: item.value !== undefined ? item.value : (item.rate !== undefined ? item.rate : 0),
             count: item.count || 0
           })),
           
