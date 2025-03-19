@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -48,9 +47,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // User has signed out
           setUser(null);
           setIsLoading(false);
-        } else if (event === 'TOKEN_REFRESHED') {
-          // Token has been refreshed
-          console.log('Token has been refreshed');
         }
       }
     );
@@ -65,20 +61,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkAuth = async (): Promise<boolean> => {
     try {
       console.log("Checking authentication status...");
+      
+      // First check if we have a session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        // Try to refresh the session if no session exists
+        console.log("No session found, attempting to refresh...");
+        const { data, error } = await supabase.auth.refreshSession();
+        
+        if (error || !data.session) {
+          console.log("Session refresh failed:", error?.message);
+          setUser(null);
+          setIsLoading(false);
+          return false;
+        }
+        
+        console.log("Session refreshed successfully");
+      }
+      
+      // Now that we have a session (either existing or refreshed), get user data
       const userData = await authService.getCurrentUser();
       
       if (userData) {
         setUser(userData);
         console.log("User is authenticated:", userData.email);
+        setIsLoading(false);
         return true;
       }
+      
       console.log("User is not authenticated");
+      setUser(null);
+      setIsLoading(false);
       return false;
     } catch (err) {
       console.error('Authentication check failed:', err);
-      return false;
-    } finally {
+      setUser(null);
       setIsLoading(false);
+      return false;
     }
   };
 
@@ -90,7 +110,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await checkAuth();
       } catch (err) {
         console.error('Authentication verification failed:', err);
-      } finally {
         setIsLoading(false);
       }
     };
@@ -104,19 +123,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     const checkProtectedRoute = async () => {
       if (protectedRoutes.includes(location.pathname)) {
-        const isAuth = await checkAuth();
-        
-        if (!isAuth && !isLoading) {
-          console.log('Redirecting unauthenticated user from protected route:', location.pathname);
-          navigate('/login', { 
-            replace: true,
-            state: { from: location.pathname } 
-          });
-          toast({
-            variant: 'destructive',
-            title: 'Acesso negado',
-            description: 'Você precisa estar logado para acessar esta página.',
-          });
+        if (!isLoading) {
+          const isAuth = await checkAuth();
+          
+          if (!isAuth) {
+            console.log('Redirecting unauthenticated user from protected route:', location.pathname);
+            navigate('/login', { 
+              replace: true,
+              state: { from: location.pathname } 
+            });
+            toast({
+              variant: 'destructive',
+              title: 'Acesso negado',
+              description: 'Você precisa estar logado para acessar esta página.',
+            });
+          }
         }
       }
     };
@@ -137,13 +158,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(userData);
       
-      // Garantir que a sessão está definida globalmente
+      // Ensure session is explicitly set globally
       if (userData.token) {
         await supabase.auth.setSession({
           access_token: userData.token,
           refresh_token: userData.refreshToken || ''
         });
-        console.log("Sessão configurada explicitamente após login");
+        console.log("Session configured explicitly after login");
       }
       
       // Redirect to intended page or dashboard
@@ -178,6 +199,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log("Registration successful:", userData);
       
       setUser(userData);
+      
+      // Ensure session is explicitly set globally
+      if (userData.token) {
+        await supabase.auth.setSession({
+          access_token: userData.token,
+          refresh_token: userData.refreshToken || ''
+        });
+        console.log("Session configured after registration");
+      }
+      
       navigate('/dashboard');
       toast({
         title: 'Cadastro realizado',
@@ -197,9 +228,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
     try {
-      authService.logout();
+      await authService.logout();
       setUser(null);
       navigate('/login');
       toast({
