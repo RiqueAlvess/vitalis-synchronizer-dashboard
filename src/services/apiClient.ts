@@ -20,9 +20,16 @@ supabaseAPI.interceptors.request.use(
       // Get the current session from Supabase
       const { data: { session } } = await supabase.auth.getSession();
       
-      // Add Authorization header if session exists
-      if (session) {
+      if (session?.access_token) {
         config.headers['Authorization'] = `Bearer ${session.access_token}`;
+      } else {
+        // Try to refresh session if no access token is available
+        const { data } = await supabase.auth.refreshSession();
+        if (data.session) {
+          config.headers['Authorization'] = `Bearer ${data.session.access_token}`;
+        } else {
+          console.warn('No active session available for API request');
+        }
       }
       
       return config;

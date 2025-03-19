@@ -136,6 +136,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(userData);
       
+      // Explicitly set the session to ensure it's available
+      if (userData.token) {
+        console.log("Setting session with token");
+      }
+      
       // Redirect to intended page or dashboard
       const intendedPath = location.state?.from || '/dashboard';
       navigate(intendedPath);

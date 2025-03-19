@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import apiService, { ApiConfig, EmployeeApiConfig, AbsenteeismApiConfig, ApiConfigType } from '@/services/api';
+import { supabase } from '@/integrations/supabase/client';
 
 export function useApiConfig(type: ApiConfigType) {
   const { toast } = useToast();
@@ -15,6 +16,13 @@ export function useApiConfig(type: ApiConfigType) {
         setIsLoading(true);
         setError(null);
         console.log(`Fetching ${type} API config...`);
+        
+        // Ensure we have a valid session before proceeding
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          await supabase.auth.refreshSession();
+        }
+        
         const data = await apiService.getApiConfig(type);
         console.log(`Fetched ${type} config:`, data);
         setConfig(data);
@@ -41,13 +49,27 @@ export function useApiConfig(type: ApiConfigType) {
       
       console.log(`Saving ${type} config:`, configData);
       
+      // Ensure we have a valid session before proceeding
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        const { data } = await supabase.auth.refreshSession();
+        if (!data.session) {
+          throw new Error('Not authenticated. Please log in again to save configuration.');
+        }
+      }
+      
       // Ensure we're sending the right format to the API
       const configToSave = {
         ...configData,
         tipoSaida: 'json'
       };
       
-      const result = await apiService.saveApiConfig(configToSave);
+      // Use the retry utility to attempt the save multiple times if needed
+      const result = await apiService.retryRequest(
+        () => apiService.saveApiConfig(configToSave),
+        3,  // Try up to 3 times
+        1000 // Start with 1 second delay
+      );
       
       if (!result) {
         throw new Error('Failed to save API configuration');
@@ -83,6 +105,12 @@ export function useApiConfig(type: ApiConfigType) {
   const testConnection = async (configData: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig) => {
     try {
       console.log(`Testing ${type} connection:`, configData);
+      
+      // Ensure we have a valid session before proceeding
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        await supabase.auth.refreshSession();
+      }
       
       // Ensure we're sending the right format to the API
       const configToTest = {
