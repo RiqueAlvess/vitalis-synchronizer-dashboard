@@ -50,3 +50,10 @@ export interface ApiStorageProps {
   savedLocally?: boolean;
   savedAt?: string;
 }
+
+// Interface for monthly absence data
+export interface MonthlyAbsenceData {
+  count: number;
+  days: number;
+  hours: number;
+}

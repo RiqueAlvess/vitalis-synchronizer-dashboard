@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
-import { DashboardData, MonthlyTrendData, SectorData, ApiStorageProps } from '@/types/dashboard';
+import { DashboardData, MonthlyTrendData, SectorData, ApiStorageProps, MonthlyAbsenceData } from '@/types/dashboard';
 import type { MockCompanyData, MockEmployeeData } from '@/types/dashboard';
 import { localStorageService } from '@/services/localStorageService';
 
@@ -1080,13 +1080,20 @@ const apiService = {
 function calculateDashboardData(data: any[]): DashboardData {
   try {
     // Basic metrics
-    const totalAbsenceDays = data.reduce((sum, item) => sum + (item.days_absent || 0), 0);
-    const uniqueEmployees = new Set(data.filter(item => item.employee_registration).map(item => item.employee_registration)).size;
+    const totalAbsenceDays = data.reduce((sum, item) => {
+      const daysAbsent = typeof item.days_absent === 'number' ? item.days_absent : 0;
+      return sum + daysAbsent;
+    }, 0);
+    
+    const uniqueEmployees = new Set(
+      data.filter(item => item.employee_registration)
+          .map(item => item.employee_registration)
+    ).size;
     
     // Calculate average working hours per month (assuming 220 hours)
     const avgMonthlyHours = 220;
     const totalHoursAbsent = data.reduce((sum, item) => {
-      const days = item.days_absent || 0;
+      const days = typeof item.days_absent === 'number' ? item.days_absent : 0;
       return sum + (days * 8); // assuming 8 hours per day
     }, 0);
     
@@ -1099,14 +1106,12 @@ function calculateDashboardData(data: any[]): DashboardData {
     const costImpact = totalHoursAbsent * hourlyRate;
     
     // Analyze by sector
-    const sectorCounts = data.reduce((acc, item) => {
+    const sectorCounts: Record<string, number> = {};
+    data.forEach(item => {
       const sector = item.sector || 'Desconhecido';
-      if (!acc[sector]) {
-        acc[sector] = 0;
-      }
-      acc[sector] += item.days_absent || 0;
-      return acc;
-    }, {} as Record<string, number>);
+      const daysAbsent = typeof item.days_absent === 'number' ? item.days_absent : 0;
+      sectorCounts[sector] = (sectorCounts[sector] || 0) + daysAbsent;
+    });
     
     const bySector: SectorData[] = Object.entries(sectorCounts)
       .map(([name, value]) => ({ name, value }))
@@ -1114,26 +1119,27 @@ function calculateDashboardData(data: any[]): DashboardData {
       .slice(0, 5);
       
     // Calculate monthly trend
-    const monthlyData = data.reduce((acc, item) => {
-      if (!item.start_date) return acc;
+    const monthlyData: Record<string, MonthlyAbsenceData> = {};
+    
+    data.forEach(item => {
+      if (!item.start_date) return;
       
       const date = new Date(item.start_date);
       const monthYear = `${date.getMonth() + 1}/${date.getFullYear()}`;
       
-      if (!acc[monthYear]) {
-        acc[monthYear] = {
+      if (!monthlyData[monthYear]) {
+        monthlyData[monthYear] = {
           count: 0,
           days: 0,
           hours: 0
         };
       }
       
-      acc[monthYear].count += 1;
-      acc[monthYear].days += item.days_absent || 0;
-      acc[monthYear].hours += (item.days_absent || 0) * 8;
-      
-      return acc;
-    }, {} as Record<string, {count: number, days: number, hours: number}>);
+      const daysAbsent = typeof item.days_absent === 'number' ? item.days_absent : 0;
+      monthlyData[monthYear].count += 1;
+      monthlyData[monthYear].days += daysAbsent;
+      monthlyData[monthYear].hours += daysAbsent * 8;
+    });
     
     const monthlyTrend: MonthlyTrendData[] = Object.entries(monthlyData)
       .map(([month, data]) => ({
@@ -1151,9 +1157,17 @@ function calculateDashboardData(data: any[]): DashboardData {
       });
     
     // Determine trend compared to previous period
-    const trend = monthlyTrend.length >= 2 && 
-                 monthlyTrend[monthlyTrend.length - 1].value > monthlyTrend[monthlyTrend.length - 2].value
-                 ? 'up' : 'down';
+    let trend: 'up' | 'down' | 'stable' = 'stable';
+    if (monthlyTrend.length >= 2) {
+      const currentValue = monthlyTrend[monthlyTrend.length - 1].value;
+      const previousValue = monthlyTrend[monthlyTrend.length - 2].value;
+      
+      if (currentValue > previousValue) {
+        trend = 'up';
+      } else if (currentValue < previousValue) {
+        trend = 'down';
+      }
+    }
     
     return {
       absenteeismRate,
@@ -1196,4 +1210,3 @@ function getMockDashboardData(): DashboardData {
 }
 
 export default apiService;
-

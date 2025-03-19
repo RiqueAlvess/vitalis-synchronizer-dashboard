@@ -8,7 +8,7 @@ export interface LocalStorageConfig {
 }
 
 export const localStorageService = {
-  saveConfig: (type: ApiConfigType, config: any): boolean => {
+  saveConfig: <T>(type: ApiConfigType, config: T): boolean => {
     try {
       localStorage.setItem(`api_config_${type}`, JSON.stringify({
         ...config,
