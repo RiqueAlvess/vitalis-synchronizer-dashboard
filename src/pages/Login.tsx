@@ -1,11 +1,31 @@
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import LoginForm from '@/components/auth/LoginForm';
 import GlassPanel from '@/components/ui-custom/GlassPanel';
 import Logo from '@/components/ui-custom/Logo';
+import { useAuth } from '@/context/AuthContext';
+import { Loader2 } from 'lucide-react';
 
 const Login = () => {
+  const { isLoading, isAuthenticated } = useAuth();
+
+  // Verificar se tem algum erro na sessão
+  useEffect(() => {
+    console.log("Página de login carregada, status de autenticação:", 
+      isAuthenticated ? "Autenticado" : "Não autenticado",
+      "isLoading:", isLoading);
+  }, [isAuthenticated, isLoading]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
+        <Loader2 className="h-8 w-8 animate-spin text-vitalis-600 mb-4" />
+        <p className="text-lg text-muted-foreground">Carregando...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 relative overflow-hidden">
       <div className="absolute inset-0 bg-grid mask-radial-faded" />

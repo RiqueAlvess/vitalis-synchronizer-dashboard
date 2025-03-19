@@ -1,19 +1,29 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeOffIcon, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const LoginForm = () => {
-  const { login, isLoading } = useAuth();
+  const { login, isLoading, isAuthenticated } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const navigate = useNavigate();
+
+  // Redirecionar se já estiver autenticado
+  useEffect(() => {
+    if (isAuthenticated) {
+      console.log("Usuário já autenticado, redirecionando para dashboard");
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const toggleShowPassword = () => setShowPassword(!showPassword);
 
@@ -42,16 +52,30 @@ const LoginForm = () => {
     }
     
     try {
+      setIsSubmitting(true);
+      console.log(`Tentando fazer login com email: ${email}`);
       await login(email, password);
     } catch (error) {
-      // Error is handled in the AuthContext
+      console.error("Erro capturado no formulário de login:", error);
+      // Erro é tratado no AuthContext
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleDemoLogin = async () => {
     setEmail('demo@example.com');
     setPassword('demo123');
-    await login('demo@example.com', 'demo123');
+    
+    try {
+      setIsSubmitting(true);
+      console.log("Tentando fazer login com conta demo");
+      await login('demo@example.com', 'demo123');
+    } catch (error) {
+      console.error("Erro ao fazer login com conta demo:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -67,6 +91,7 @@ const LoginForm = () => {
             onChange={(e) => setEmail(e.target.value)}
             className={cn(errors.email && "border-red-300 focus-visible:ring-red-200")}
             autoComplete="email"
+            disabled={isSubmitting || isLoading}
           />
           {errors.email && (
             <p className="text-sm text-red-500 mt-1">{errors.email}</p>
@@ -93,11 +118,13 @@ const LoginForm = () => {
               onChange={(e) => setPassword(e.target.value)}
               className={cn(errors.password && "border-red-300 focus-visible:ring-red-200")}
               autoComplete="current-password"
+              disabled={isSubmitting || isLoading}
             />
             <button
               type="button"
               className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
               onClick={toggleShowPassword}
+              disabled={isSubmitting || isLoading}
             >
               {showPassword ? (
                 <EyeOffIcon className="h-4 w-4" />
@@ -116,9 +143,9 @@ const LoginForm = () => {
       <Button 
         type="submit" 
         className="w-full"
-        disabled={isLoading}
+        disabled={isSubmitting || isLoading}
       >
-        {isLoading ? (
+        {(isSubmitting || isLoading) ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             Entrando...
@@ -140,9 +167,14 @@ const LoginForm = () => {
         variant="outline" 
         className="w-full"
         onClick={handleDemoLogin}
-        disabled={isLoading}
+        disabled={isSubmitting || isLoading}
       >
-        Login com conta demo
+        {(isSubmitting || isLoading) ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Processando...
+          </>
+        ) : "Login com conta demo"}
       </Button>
       
       <p className="text-center text-sm text-muted-foreground">

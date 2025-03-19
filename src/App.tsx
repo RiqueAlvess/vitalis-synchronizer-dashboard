@@ -5,6 +5,7 @@ import { AuthProvider } from './context/AuthContext';
 import PageTransition from './components/layout/PageTransition';
 import NavBar from './components/layout/NavBar';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import PublicRoute from './components/auth/PublicRoute';
 
 // Pages
 import Index from './pages/Index';
@@ -25,9 +26,22 @@ function App() {
         <NavBar />
         <PageTransition>
           <Routes>
+            {/* Rota pública principal que redireciona para o dashboard se estiver autenticado */}
             <Route path="/" element={<Index />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            
+            {/* Rotas públicas que não devem ser acessíveis quando autenticado */}
+            <Route path="/login" element={
+              <PublicRoute>
+                <Login />
+              </PublicRoute>
+            } />
+            <Route path="/register" element={
+              <PublicRoute>
+                <Register />
+              </PublicRoute>
+            } />
+            
+            {/* Rotas protegidas que requerem autenticação */}
             <Route path="/dashboard" element={
               <ProtectedRoute>
                 <Dashboard />
@@ -48,6 +62,8 @@ function App() {
                 <Sync />
               </ProtectedRoute>
             } />
+            
+            {/* Rota de fallback para páginas não encontradas */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </PageTransition>

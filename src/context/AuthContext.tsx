@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -27,7 +26,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Set up auth state change listener
+  // Configurar listener de alteração de estado de autenticação
   useEffect(() => {
     console.log("Configurando listener de alteração de estado de autenticação");
     
@@ -36,7 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log(`Evento de autenticação detectado: ${event}`, session ? 'Com sessão' : 'Sem sessão');
         
         if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
-          // User has signed in or token refreshed
+          // Usuário conectado ou token atualizado
           try {
             console.log("Obtendo dados do usuário após evento de autenticação");
             const userData = await authService.getCurrentUser();
@@ -46,9 +45,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setIsLoading(false);
               
               // Redirecionar para dashboard apenas em caso de login inicial
-              if (event === 'SIGNED_IN' && location.pathname === '/login') {
-                console.log("Redirecionando para dashboard após login");
-                navigate('/dashboard');
+              if (event === 'SIGNED_IN') {
+                const intended = location.state?.from || '/dashboard';
+                console.log(`Redirecionando para: ${intended} após login`);
+                navigate(intended, { replace: true });
               }
             }
           } catch (err) {
@@ -56,10 +56,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsLoading(false);
           }
         } else if (event === 'SIGNED_OUT') {
-          // User has signed out
+          // Usuário desconectado
           console.log("Usuário desconectado, limpando estado");
           setUser(null);
           setIsLoading(false);
+          
+          // Redirecionar para página de login após logout
+          if (location.pathname !== '/login' && location.pathname !== '/') {
+            navigate('/login', { replace: true });
+          }
         } else {
           // Para outros eventos, garanta que isLoading não fique preso
           setIsLoading(false);
@@ -67,24 +72,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
-    // Cleanup subscription
+    // Limpar inscrição
     return () => {
       console.log("Limpando inscrição de eventos de autenticação");
       subscription.unsubscribe();
     };
-  }, [navigate, location.pathname]);
+  }, [navigate, location]);
 
-  // Verify authentication status
+  // Verificar status de autenticação
   const checkAuth = async (): Promise<boolean> => {
     try {
       console.log("Verificando status de autenticação...");
       setIsLoading(true);
       
-      // First check if we have a session
+      // Primeiro, verificar se temos uma sessão
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
-        // Try to refresh the session if no session exists
+        // Tentar atualizar a sessão se nenhuma sessão existir
         console.log("Nenhuma sessão encontrada, tentando atualizar...");
         const { data, error } = await supabase.auth.refreshSession();
         
@@ -98,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log("Sessão atualizada com sucesso");
       }
       
-      // Now that we have a session (either existing or refreshed), get user data
+      // Agora que temos uma sessão (existente ou atualizada), obter dados do usuário
       const userData = await authService.getCurrentUser();
       
       if (userData) {
@@ -120,18 +125,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Check if user is logged in on app load
+  // Verificar se o usuário está logado ao carregar o aplicativo
   useEffect(() => {
     const verifyAuth = async () => {
       try {
         console.log("Verificando autenticação na inicialização do aplicativo...");
-        const isAuthenticated = await checkAuth();
-        
-        // Se o usuário estiver na página inicial ou de login e estiver autenticado, redirecione para o dashboard
-        if (isAuthenticated && (location.pathname === '/' || location.pathname === '/login')) {
-          console.log("Redirecionando usuário autenticado para o dashboard");
-          navigate('/dashboard');
-        }
+        await checkAuth();
       } catch (err) {
         console.error('Verificação de autenticação falhou:', err);
         setIsLoading(false);
@@ -139,38 +138,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     verifyAuth();
-  }, [navigate, location.pathname]);
-
-  // Redirect unauthenticated users from protected routes
-  useEffect(() => {
-    const protectedRoutes = ['/dashboard', '/settings', '/companies', '/employees', '/sync'];
-    
-    const checkProtectedRoute = async () => {
-      if (protectedRoutes.includes(location.pathname)) {
-        if (!isLoading) {
-          console.log(`Verificando acesso à rota protegida: ${location.pathname}`);
-          const isAuth = await checkAuth();
-          
-          if (!isAuth) {
-            console.log('Redirecionando usuário não autenticado da rota protegida:', location.pathname);
-            navigate('/login', { 
-              replace: true,
-              state: { from: location.pathname } 
-            });
-            toast({
-              variant: 'destructive',
-              title: 'Acesso negado',
-              description: 'Você precisa estar logado para acessar esta página.',
-            });
-          }
-        }
-      }
-    };
-
-    if (!isLoading) {
-      checkProtectedRoute();
-    }
-  }, [location.pathname, isLoading, navigate]);
+  }, []);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
@@ -183,7 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(userData);
       
-      // Ensure session is explicitly set globally
+      // Garantir que a sessão seja definida explicitamente globalmente
       if (userData.token) {
         await supabase.auth.setSession({
           access_token: userData.token,
@@ -192,10 +160,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log("Sessão configurada explicitamente após login");
       }
       
-      // Redirect to intended page or dashboard
-      const intendedPath = location.state?.from || '/dashboard';
-      console.log(`Redirecionando para: ${intendedPath}`);
-      navigate(intendedPath, { replace: true });
+      // Redirecionar para a página pretendida ou dashboard
+      const intended = location.state?.from || '/dashboard';
+      console.log(`Redirecionando para: ${intended}`);
+      navigate(intended, { replace: true });
       
       toast({
         title: 'Login bem-sucedido',
@@ -226,7 +194,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(userData);
       
-      // Ensure session is explicitly set globally
+      // Garantir que a sessão seja definida explicitamente globalmente
       if (userData.token) {
         await supabase.auth.setSession({
           access_token: userData.token,
