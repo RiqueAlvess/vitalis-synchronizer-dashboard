@@ -19,12 +19,21 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Parse request body
-    const configData = await req.json();
-    
-    if (!configData || !configData.type) {
+    // Get request body
+    let configData;
+    try {
+      configData = await req.json();
+      
+      if (!configData || !configData.type) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid request data. Type is required.' }),
+          { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+        );
+      }
+    } catch (parseError) {
+      console.error('Error parsing request body:', parseError);
       return new Response(
-        JSON.stringify({ error: 'Invalid request data. Type is required.' }),
+        JSON.stringify({ error: 'Invalid request data format' }),
         { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
@@ -70,6 +79,18 @@ Deno.serve(async (req) => {
       user_id: user.id
     };
 
+    // Sanitize the data before inserting/updating
+    // Make sure all required fields are present
+    const requiredFields = ['type', 'empresa', 'codigo', 'chave'];
+    for (const field of requiredFields) {
+      if (!configWithUserId[field]) {
+        return new Response(
+          JSON.stringify({ error: `Required field '${field}' is missing` }),
+          { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     // Check if a config with this type already exists for this user
     const { data: existingConfig, error: fetchError } = await supabaseAdmin
       .from('api_credentials')
@@ -88,42 +109,45 @@ Deno.serve(async (req) => {
 
     let result;
     
-    // Update or insert based on whether a config already exists
-    if (existingConfig) {
-      // Update existing config
-      const { data, error } = await supabaseAdmin
-        .from('api_credentials')
-        .update(configWithUserId)
-        .eq('id', existingConfig.id)
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Error updating API config:', error);
-        return new Response(
-          JSON.stringify({ error: `Failed to update API configuration: ${error.message}` }),
-          { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-        );
+    try {
+      // Update or insert based on whether a config already exists
+      if (existingConfig) {
+        // Update existing config
+        const { data, error } = await supabaseAdmin
+          .from('api_credentials')
+          .update(configWithUserId)
+          .eq('id', existingConfig.id)
+          .select()
+          .single();
+        
+        if (error) {
+          throw error;
+        }
+        
+        result = data;
+      } else {
+        // Insert new config
+        const { data, error } = await supabaseAdmin
+          .from('api_credentials')
+          .insert(configWithUserId)
+          .select()
+          .single();
+        
+        if (error) {
+          throw error;
+        }
+        
+        result = data;
       }
-      
-      result = data;
-    } else {
-      // Insert new config
-      const { data, error } = await supabaseAdmin
-        .from('api_credentials')
-        .insert(configWithUserId)
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Error saving API config:', error);
-        return new Response(
-          JSON.stringify({ error: `Failed to save API configuration: ${error.message}` }),
-          { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-        );
-      }
-      
-      result = data;
+    } catch (dbError) {
+      console.error('Database operation error:', dbError);
+      return new Response(
+        JSON.stringify({ 
+          error: `Failed to save API configuration: ${dbError.message}`,
+          details: dbError
+        }),
+        { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+      );
     }
 
     // Set isConfigured flag to true
@@ -143,7 +167,10 @@ Deno.serve(async (req) => {
     console.error('Unexpected error:', error);
     
     return new Response(
-      JSON.stringify({ error: error.message || 'An unexpected error occurred' }),
+      JSON.stringify({ 
+        error: error.message || 'An unexpected error occurred',
+        stack: error.stack
+      }),
       { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
     );
   }
