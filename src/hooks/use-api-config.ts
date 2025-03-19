@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import apiService, { ApiConfig, EmployeeApiConfig, AbsenteeismApiConfig, ApiConfigType } from '@/services/api';
 import { supabase } from '@/integrations/supabase/client';
+import { retryRequest } from '@/services/apiClient';
 
 export function useApiConfig(type: ApiConfigType) {
   const { toast } = useToast();
@@ -65,7 +66,7 @@ export function useApiConfig(type: ApiConfigType) {
       };
       
       // Use the retry utility to attempt the save multiple times if needed
-      const result = await apiService.retryRequest(
+      const result = await retryRequest(
         () => apiService.saveApiConfig(configToSave),
         3,  // Try up to 3 times
         1000 // Start with 1 second delay
