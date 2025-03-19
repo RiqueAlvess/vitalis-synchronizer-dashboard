@@ -92,8 +92,10 @@ supabaseAPI.interceptors.response.use(
   }
 );
 
+export type ApiConfigType = 'company' | 'employee' | 'absenteeism';
+
 export interface ApiConfig {
-  type: 'company' | 'employee' | 'absenteeism';
+  type: ApiConfigType;
   empresa: string;
   codigo: string;
   chave: string;
@@ -534,13 +536,13 @@ const apiService = {
     },
   },
   apiConfig: {
-    get: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
+    get: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
       try {
         console.log(`Fetching ${type} API config...`);
         
         if (localStorageService.isPreviewEnvironment()) {
           console.log(`Preview environment detected, using localStorage for ${type} config`);
-          const localConfig = localStorageService.getConfig<ApiConfig>(type);
+          const localConfig = localStorageService.getConfig<ApiConfig>(type as string);
           
           if (localConfig) {
             console.log(`Found local ${type} config:`, localConfig);
@@ -575,7 +577,7 @@ const apiService = {
             
             // Convert from Supabase schema to our API schema
             const config: ApiConfig = {
-              type: credentials.type,
+              type: credentials.type as ApiConfigType,
               empresa: credentials.empresa,
               codigo: credentials.codigo,
               chave: credentials.chave,
@@ -668,7 +670,7 @@ const apiService = {
       try {
         if (localStorageService.isPreviewEnvironment()) {
           console.log(`Preview environment detected, saving ${config.type} config to localStorage`);
-          const success = localStorageService.saveConfig(config.type, config);
+          const success = localStorageService.saveConfig(config.type as string, config);
           
           if (success) {
             return {
@@ -838,7 +840,7 @@ const apiService = {
       }
     },
 
-    test: async (type: 'company' | 'employee' | 'absenteeism'): Promise<{success: boolean, message: string}> => {
+    test: async (type: ApiConfigType): Promise<{success: boolean, message: string}> => {
       try {
         if (localStorageService.isPreviewEnvironment()) {
           console.log(`Preview environment detected, simulating test for ${type} API`);
@@ -862,7 +864,7 @@ const apiService = {
       }
     }
   },
-  getApiConfig: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
+  getApiConfig: async (type: ApiConfigType): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
     return apiService.apiConfig.get(type);
   },
   saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
