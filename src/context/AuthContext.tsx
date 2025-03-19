@@ -139,7 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (userData.token) {
         await supabase.auth.setSession({
           access_token: userData.token,
-          refresh_token: userData.refreshToken || ''
+          refresh_token: '' // We don't have this in our User type, so using empty string
         });
         console.log("Sessão configurada explicitamente após login");
       }
