@@ -15,6 +15,7 @@ interface AuthContextType {
   checkAuth: () => Promise<boolean>;
   saveSettings: (settings: any) => Promise<boolean>;
   getSettings: () => Promise<any>;
+  updateProfile: (profile: Partial<User>) => Promise<User>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -315,6 +316,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return await authService.getSettings(user.id);
   };
 
+  const updateProfile = async (profile: Partial<User>): Promise<User> => {
+    if (!user) {
+      throw new Error('Usuário não autenticado');
+    }
+    
+    try {
+      console.log("Atualizando perfil do usuário:", profile);
+      const updatedUser = await authService.updateProfile(profile);
+      
+      setUser(prev => prev ? { ...prev, ...updatedUser } : updatedUser);
+      
+      toast({
+        title: 'Perfil atualizado',
+        description: 'Suas informações foram atualizadas com sucesso!',
+      });
+      
+      return updatedUser;
+    } catch (err) {
+      console.error('Erro na atualização do perfil:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Falha ao atualizar perfil';
+      
+      toast({
+        variant: 'destructive',
+        title: 'Erro na atualização',
+        description: errorMessage,
+      });
+      
+      throw err;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -327,7 +359,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         error,
         checkAuth,
         saveSettings,
-        getSettings
+        getSettings,
+        updateProfile
       }}
     >
       {children}

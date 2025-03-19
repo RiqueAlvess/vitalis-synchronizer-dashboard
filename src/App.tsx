@@ -15,6 +15,7 @@ import Dashboard from './pages/Dashboard';
 import Employees from './pages/Employees';
 import Settings from './pages/Settings';
 import Sync from './pages/Sync';
+import Profile from './pages/Profile';
 import NotFound from './pages/NotFound';
 
 import './App.css';
@@ -60,6 +61,11 @@ function App() {
             <Route path="/sync" element={
               <ProtectedRoute>
                 <Sync />
+              </ProtectedRoute>
+            } />
+            <Route path="/profile" element={
+              <ProtectedRoute>
+                <Profile />
               </ProtectedRoute>
             } />
             

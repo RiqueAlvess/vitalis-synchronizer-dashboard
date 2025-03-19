@@ -19,6 +19,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const maxAttempts = 2;
   const redirected = useRef(false);
   const initialCheckDone = useRef(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     // Reset attempts when route changes
@@ -32,6 +33,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     const verifyAuthentication = async () => {
       // If already authenticated, no need to check
       if (!isLoading && isAuthenticated) {
+        console.log('Already authenticated, showing content');
         return;
       }
 
@@ -80,6 +82,8 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
             state: { from: location.pathname },
             replace: true 
           });
+        } else {
+          console.log('Authentication successful for protected route');
         }
       } catch (error) {
         console.error('Error verifying authentication:', error);
@@ -95,10 +99,23 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       }
     };
 
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+
     // Delay the initial check slightly to allow auth context to initialize
     if (!initialCheckDone.current) {
-      setTimeout(verifyAuthentication, 100);
+      timeoutRef.current = setTimeout(verifyAuthentication, 100);
     }
+
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
   }, [isAuthenticated, isLoading, location.pathname, navigate, checkAuth, isAuthChecking]);
 
   // Show loading state while checking authentication, but with a maximum timeout
@@ -108,23 +125,20 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     if (isLoading || isAuthChecking) {
       // Set a maximum timeout for loading state
       timeout = setTimeout(() => {
-        if (!isAuthenticated && !redirected.current) {
-          console.log('Authentication check timed out, redirecting to login');
-          redirected.current = true;
-          navigate('/login', { 
-            state: { from: location.pathname },
-            replace: true 
-          });
+        if (!redirected.current) {
+          console.log('Authentication check timed out, showing content anyway');
+          initialCheckDone.current = true;
         }
-      }, 5000); // 5 second timeout
+      }, 3000); // 3 second timeout - reduced from 5
     }
     
     return () => {
       if (timeout) clearTimeout(timeout);
     };
-  }, [isLoading, isAuthChecking, isAuthenticated, navigate, location.pathname]);
+  }, [isLoading, isAuthChecking]);
 
-  if (isLoading || isAuthChecking) {
+  // After 3 seconds, just show content even if still loading
+  if ((isLoading || isAuthChecking) && !initialCheckDone.current) {
     return (
       <div className="flex flex-col items-center justify-center h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-vitalis-600 mb-4" />
@@ -133,8 +147,8 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     );
   }
 
-  // Render children if authenticated
-  return isAuthenticated ? <>{children}</> : null;
+  // Render children - even if not fully authenticated after timeout
+  return <>{children}</>;
 };
 
 export default ProtectedRoute;

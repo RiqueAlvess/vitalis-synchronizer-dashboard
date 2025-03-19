@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import ApiConfigTabs from '@/components/integration/ApiConfigTabs';
@@ -8,6 +9,7 @@ import ErrorBoundary from '@/components/ui-custom/ErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const Settings = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -17,8 +19,14 @@ const Settings = () => {
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading, checkAuth } = useAuth();
   const navigate = useNavigate();
+  const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    // Set a timeout to ensure we don't get stuck in loading
+    loadTimeoutRef.current = setTimeout(() => {
+      setIsLoading(false);
+    }, 5000);
+
     // Check if user is authenticated
     const verifyAuthentication = async () => {
       try {
@@ -53,6 +61,12 @@ const Settings = () => {
     };
     
     verifyAuthentication();
+
+    return () => {
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+      }
+    };
   }, [isAuthenticated, authLoading]);
 
   // Check API connectivity
@@ -130,20 +144,24 @@ const Settings = () => {
       });
     } finally {
       setIsLoading(false);
+      // Clear the safety timeout
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
+      }
     }
   };
 
+  // If authLoading, show a loading state with skeletons instead of full page spinner
   if (authLoading) {
     return (
       <DashboardLayout 
         title="Configurações" 
         subtitle="Configure as integrações com APIs externas"
       >
-        <div className="flex items-center justify-center h-64">
-          <div className="flex flex-col items-center space-y-4">
-            <Loader2 className="h-8 w-8 animate-spin text-vitalis-600" />
-            <p className="text-muted-foreground">Verificando autenticação...</p>
-          </div>
+        <div className="space-y-6">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-64 w-full" />
         </div>
       </DashboardLayout>
     );
@@ -204,11 +222,9 @@ const Settings = () => {
         title="Configurações" 
         subtitle="Configure as integrações com APIs externas"
       >
-        <div className="flex items-center justify-center h-64">
-          <div className="flex flex-col items-center space-y-4">
-            <Loader2 className="h-8 w-8 animate-spin text-vitalis-600" />
-            <p className="text-muted-foreground">Carregando configurações...</p>
-          </div>
+        <div className="space-y-6">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-64 w-full" />
         </div>
       </DashboardLayout>
     );

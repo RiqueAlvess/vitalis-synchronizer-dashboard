@@ -5,26 +5,43 @@ import DashboardOverview from '@/components/dashboard/DashboardOverview';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const Dashboard = () => {
   const { user, isAuthenticated, saveSettings, getSettings } = useAuth();
   const [userSettings, setUserSettings] = useState<any>({});
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const loadSettings = async () => {
-      if (isAuthenticated) {
+      if (isAuthenticated && user?.id) {
         try {
+          setIsLoading(true);
           const settings = await getSettings();
           console.log("Configurações carregadas:", settings);
           setUserSettings(settings);
         } catch (error) {
           console.error("Erro ao carregar configurações:", error);
+          // Show empty settings even on error
+          setUserSettings({});
+        } finally {
+          setIsLoading(false);
         }
+      } else {
+        // Don't get stuck in loading if not authenticated
+        setIsLoading(false);
       }
     };
 
+    // Set a timeout to ensure we don't get stuck in loading
+    const timeout = setTimeout(() => {
+      setIsLoading(false);
+    }, 3000);
+
     loadSettings();
-  }, [isAuthenticated, getSettings]);
+    
+    return () => clearTimeout(timeout);
+  }, [isAuthenticated, getSettings, user]);
 
   const handleSaveSettings = async () => {
     if (!user) return;
@@ -36,14 +53,22 @@ const Dashboard = () => {
       lastUpdated: new Date().toISOString()
     };
     
-    const success = await saveSettings(settings);
-    
-    if (success) {
+    try {
+      const success = await saveSettings(settings);
+      
+      if (success) {
+        toast({
+          title: 'Configurações salvas',
+          description: 'Suas preferências foram atualizadas com sucesso!',
+        });
+        setUserSettings(settings);
+      }
+    } catch (error) {
       toast({
-        title: 'Configurações salvas',
-        description: 'Suas preferências foram atualizadas com sucesso!',
+        variant: 'destructive',
+        title: 'Erro ao salvar',
+        description: 'Não foi possível salvar suas preferências.',
       });
-      setUserSettings(settings);
     }
   };
 
@@ -67,40 +92,19 @@ const Dashboard = () => {
       title="Dashboard" 
       subtitle="Visão geral do absenteísmo na sua empresa"
     >
-      <DashboardOverview />
-      
-      {/* Exemplo de uso das configurações */}
-      {isAuthenticated && (
-        <div className="mt-8 p-4 bg-card rounded-lg shadow">
-          <h3 className="text-lg font-medium mb-4">Suas Preferências</h3>
-          
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span>Tema: {userSettings?.theme === 'dark' ? 'Escuro' : 'Claro'}</span>
-              <Button variant="outline" onClick={toggleTheme}>
-                Alternar Tema
-              </Button>
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <span>Notificações: {userSettings?.notifications ? 'Ativadas' : 'Desativadas'}</span>
-              <Button variant="outline" onClick={toggleNotifications}>
-                {userSettings?.notifications ? 'Desativar' : 'Ativar'}
-              </Button>
-            </div>
-            
-            {userSettings?.lastUpdated && (
-              <p className="text-sm text-muted-foreground">
-                Última atualização: {new Date(userSettings.lastUpdated).toLocaleString()}
-              </p>
-            )}
-            
-            <Button className="w-full" onClick={handleSaveSettings}>
-              Salvar Configurações
-            </Button>
-          </div>
+      {isLoading ? (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-32 rounded-lg" />
+          ))}
+          <Skeleton className="h-80 md:col-span-2" />
+          <Skeleton className="h-80 md:col-span-2" />
         </div>
+      ) : (
+        <DashboardOverview />
       )}
+      
+      {/* Moved to UserProfile component instead */}
     </DashboardLayout>
   );
 };
