@@ -1,9 +1,8 @@
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
 import { corsHeaders } from '../_shared/cors.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
-const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
 Deno.serve(async (req) => {
@@ -13,177 +12,128 @@ Deno.serve(async (req) => {
   }
 
   try {
-    console.log('Received save-api-config request');
+    if (req.method !== 'POST') {
+      return new Response(
+        JSON.stringify({ error: 'Method not allowed' }),
+        { status: 405, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Parse request body
+    const configData = await req.json();
     
-    // Initialize Supabase client with service role for admin operations
-    const adminSupabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    
-    // Initialize regular client for auth checks
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    if (!configData || !configData.type) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid request data. Type is required.' }),
+        { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Get the authorization header
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      console.error('Missing authorization header');
       return new Response(
         JSON.stringify({ error: 'Missing authorization header' }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+        { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
 
-    // Get the session using the token
+    // Extract token
     const token = authHeader.replace('Bearer ', '');
-    console.log('Verifying token:', token.substring(0, 10) + '...');
     
-    // Verify token with JWT
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    // Initialize admin Supabase client
+    const supabaseAdmin = createClient(
+      SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
+    
+    // Verify the token
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
 
     // Check if user exists
-    if (authError || !user) {
-      console.error('Authentication error:', authError);
+    if (userError || !user) {
       return new Response(
-        JSON.stringify({ error: 'Not authenticated', details: authError?.message }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+        JSON.stringify({ error: 'Invalid authentication token' }),
+        { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('User authenticated:', user.id);
-
-    // Parse the request body
-    const config = await req.json();
-    console.log('Received config to save:', config);
-
-    // Validate config object
-    if (!config || !config.type) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid config: missing type field' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
-      );
-    }
-
-    const validTypes = ['company', 'employee', 'absenteeism'];
-    if (!validTypes.includes(config.type)) {
-      return new Response(
-        JSON.stringify({ error: `Invalid config type: ${config.type}` }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
-      );
-    }
-
-    // Prepare data for api_credentials table
-    let credentialsData: any = {
-      type: config.type,
-      empresa: config.empresa,
-      codigo: config.codigo,
-      chave: config.chave,
+    // Add user ID to config data
+    const configWithUserId = {
+      ...configData,
       user_id: user.id
     };
-    
-    // Add type-specific fields
-    if (config.type === 'employee') {
-      credentialsData.ativo = config.ativo || 'Sim';
-      credentialsData.inativo = config.inativo || '';
-      credentialsData.afastado = config.afastado || '';
-      credentialsData.pendente = config.pendente || '';
-      credentialsData.ferias = config.ferias || '';
-    } else if (config.type === 'absenteeism') {
-      credentialsData.empresatrabalho = config.empresaTrabalho || '';
-      credentialsData.datainicio = config.dataInicio || '';
-      credentialsData.datafim = config.dataFim || '';
-    }
 
-    console.log('Credentials data prepared:', credentialsData);
-
-    // Check for existing record in api_credentials using admin client for reliability
-    const { data: existingCredentials, error: fetchCredentialsError } = await adminSupabase
+    // Check if a config with this type already exists for this user
+    const { data: existingConfig, error: fetchError } = await supabaseAdmin
       .from('api_credentials')
       .select('id')
-      .eq('type', config.type)
       .eq('user_id', user.id)
+      .eq('type', configData.type)
       .maybeSingle();
-      
-    if (fetchCredentialsError) {
-      console.error('Error checking for existing credentials:', fetchCredentialsError);
-    }
     
-    // Save to api_credentials table using admin client to bypass RLS
-    let credentials;
-    if (existingCredentials) {
-      console.log('Updating existing credentials with ID:', existingCredentials.id);
-      // Update existing record
-      const { data, error } = await adminSupabase
-        .from('api_credentials')
-        .update(credentialsData)
-        .eq('id', existingCredentials.id)
-        .select('*')
-        .single();
-        
-      if (error) {
-        console.error('Error updating credentials:', error);
-        throw new Error(`Failed to update credentials: ${error.message}`);
-      } else {
-        credentials = data;
-        console.log('Updated credentials successfully:', credentials);
-      }
-    } else {
-      console.log('Inserting new credentials');
-      // Insert new record
-      const { data, error } = await adminSupabase
-        .from('api_credentials')
-        .insert(credentialsData)
-        .select('*')
-        .single();
-        
-      if (error) {
-        console.error('Error inserting credentials:', error);
-        throw new Error(`Failed to insert credentials: ${error.message}`);
-      } else {
-        credentials = data;
-        console.log('Inserted credentials successfully:', credentials);
-      }
+    if (fetchError) {
+      console.error('Error checking for existing config:', fetchError);
+      return new Response(
+        JSON.stringify({ error: `Failed to check for existing configuration: ${fetchError.message}` }),
+        { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+      );
     }
 
-    // Success!
-    console.log('Config saved successfully');
+    let result;
+    
+    // Update or insert based on whether a config already exists
+    if (existingConfig) {
+      // Update existing config
+      const { data, error } = await supabaseAdmin
+        .from('api_credentials')
+        .update(configWithUserId)
+        .eq('id', existingConfig.id)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('Error updating API config:', error);
+        return new Response(
+          JSON.stringify({ error: `Failed to update API configuration: ${error.message}` }),
+          { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      result = data;
+    } else {
+      // Insert new config
+      const { data, error } = await supabaseAdmin
+        .from('api_credentials')
+        .insert(configWithUserId)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('Error saving API config:', error);
+        return new Response(
+          JSON.stringify({ error: `Failed to save API configuration: ${error.message}` }),
+          { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      result = data;
+    }
 
-    // Convert api_credentials format to the expected API response format
-    let apiResponse: any = {
-      type: credentials.type,
-      empresa: credentials.empresa,
-      codigo: credentials.codigo,
-      chave: credentials.chave,
-      tipoSaida: 'json',
+    // Set isConfigured flag to true
+    const resultWithStatus = {
+      ...result,
       isConfigured: true
     };
-    
-    // Add type-specific fields if needed
-    if (config.type === 'employee') {
-      apiResponse.ativo = credentials.ativo || 'Sim';
-      apiResponse.inativo = credentials.inativo || '';
-      apiResponse.afastado = credentials.afastado || '';
-      apiResponse.pendente = credentials.pendente || '';
-      apiResponse.ferias = credentials.ferias || '';
-    } else if (config.type === 'absenteeism') {
-      // Map from database naming to API naming
-      apiResponse.empresaTrabalho = credentials.empresatrabalho || '';
-      apiResponse.dataInicio = credentials.datainicio || '';
-      apiResponse.dataFim = credentials.datafim || '';
-    }
 
-    // Return the saved config with CORS headers
     return new Response(
-      JSON.stringify(apiResponse),
+      JSON.stringify(resultWithStatus),
       { 
         status: 200, 
         headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
@@ -191,13 +141,10 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error('Unexpected error:', error);
-    // Ensure CORS headers are applied to error responses as well
+    
     return new Response(
       JSON.stringify({ error: error.message || 'An unexpected error occurred' }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-      }
+      { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
     );
   }
 });

@@ -27,8 +27,8 @@ supabaseAPI.interceptors.request.use(
       // Add the token to the request if available
       if (session?.access_token) {
         config.headers['Authorization'] = `Bearer ${session.access_token}`;
-        // Add timestamp to track request timing
-        config.headers['X-Request-Time'] = new Date().toISOString();
+        // Remove custom headers that might cause CORS issues
+        // config.headers['X-Request-Time'] = new Date().toISOString();
       } else {
         console.warn('No session token available for API request');
       }
@@ -53,7 +53,7 @@ supabaseAPI.interceptors.response.use(
       console.error(`API Error (${error.response.status}):`, {
         url: originalRequest.url,
         method: originalRequest.method,
-        requestTime: originalRequest.headers['X-Request-Time'],
+        // requestTime: originalRequest.headers['X-Request-Time'],
         responseTime: new Date().toISOString(),
         error: error.response.data
       });
