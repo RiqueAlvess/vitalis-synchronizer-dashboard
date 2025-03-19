@@ -1,3 +1,4 @@
+
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.23.0';
 import { corsHeaders } from '../_shared/cors.ts';
@@ -43,19 +44,6 @@ serve(async (req) => {
         );
       }
 
-      // Set secure cookie with the session token
-      const cookieOptions = [
-        `auth_token=${data.session?.access_token}`,
-        'Max-Age=3600', // 1 hour
-        'Path=/',
-        'HttpOnly',
-        'SameSite=Lax',
-      ];
-
-      if (url.hostname !== 'localhost') {
-        cookieOptions.push('Secure');
-      }
-
       // Get user profile data
       const { data: profileData } = await supabaseAdmin
         .from('profiles')
@@ -70,6 +58,7 @@ serve(async (req) => {
         companyName: profileData?.company_name || data.user.user_metadata?.company_name || 'Empresa',
         jobTitle: profileData?.job_title || data.user.user_metadata?.job_title,
         isPremium: profileData?.is_premium || false,
+        token: data.session?.access_token
       };
 
       return new Response(
@@ -78,7 +67,6 @@ serve(async (req) => {
           headers: {
             ...corsHeaders(req),
             'Content-Type': 'application/json',
-            'Set-Cookie': cookieOptions.join('; '),
           },
           status: 200,
         }
@@ -87,14 +75,22 @@ serve(async (req) => {
 
     // Handle logout request
     if (path === 'logout' && req.method === 'POST') {
-      // Clear the auth cookie
+      // Get the Authorization header
+      const authHeader = req.headers.get('Authorization');
+      
+      if (authHeader) {
+        const token = authHeader.replace('Bearer ', '');
+        
+        // Sign out the user with the provided token
+        await supabaseAdmin.auth.admin.signOut(token);
+      }
+      
       return new Response(
         JSON.stringify({ success: true }),
         {
           headers: {
             ...corsHeaders(req),
             'Content-Type': 'application/json',
-            'Set-Cookie': 'auth_token=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax',
           },
           status: 200,
         }
@@ -103,10 +99,9 @@ serve(async (req) => {
 
     // Handle session validation
     if (path === 'validate' && req.method === 'GET') {
-      // Extract token from cookie
-      const cookieHeader = req.headers.get('cookie') || '';
-      const tokenMatch = cookieHeader.match(/auth_token=([^;]+)/);
-      const token = tokenMatch ? tokenMatch[1] : null;
+      // Extract token from Authorization header
+      const authHeader = req.headers.get('Authorization');
+      const token = authHeader ? authHeader.replace('Bearer ', '') : null;
 
       if (!token) {
         return new Response(

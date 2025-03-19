@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from '@/components/ui/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AuthContextType {
   user: User | null;
@@ -23,6 +24,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Set up auth state change listener
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event, session ? 'User is authenticated' : 'User is not authenticated');
+        
+        if (event === 'SIGNED_IN' && session) {
+          // User has signed in
+          try {
+            const userData = await authService.getCurrentUser();
+            if (userData) {
+              setUser(userData);
+              setIsLoading(false);
+            }
+          } catch (err) {
+            console.error('Error getting user data after sign in:', err);
+            setIsLoading(false);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          // User has signed out
+          setUser(null);
+          setIsLoading(false);
+        } else if (event === 'TOKEN_REFRESHED') {
+          // Token has been refreshed
+          console.log('Token has been refreshed');
+        }
+      }
+    );
+
+    // Cleanup subscription
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   // Verify authentication status
   const checkAuth = async (): Promise<boolean> => {

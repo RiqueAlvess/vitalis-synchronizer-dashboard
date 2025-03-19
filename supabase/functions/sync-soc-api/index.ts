@@ -1,9 +1,11 @@
+
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
 import { corsHeaders } from '../_shared/cors.ts';
 import { decode as decodeBase64 } from 'https://deno.land/std@0.177.0/encoding/base64.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
 interface SocApiParams {
   empresa: string;
@@ -20,18 +22,15 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Initialize Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-    // Get the session
-    const { data: { session } } = await supabase.auth.getSession();
-
-    // Check if user is authenticated
-    if (!session) {
+    // Get the Authorization header
+    const authHeader = req.headers.get('Authorization');
+    
+    if (!authHeader) {
+      console.error('Missing Authorization header');
       return new Response(
         JSON.stringify({ 
           success: false, 
-          message: 'Not authenticated' 
+          message: 'Missing authorization header' 
         }),
         { 
           status: 401, 
@@ -39,6 +38,52 @@ Deno.serve(async (req) => {
         }
       );
     }
+
+    // Extract the token from the Authorization header
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Create admin client
+    const supabaseAdmin = createClient(
+      SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
+    
+    // Verify the token
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error('Invalid token:', authError?.message);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: 'Invalid authentication token' 
+        }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    // Initialize Supabase client with user token
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+
+    // Set auth token
+    supabase.auth.setSession({
+      access_token: token,
+      refresh_token: ''
+    });
 
     // Parse the request body
     const requestData = await req.json();
@@ -63,7 +108,7 @@ Deno.serve(async (req) => {
       type: requestData.type,
       status: 'started',
       message: `Iniciando sincronização de ${requestData.type}`,
-      user_id: session.user.id,
+      user_id: user.id,
       started_at: new Date().toISOString()
     };
 
@@ -153,11 +198,11 @@ Deno.serve(async (req) => {
     let processingResult;
     
     if (requestData.type === 'employee') {
-      processingResult = await processEmployeeData(supabase, data, session.user.id);
+      processingResult = await processEmployeeData(supabase, data, user.id);
     } else if (requestData.type === 'absenteeism') {
-      processingResult = await processAbsenteeismData(supabase, data, session.user.id);
+      processingResult = await processAbsenteeismData(supabase, data, user.id);
     } else if (requestData.type === 'company') {
-      processingResult = await processCompanyData(supabase, data, session.user.id);
+      processingResult = await processCompanyData(supabase, data, user.id);
     } else {
       processingResult = {
         success: false,

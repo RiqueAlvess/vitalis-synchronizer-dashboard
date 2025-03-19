@@ -10,6 +10,7 @@ export interface User {
   companyName: string;
   jobTitle?: string;
   isPremium: boolean;
+  token?: string;
 }
 
 export const authService = {
@@ -45,7 +46,8 @@ export const authService = {
         email: data.user.email || email,
         fullName: data.user.user_metadata?.full_name || 'Usuário',
         companyName: data.user.user_metadata?.company_name || companyName,
-        isPremium: false
+        isPremium: false,
+        token: data.session?.access_token
       };
     } catch (error: any) {
       console.error('Registration error:', error);
@@ -56,6 +58,7 @@ export const authService = {
   // Login an existing user
   async login(email: string, password: string): Promise<User> {
     try {
+      // Option 1: Use Supabase Auth directly
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
@@ -84,7 +87,8 @@ export const authService = {
         fullName: profileData?.full_name || data.user.user_metadata?.full_name || 'Usuário',
         companyName: profileData?.company_name || data.user.user_metadata?.company_name || 'Empresa',
         jobTitle: profileData?.job_title || data.user.user_metadata?.job_title,
-        isPremium: profileData?.is_premium || false
+        isPremium: profileData?.is_premium || false,
+        token: data.session?.access_token
       };
     } catch (error: any) {
       console.error('Login error:', error);
@@ -110,9 +114,10 @@ export const authService = {
   // Get the current user if logged in
   async getCurrentUser(): Promise<User | null> {
     try {
-      const { data } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { user } } = await supabase.auth.getUser();
       
-      if (!data.user) {
+      if (!user) {
         return null;
       }
 
@@ -120,7 +125,7 @@ export const authService = {
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', data.user.id)
+        .eq('id', user.id)
         .single();
 
       if (profileError && profileError.code !== 'PGRST116') {
@@ -128,12 +133,13 @@ export const authService = {
       }
 
       return {
-        id: data.user.id,
-        email: data.user.email || '',
-        fullName: profileData?.full_name || data.user.user_metadata?.full_name || 'Usuário',
-        companyName: profileData?.company_name || data.user.user_metadata?.company_name || 'Empresa',
-        jobTitle: profileData?.job_title || data.user.user_metadata?.job_title,
-        isPremium: profileData?.is_premium || false
+        id: user.id,
+        email: user.email || '',
+        fullName: profileData?.full_name || user.user_metadata?.full_name || 'Usuário',
+        companyName: profileData?.company_name || user.user_metadata?.company_name || 'Empresa',
+        jobTitle: profileData?.job_title || user.user_metadata?.job_title,
+        isPremium: profileData?.is_premium || false,
+        token: session?.access_token
       };
     } catch (error) {
       console.error('Get current user error:', error);

@@ -1,5 +1,6 @@
 
 import axios from 'axios';
+import { supabase } from '@/integrations/supabase/client';
 
 export const supabaseAPI = axios.create({
   baseURL: import.meta.env.DEV 
@@ -15,7 +16,14 @@ export const supabaseAPI = axios.create({
 // Add request interceptor to include authentication headers
 supabaseAPI.interceptors.request.use(
   async config => {
-    // Add any additional headers or authentication tokens if needed
+    // Get the current session from Supabase
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    // Add Authorization header if session exists
+    if (session) {
+      config.headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+    
     return config;
   },
   error => {
@@ -40,9 +48,28 @@ supabaseAPI.interceptors.response.use(
     
     if (error.response?.status === 401) {
       console.error('Authentication error (401 Unauthorized)');
-      // Redirect to login page
-      window.location.href = '/login';
-      return Promise.reject(new Error('Authentication failed. Please log in again.'));
+      
+      // Try to refresh the session
+      try {
+        const { data, error: refreshError } = await supabase.auth.refreshSession();
+        
+        if (refreshError || !data.session) {
+          console.error('Session refresh failed:', refreshError);
+          // Redirect to login page
+          window.location.href = '/login';
+          return Promise.reject(new Error('Authentication session expired. Please log in again.'));
+        }
+        
+        // Retry the original request with the new token
+        if (error.config) {
+          error.config.headers['Authorization'] = `Bearer ${data.session.access_token}`;
+          return axios(error.config);
+        }
+      } catch (refreshError) {
+        console.error('Error refreshing session:', refreshError);
+        window.location.href = '/login';
+        return Promise.reject(new Error('Authentication failed. Please log in again.'));
+      }
     }
     
     if (typeof error.response?.data === 'string' && 
