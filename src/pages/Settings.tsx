@@ -19,8 +19,16 @@ const Settings = () => {
   useEffect(() => {
     // Check if user is authenticated
     const checkAuth = async () => {
-      const { data } = await supabase.auth.getSession();
-      setIsAuthenticated(!!data.session);
+      try {
+        console.log('Checking authentication status...');
+        const { data } = await supabase.auth.getSession();
+        const isAuth = !!data.session;
+        console.log('Authentication status:', isAuth ? 'Authenticated' : 'Not authenticated');
+        setIsAuthenticated(isAuth);
+      } catch (error) {
+        console.error('Error checking authentication:', error);
+        setIsAuthenticated(false);
+      }
     };
     
     checkAuth();
@@ -39,12 +47,19 @@ const Settings = () => {
         return;
       }
       
+      console.log('Starting to load API configurations...');
+      
       // Preload all configs when the settings page loads
       const results = await Promise.allSettled([
         apiService.apiConfig.get('company'),
         apiService.apiConfig.get('employee'),
         apiService.apiConfig.get('absenteeism')
       ]);
+      
+      console.log('API config loading results:', results.map(r => ({ 
+        status: r.status, 
+        value: r.status === 'fulfilled' ? 'Config loaded' : 'Failed to load' 
+      })));
       
       // Check if all promises were rejected
       if (results.every(result => result.status === 'rejected')) {
@@ -53,7 +68,7 @@ const Settings = () => {
       
       // If at least one config was loaded successfully, consider it a success
       if (results.some(result => result.status === 'fulfilled')) {
-        console.log('At least some API configs loaded:', results);
+        console.log('At least some API configs loaded successfully');
         setHasError(false);
       }
     } catch (err) {

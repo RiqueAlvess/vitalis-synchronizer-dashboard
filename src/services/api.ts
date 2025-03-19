@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
-import { DashboardData, MonthlyTrendData, SectorData, MockCompanyData, MockEmployeeData } from '@/types/dashboard';
+import { DashboardData, MonthlyTrendData, SectorData } from '@/types/dashboard';
+import type { MockCompanyData, MockEmployeeData } from '@/types/dashboard';
 
 // Create a base axios instance that will be used for all API calls to Supabase Functions
 const supabaseAPI = axios.create({
@@ -9,7 +10,8 @@ const supabaseAPI = axios.create({
     : 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1',
   headers: {
     'Content-Type': 'application/json',
-  }
+  },
+  timeout: 10000 // Set timeout to 10 seconds
 });
 
 // Add request interceptor to include authentication
@@ -18,18 +20,33 @@ supabaseAPI.interceptors.request.use(async (config) => {
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       config.headers.Authorization = `Bearer ${session.access_token}`;
+      console.log('Added auth token to request:', config.url);
+    } else {
+      console.warn('No active session found when making API request to:', config.url);
     }
   } catch (error) {
     console.error('Error adding auth token to request:', error);
   }
   return config;
 }, (error) => {
+  console.error('Request interceptor error:', error);
   return Promise.reject(error);
 });
 
 // Add response interceptor for better error handling
 supabaseAPI.interceptors.response.use(
-  response => response,
+  response => {
+    // Check if response is valid JSON or HTML
+    if (typeof response.data === 'string' && response.data.includes('<!DOCTYPE html>')) {
+      console.error('Received HTML instead of JSON:', {
+        url: response.config?.url,
+        status: response.status,
+        data: response.data.substring(0, 200) + '...'
+      });
+      return Promise.reject(new Error('Received HTML instead of JSON. Authentication may have failed.'));
+    }
+    return response;
+  },
   error => {
     // Log detailed error information
     console.error('API request failed:', {
@@ -46,6 +63,7 @@ supabaseAPI.interceptors.response.use(
         error.response.data.includes('<!DOCTYPE html>')) {
       console.error('Received HTML instead of JSON - possible auth or endpoint issue');
       error.isHtmlResponse = true;
+      error.message = 'Authentication error. Please log in and try again.';
     }
     
     return Promise.reject(error);
@@ -463,6 +481,7 @@ const apiService = {
   apiConfig: {
     get: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
       try {
+        console.log(`Fetching ${type} API config...`);
         const response = await supabaseAPI.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api-config/${type}`);
         
         // Ensure the response is valid
@@ -470,6 +489,8 @@ const apiService = {
           console.warn(`Invalid response for ${type} API config:`, response.data);
           return null;
         }
+        
+        console.log(`Successfully fetched ${type} API config:`, response.data);
         
         // Add isConfigured flag based on required fields
         if (response.data) {
@@ -479,6 +500,12 @@ const apiService = {
         return response.data;
       } catch (error) {
         console.error(`Error fetching ${type} API config:`, error);
+        
+        // Check if user is authenticated
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          console.error('User is not authenticated when fetching API config');
+        }
         
         // Return a default empty config on error
         return {
@@ -493,11 +520,20 @@ const apiService = {
     },
     save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
       try {
+        // Check if user is authenticated first
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          console.error('User is not authenticated when saving API config');
+          throw new Error('Authentication required to save configuration');
+        }
+        
         // Ensure tipoSaida is always 'json'
         const configToSave = {
           ...config,
           tipoSaida: 'json'
         };
+        
+        console.log('Saving API config:', configToSave);
         
         const response = await supabaseAPI.post<ApiConfig>('/api-config', configToSave);
         
@@ -507,15 +543,22 @@ const apiService = {
           throw new Error('Invalid response from server');
         }
         
-        // Add isConfigured flag based on required fields
-        if (response.data) {
-          response.data.isConfigured = !!(response.data.empresa && response.data.codigo && response.data.chave);
-        }
+        console.log('API config saved successfully:', response.data);
         
-        return response.data;
+        // Add isConfigured flag based on required fields
+        const result = {...response.data};
+        result.isConfigured = !!(result.empresa && result.codigo && result.chave);
+        
+        return result;
       } catch (error) {
         console.error('Error saving API config:', error);
-        return null;
+        
+        // If we got HTML instead of JSON, show a more helpful error
+        if ((error as any).isHtmlResponse) {
+          throw new Error('Authentication error. Please log in and try again.');
+        }
+        
+        throw error;
       }
     },
     test: async (type: 'company' | 'employee' | 'absenteeism'): Promise<{success: boolean, message: string}> => {
@@ -540,7 +583,9 @@ const apiService = {
   },
   testApiConnection: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<{success: boolean, message: string}> => {
     try {
+      console.log('Testing API connection with config:', config);
       const response = await supabaseAPI.post('/test-connection', config);
+      console.log('Test connection response:', response.data);
       return response.data;
     } catch (error: any) {
       console.error('Error testing API connection:', error);

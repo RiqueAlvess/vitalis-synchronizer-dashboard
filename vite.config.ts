@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => ({
       '/api/api-config': {
         target: 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/api-config/, '/api-config'),
+        rewrite: (path) => path.replace(/^\/api\/api-config/, '/save-api-config'),
         secure: true,
         headers: {
           'Content-Type': 'application/json',
