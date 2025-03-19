@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from '@/components/ui/use-toast';
@@ -15,44 +15,76 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const [isAuthChecking, setIsAuthChecking] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const checkAttempts = useRef(0);
+  const maxAttempts = 3;
+  const redirected = useRef(false);
+
+  useEffect(() => {
+    // Resetar tentativas quando a rota muda
+    if (location.pathname) {
+      checkAttempts.current = 0;
+      redirected.current = false;
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     const verifyAuthentication = async () => {
-      // Evitar verificações desnecessárias se já está autenticado ou não há sessão armazenada
-      if (!isLoading && !isAuthenticated && !isAuthChecking && hasStoredSession()) {
-        try {
-          console.log('Verificando autenticação para rota protegida:', location.pathname);
-          setIsAuthChecking(true);
-          const isAuth = await checkAuth();
+      // Evitar verificações desnecessárias
+      if (!isLoading && isAuthenticated) {
+        // Já está autenticado, não precisa fazer nada
+        return;
+      }
+
+      // Evitar verificações desnecessárias se já está em verificação ou excedeu tentativas
+      if (isAuthChecking || checkAttempts.current >= maxAttempts) {
+        return;
+      }
+
+      // Verificar se há sessão armazenada antes de tentar verificar auth
+      if (!hasStoredSession()) {
+        if (!redirected.current) {
+          console.log('Sem sessão armazenada, redirecionando para login');
+          redirected.current = true;
           
-          if (!isAuth) {
-            console.log('Autenticação falhou, redirecionando para login');
-            toast({
-              variant: 'destructive',
-              title: 'Acesso negado',
-              description: 'Você precisa estar logado para acessar esta página.',
-            });
-            
-            // Armazena a rota atual para redirecionar depois do login
-            navigate('/login', { 
-              state: { from: location.pathname },
-              replace: true 
-            });
-          }
-        } finally {
-          setIsAuthChecking(false);
+          navigate('/login', { 
+            state: { from: location.pathname },
+            replace: true 
+          });
         }
-      } else if (!isLoading && !isAuthenticated && !hasStoredSession()) {
-        // Se não há sessão armazenada e não está autenticado, redirecionar imediatamente
-        console.log('Sem sessão armazenada, redirecionando para login');
-        navigate('/login', { 
-          state: { from: location.pathname },
-          replace: true 
-        });
+        return;
+      }
+
+      try {
+        console.log('Verificando autenticação para rota protegida:', location.pathname);
+        setIsAuthChecking(true);
+        checkAttempts.current += 1;
+        
+        const isAuth = await checkAuth();
+        
+        if (!isAuth && !redirected.current) {
+          console.log('Autenticação falhou, redirecionando para login');
+          redirected.current = true;
+          
+          toast({
+            variant: 'destructive',
+            title: 'Acesso negado',
+            description: 'Você precisa estar logado para acessar esta página.',
+          });
+          
+          navigate('/login', { 
+            state: { from: location.pathname },
+            replace: true 
+          });
+        }
+      } finally {
+        setIsAuthChecking(false);
       }
     };
 
-    verifyAuthentication();
+    // Só verificar se não estamos carregando e não estamos autenticados
+    if (!isLoading && !isAuthenticated) {
+      verifyAuthentication();
+    }
   }, [isAuthenticated, isLoading, location.pathname, navigate, checkAuth, isAuthChecking]);
 
   // Show loading state while checking authentication

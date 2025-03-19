@@ -20,12 +20,33 @@ function isTokenExpired(token) {
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const expiryTime = payload.exp * 1000;
-    return Date.now() >= expiryTime - 120000; // Consider token expired 2 minutes before actual expiry
+    return Date.now() >= expiryTime - 300000; // Consider token expired 5 minutes before actual expiry
   } catch (e) {
     console.error('Error checking token expiry:', e);
     return true;
   }
 }
+
+// Adicionando um lock para evitar múltiplas atualizações de token simultaneamente
+let isRefreshing = false;
+let refreshPromise = null;
+
+// Função para obter token atualizado
+const getUpdatedToken = async () => {
+  if (isRefreshing) {
+    return refreshPromise;
+  }
+
+  try {
+    isRefreshing = true;
+    refreshPromise = supabase.auth.refreshSession();
+    const result = await refreshPromise;
+    return result;
+  } finally {
+    isRefreshing = false;
+    refreshPromise = null;
+  }
+};
 
 // Add request interceptor to include authentication headers
 supabaseAPI.interceptors.request.use(
@@ -37,7 +58,7 @@ supabaseAPI.interceptors.request.use(
       // If no session or token expired, try to refresh
       if (!session || isTokenExpired(session.access_token)) {
         console.log('Token expired or missing, refreshing...');
-        const { data, error } = await supabase.auth.refreshSession();
+        const { data, error } = await getUpdatedToken();
         
         if (data.session) {
           console.log('Session refreshed successfully');
@@ -91,7 +112,7 @@ supabaseAPI.interceptors.response.use(
       
       try {
         // Try to refresh the session
-        const { data, error: refreshError } = await supabase.auth.refreshSession();
+        const { data, error: refreshError } = await getUpdatedToken();
         
         if (refreshError || !data.session) {
           console.error('Session refresh failed during 401 handling:', refreshError);

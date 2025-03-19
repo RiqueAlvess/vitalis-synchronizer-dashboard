@@ -14,7 +14,7 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     autoRefreshToken: true,
     persistSession: true,
     storageKey: 'vitalis-auth-token',
-    detectSessionInUrl: true,
+    detectSessionInUrl: false, // Desabilitando detecção de sessão na URL para evitar problemas de redirecionamento
     flowType: 'implicit'
   }
 });
@@ -25,8 +25,13 @@ export const hasStoredSession = () => {
     const storageKey = 'vitalis-auth-token';
     const stored = localStorage.getItem(storageKey);
     if (!stored) return false;
+    
     const { currentSession } = JSON.parse(stored);
-    return !!currentSession;
+    // Verificar se a sessão existe e se ainda não expirou
+    if (!currentSession || !currentSession.expires_at) return false;
+    
+    const expiresAt = new Date(currentSession.expires_at * 1000);
+    return expiresAt > new Date();
   } catch (error) {
     console.error('Error checking stored session:', error);
     return false;
