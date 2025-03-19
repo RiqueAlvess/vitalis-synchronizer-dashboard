@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/use-toast';
 import apiService from '@/services/api';
 import { Loader2 } from 'lucide-react';
 import { useApiConfig } from '@/hooks/use-api-config';
+import { EmployeeApiConfig as EmployeeApiConfigType } from '@/services/api';
 
 const EmployeeApiConfig = () => {
   const { toast } = useToast();
@@ -17,8 +18,8 @@ const EmployeeApiConfig = () => {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Initialize config with the correct structure
-  const initialConfig = {
-    type: 'employee' as const,
+  const initialConfig: EmployeeApiConfigType = {
+    type: 'employee',
     empresa: '',
     codigo: '',
     chave: '',
@@ -31,11 +32,11 @@ const EmployeeApiConfig = () => {
     isConfigured: false
   };
 
-  const [config, setConfig] = useState(initialConfig);
+  const [config, setConfig] = useState<EmployeeApiConfigType>(initialConfig);
 
   useEffect(() => {
     if (savedConfig) {
-      setConfig(savedConfig as any);
+      setConfig(savedConfig as EmployeeApiConfigType);
     }
   }, [savedConfig]);
 

@@ -1,13 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
-import { apiService } from '@/services/api';
+import apiService from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui-custom/Card';
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { toast } from '@/components/ui/use-toast';
+import { useToast } from '@/components/ui/use-toast';
 
 interface ApiConfig {
   apiKey: string;
@@ -39,7 +38,6 @@ const ApiConfigForm = () => {
     try {
       const data = await apiService.apiConfig.get('company');
       
-      // Fixed: Transform the API response to match our ApiConfig interface
       if (data) {
         setConfig({
           apiKey: data.codigo || '',
@@ -64,7 +62,6 @@ const ApiConfigForm = () => {
     const { name, value } = e.target;
     setConfig(prev => ({ ...prev, [name]: value }));
     
-    // Clear test result when form is changed
     if (testResult) {
       setTestResult(null);
     }
@@ -75,7 +72,6 @@ const ApiConfigForm = () => {
     setIsSaving(true);
     
     try {
-      // Transform our ApiConfig format to the format expected by the API
       await apiService.apiConfig.save('company', {
         empresa: config.baseUrl.includes('empresa=') ? config.baseUrl.split('empresa=')[1] : '423',
         codigo: config.apiKey,
@@ -105,7 +101,6 @@ const ApiConfigForm = () => {
     setTestResult(null);
     
     try {
-      // Fixed: Using the correct signature for test - needs a type parameter
       const result = await apiService.apiConfig.test('company');
       setTestResult({
         success: true,

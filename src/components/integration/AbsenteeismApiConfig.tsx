@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +9,7 @@ import apiService from '@/services/api';
 import { DatePicker } from '@/components/ui/date-picker';
 import { format } from 'date-fns';
 import { Loader2 } from 'lucide-react';
+import { AbsenteeismApiConfig as AbsenteeismApiConfigType } from '@/services/api';
 
 const AbsenteeismApiConfig = () => {
   const { toast } = useToast();

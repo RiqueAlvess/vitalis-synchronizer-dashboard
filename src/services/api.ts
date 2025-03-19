@@ -10,6 +10,27 @@ export interface ApiConfig {
   isConfigured?: boolean;
 }
 
+// Specific config types for different APIs
+export interface CompanyApiConfig extends ApiConfig {
+  type: 'company';
+}
+
+export interface EmployeeApiConfig extends ApiConfig {
+  type: 'employee';
+  ativo: string;
+  inativo: string;
+  afastado: string;
+  pendente: string;
+  ferias: string;
+}
+
+export interface AbsenteeismApiConfig extends ApiConfig {
+  type: 'absenteeism';
+  empresaTrabalho: string;
+  dataInicio: string;
+  dataFim: string;
+}
+
 // Define the structure of the API response
 interface ApiResponse<T> {
   data: T[] | null;
@@ -89,8 +110,12 @@ interface ApiService {
   };
   apiConfig: {
     get: (type: 'company' | 'employee' | 'absenteeism') => Promise<ApiConfig | null>;
-    save: (config: ApiConfig) => Promise<ApiConfig | null>;
+    save: (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig) => Promise<ApiConfig | null>;
+    test: (type: 'company' | 'employee' | 'absenteeism') => Promise<{success: boolean, message: string}>;
   };
+  testApiConnection: (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig) => Promise<{success: boolean, message: string}>;
+  getApiConfig: (type: 'company' | 'employee' | 'absenteeism') => Promise<ApiConfig | null>;
+  saveApiConfig: (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig) => Promise<ApiConfig | null>;
   getDashboardData: () => Promise<any>;
 }
 
@@ -328,7 +353,7 @@ const apiService: ApiService = {
         return null;
       }
     },
-    save: async (config: ApiConfig): Promise<ApiConfig | null> => {
+    save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
       try {
         const response = await axios.post<ApiConfig>('/api/api-config', config);
         return response.data;
@@ -337,6 +362,30 @@ const apiService: ApiService = {
         return null;
       }
     },
+    test: async (type: 'company' | 'employee' | 'absenteeism'): Promise<{success: boolean, message: string}> => {
+      try {
+        const response = await axios.post(`/api/api-config/${type}/test`);
+        return response.data;
+      } catch (error) {
+        console.error('Error testing API config:', error);
+        throw error;
+      }
+    }
+  },
+  getApiConfig: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | null> => {
+    return apiService.apiConfig.get(type);
+  },
+  saveApiConfig: async (config: ApiConfig): Promise<ApiConfig | null> => {
+    return apiService.apiConfig.save(config);
+  },
+  testApiConnection: async (config: ApiConfig): Promise<{success: boolean, message: string}> => {
+    try {
+      const response = await axios.post('/api/test-connection', config);
+      return response.data;
+    } catch (error) {
+      console.error('Error testing API connection:', error);
+      throw error;
+    }
   },
   async getDashboardData() {
     try {
@@ -379,12 +428,10 @@ const countUniqueEmployees = (absenteeismData: any[]): number => {
 };
 
 const calculateCostImpact = (absenteeismData: any[]): string => {
-  // Simple cost calculation (can be more complex in a real app)
   const totalAbsentHours = absenteeismData.reduce((sum, record) => {
     return sum + hoursToDecimal(record.hours_absent || "0:00");
   }, 0);
   
-  // Assuming an average hourly cost of R$30
   const averageHourlyCost = 30;
   const totalCost = totalAbsentHours * averageHourlyCost;
   
@@ -408,39 +455,33 @@ const getSectorAbsenceData = (absenteeismData: any[]): {name: string, value: num
     
     acc[sector] += diffDays;
     return acc;
-  }, {});
+  }, {} as Record<string, number>);
   
   return Object.entries(sectorCounts)
     .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => (b.value as number) - (a.value as number))
+    .sort((a, b) => b.value - a.value)
     .slice(0, 5);
 };
 
 // Original helper functions
 const calculateAbsenteeismRate = (absenteeismData: any[]) => {
-  // Implementation according to the formula in the requirements
-  // Total Hours Absent / Total Work Hours * 100
   const totalAbsentHours = absenteeismData.reduce((sum, record) => {
     return sum + hoursToDecimal(record.hours_absent || "0:00");
   }, 0);
   
-  // Assuming average work hours per employee is 220h/month
   const avgWorkHoursPerMonth = 220;
-  // We need to know the total number of employees
   const estimatedTotalWorkHours = absenteeismData.length > 0 ? absenteeismData.length * avgWorkHoursPerMonth : 1;
   
   return (totalAbsentHours / estimatedTotalWorkHours) * 100;
 };
 
 const getTopCids = (absenteeismData: any[]) => {
-  // Group by CID and count occurrences
   const cidCounts = absenteeismData.reduce((acc, record) => {
     const cid = record.primary_icd || 'Não informado';
     acc[cid] = (acc[cid] || 0) + 1;
     return acc;
   }, {});
   
-  // Convert to array, sort, and take top 10
   return Object.entries(cidCounts)
     .map(([cid, count]) => ({ cid, count }))
     .sort((a, b) => (b.count as number) - (a.count as number))
@@ -448,14 +489,12 @@ const getTopCids = (absenteeismData: any[]) => {
 };
 
 const getTopSectors = (absenteeismData: any[]) => {
-  // Group by sector and count occurrences
   const sectorCounts = absenteeismData.reduce((acc, record) => {
     const sector = record.sector || 'Não informado';
     acc[sector] = (acc[sector] || 0) + 1;
     return acc;
   }, {});
   
-  // Convert to array, sort, and take top 10
   return Object.entries(sectorCounts)
     .map(([sector, count]) => ({ sector, count }))
     .sort((a, b) => (b.count as number) - (a.count as number))
@@ -463,7 +502,6 @@ const getTopSectors = (absenteeismData: any[]) => {
 };
 
 const getMonthlyEvolution = (absenteeismData: any[]) => {
-  // Group absences by month
   const monthlyData = absenteeismData.reduce((acc, record) => {
     const date = new Date(record.start_date);
     const monthYear = `${date.getMonth() + 1}/${date.getFullYear()}`;
@@ -478,7 +516,6 @@ const getMonthlyEvolution = (absenteeismData: any[]) => {
     return acc;
   }, {});
   
-  // Convert to array and sort by date
   return Object.values(monthlyData)
     .sort((a: any, b: any) => {
       const [aMonth, aYear] = a.month.split('/');

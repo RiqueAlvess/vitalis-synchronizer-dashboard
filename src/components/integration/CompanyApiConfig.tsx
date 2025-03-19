@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { apiService } from '@/services/api';
+import apiService from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui-custom/Card';
 import { Loader2, CheckCircle2, AlertCircle, Info } from 'lucide-react';
-import { toast } from '@/components/ui/use-toast';
+import { useToast } from '@/components/ui/use-toast';
 import {
   Tooltip,
   TooltipContent,
