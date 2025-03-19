@@ -2,6 +2,56 @@ import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
 import { DashboardData, MonthlyTrendData, SectorData, MockCompanyData, MockEmployeeData } from '@/types/dashboard';
 
+// Create a base axios instance that will be used for all API calls to Supabase Functions
+const supabaseAPI = axios.create({
+  baseURL: import.meta.env.DEV 
+    ? '/api' // Use local proxy in development
+    : 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1',
+  headers: {
+    'Content-Type': 'application/json',
+  }
+});
+
+// Add request interceptor to include authentication
+supabaseAPI.interceptors.request.use(async (config) => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      config.headers.Authorization = `Bearer ${session.access_token}`;
+    }
+  } catch (error) {
+    console.error('Error adding auth token to request:', error);
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
+
+// Add response interceptor for better error handling
+supabaseAPI.interceptors.response.use(
+  response => response,
+  error => {
+    // Log detailed error information
+    console.error('API request failed:', {
+      url: error.config?.url,
+      method: error.config?.method,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      error: error.message
+    });
+    
+    // Check if the response is HTML (possibly from a redirect)
+    if (typeof error.response?.data === 'string' && 
+        error.response.data.includes('<!DOCTYPE html>')) {
+      console.error('Received HTML instead of JSON - possible auth or endpoint issue');
+      error.isHtmlResponse = true;
+    }
+    
+    return Promise.reject(error);
+  }
+);
+
 // Define the structure of the API configuration
 export interface ApiConfig {
   type: 'company' | 'employee' | 'absenteeism';
@@ -154,16 +204,16 @@ async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiRespon
 
     let url = '';
     if (config.type === 'company') {
-      url = `/api/companies?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
+      url = `/companies?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
     } else if (config.type === 'employee') {
-      url = `/api/employees?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
+      url = `/employees?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
     } else if (config.type === 'absenteeism') {
-      url = `/api/absenteeism?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
+      url = `/absenteeism?empresa=${config.empresa}&codigo=${config.codigo}&chave=${config.chave}&tipoSaida=${config.tipoSaida}`;
     } else {
       throw new Error('Invalid API type');
     }
 
-    const response = await axios.get(url);
+    const response = await supabaseAPI.get(url);
 
     if (response.status !== 200) {
       throw new Error(`Request failed with status ${response.status}`);
@@ -176,7 +226,7 @@ async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiRespon
   }
 }
 
-// Mock API service
+// API service
 const apiService = {
   companies: {
     getAll: async (): Promise<MockCompanyData[]> => {
@@ -189,7 +239,7 @@ const apiService = {
           return generateMockData('companies') as MockCompanyData[];
         }
         
-        const response = await axios.get<MockCompanyData[]>('/api/companies');
+        const response = await supabaseAPI.get<MockCompanyData[]>('/api/companies');
         
         if (Array.isArray(response.data) && response.data.length > 0) {
           return response.data;
@@ -204,7 +254,7 @@ const apiService = {
     },
     getById: async (id: number): Promise<MockCompanyData | null> => {
       try {
-        const response = await axios.get<MockCompanyData>(`/api/companies/${id}`);
+        const response = await supabaseAPI.get<MockCompanyData>(`/api/companies/${id}`);
         return response.data;
       } catch (error) {
         console.error('Error fetching company:', error);
@@ -213,7 +263,7 @@ const apiService = {
     },
     create: async (data: Omit<MockCompanyData, 'id' | 'createdAt' | 'updatedAt'>): Promise<MockCompanyData | null> => {
       try {
-        const response = await axios.post<MockCompanyData>('/api/companies', data);
+        const response = await supabaseAPI.post<MockCompanyData>('/api/companies', data);
         return response.data;
       } catch (error) {
         console.error('Error creating company:', error);
@@ -222,7 +272,7 @@ const apiService = {
     },
     update: async (id: number, data: Omit<MockCompanyData, 'createdAt' | 'updatedAt' | 'id'>): Promise<MockCompanyData | null> => {
       try {
-        const response = await axios.put<MockCompanyData>(`/api/companies/${id}`, data);
+        const response = await supabaseAPI.put<MockCompanyData>(`/api/companies/${id}`, data);
         return response.data;
       } catch (error) {
         console.error('Error updating company:', error);
@@ -231,7 +281,7 @@ const apiService = {
     },
     delete: async (id: number): Promise<boolean> => {
       try {
-        await axios.delete(`/api/companies/${id}`);
+        await supabaseAPI.delete(`/api/companies/${id}`);
         return true;
       } catch (error) {
         console.error('Error deleting company:', error);
@@ -248,7 +298,7 @@ const apiService = {
           return false;
         }
         
-        await axios.post('/api/companies/sync');
+        await supabaseAPI.post('/api/companies/sync');
         return true;
       } catch (error) {
         console.error('Error syncing companies:', error);
@@ -267,7 +317,7 @@ const apiService = {
           return generateMockData('employees') as MockEmployeeData[];
         }
         
-        const response = await axios.get<MockEmployeeData[]>('/api/employees');
+        const response = await supabaseAPI.get<MockEmployeeData[]>('/api/employees');
         
         if (Array.isArray(response.data) && response.data.length > 0) {
           return response.data;
@@ -282,7 +332,7 @@ const apiService = {
     },
     getById: async (id: number): Promise<MockEmployeeData | null> => {
       try {
-        const response = await axios.get<MockEmployeeData>(`/api/employees/${id}`);
+        const response = await supabaseAPI.get<MockEmployeeData>(`/api/employees/${id}`);
         return response.data;
       } catch (error) {
         console.error('Error fetching employee:', error);
@@ -291,7 +341,7 @@ const apiService = {
     },
     create: async (data: Omit<MockEmployeeData, 'id' | 'createdAt' | 'updatedAt'>): Promise<MockEmployeeData | null> => {
       try {
-        const response = await axios.post<MockEmployeeData>('/api/employees', data);
+        const response = await supabaseAPI.post<MockEmployeeData>('/api/employees', data);
         return response.data;
       } catch (error) {
         console.error('Error creating employee:', error);
@@ -300,7 +350,7 @@ const apiService = {
     },
     update: async (id: number, data: Omit<MockEmployeeData, 'createdAt' | 'updatedAt' | 'id'>): Promise<MockEmployeeData | null> => {
       try {
-        const response = await axios.put<MockEmployeeData>(`/api/employees/${id}`, data);
+        const response = await supabaseAPI.put<MockEmployeeData>(`/api/employees/${id}`, data);
         return response.data;
       } catch (error) {
         console.error('Error updating employee:', error);
@@ -309,7 +359,7 @@ const apiService = {
     },
     delete: async (id: number): Promise<boolean> => {
       try {
-        await axios.delete(`/api/employees/${id}`);
+        await supabaseAPI.delete(`/api/employees/${id}`);
         return true;
       } catch (error) {
         console.error('Error deleting employee:', error);
@@ -326,7 +376,7 @@ const apiService = {
           return false;
         }
         
-        await axios.post('/api/employees/sync');
+        await supabaseAPI.post('/api/employees/sync');
         return true;
       } catch (error) {
         console.error('Error syncing employees:', error);
@@ -335,7 +385,7 @@ const apiService = {
     },
     testConnection: async (config: EmployeeApiConfig): Promise<{success: boolean, count: number}> => {
       try {
-        const response = await axios.post('/api/employees/test-connection', config);
+        const response = await supabaseAPI.post('/api/employees/test-connection', config);
         return response.data;
       } catch (error) {
         console.error('Error testing employee API connection:', error);
@@ -346,7 +396,7 @@ const apiService = {
   absenteeism: {
     getAll: async (): Promise<Absenteeism[]> => {
       try {
-        const response = await axios.get<Absenteeism[]>('/api/absenteeism');
+        const response = await supabaseAPI.get<Absenteeism[]>('/api/absenteeism');
         return response.data;
       } catch (error) {
         console.error('Error fetching absenteeism:', error);
@@ -355,7 +405,7 @@ const apiService = {
     },
     getById: async (id: number): Promise<Absenteeism | null> => {
       try {
-        const response = await axios.get<Absenteeism>(`/api/absenteeism/${id}`);
+        const response = await supabaseAPI.get<Absenteeism>(`/api/absenteeism/${id}`);
         return response.data;
       } catch (error) {
         console.error('Error fetching absenteeism:', error);
@@ -364,7 +414,7 @@ const apiService = {
     },
     create: async (data: Omit<Absenteeism, 'id' | 'createdAt' | 'updatedAt'>): Promise<Absenteeism | null> => {
       try {
-        const response = await axios.post<Absenteeism>('/api/absenteeism', data);
+        const response = await supabaseAPI.post<Absenteeism>('/api/absenteeism', data);
         return response.data;
       } catch (error) {
         console.error('Error creating absenteeism:', error);
@@ -373,7 +423,7 @@ const apiService = {
     },
     update: async (id: number, data: Omit<Absenteeism, 'createdAt' | 'updatedAt' | 'id'>): Promise<Absenteeism | null> => {
       try {
-        const response = await axios.put<Absenteeism>(`/api/absenteeism/${id}`, data);
+        const response = await supabaseAPI.put<Absenteeism>(`/api/absenteeism/${id}`, data);
         return response.data;
       } catch (error) {
         console.error('Error updating absenteeism:', error);
@@ -382,7 +432,7 @@ const apiService = {
     },
     delete: async (id: number): Promise<boolean> => {
       try {
-        await axios.delete(`/api/absenteeism/${id}`);
+        await supabaseAPI.delete(`/api/absenteeism/${id}`);
         return true;
       } catch (error) {
         console.error('Error deleting absenteeism:', error);
@@ -413,7 +463,13 @@ const apiService = {
   apiConfig: {
     get: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
       try {
-        const response = await axios.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api/api-config/${type}`);
+        const response = await supabaseAPI.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api-config/${type}`);
+        
+        // Ensure the response is valid
+        if (!response.data || typeof response.data !== 'object') {
+          console.warn(`Invalid response for ${type} API config:`, response.data);
+          return null;
+        }
         
         // Add isConfigured flag based on required fields
         if (response.data) {
@@ -422,7 +478,7 @@ const apiService = {
         
         return response.data;
       } catch (error) {
-        console.error('Error fetching API config:', error);
+        console.error(`Error fetching ${type} API config:`, error);
         
         // Return a default empty config on error
         return {
@@ -443,7 +499,13 @@ const apiService = {
           tipoSaida: 'json'
         };
         
-        const response = await axios.post<ApiConfig>('/api/api-config', configToSave);
+        const response = await supabaseAPI.post<ApiConfig>('/api-config', configToSave);
+        
+        // Ensure the response is valid
+        if (!response.data || typeof response.data !== 'object') {
+          console.warn('Invalid response when saving API config:', response.data);
+          throw new Error('Invalid response from server');
+        }
         
         // Add isConfigured flag based on required fields
         if (response.data) {
@@ -478,11 +540,28 @@ const apiService = {
   },
   testApiConnection: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<{success: boolean, message: string}> => {
     try {
-      const response = await axios.post('/api/test-connection', config);
+      const response = await supabaseAPI.post('/test-connection', config);
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error testing API connection:', error);
-      throw error;
+      
+      // If we got HTML instead of JSON, show a more helpful error
+      if (error.isHtmlResponse) {
+        return { 
+          success: false, 
+          message: 'Error connecting to the API. Please check your network connection and authentication status.' 
+        };
+      }
+      
+      // Try to extract a meaningful error message from the response
+      let message = 'Failed to connect to the API';
+      if (error.response?.data?.message) {
+        message = error.response.data.message;
+      } else if (error.message) {
+        message = error.message;
+      }
+      
+      return { success: false, message };
     }
   },
   async getDashboardData(): Promise<DashboardData> {

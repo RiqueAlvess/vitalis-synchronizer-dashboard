@@ -14,27 +14,29 @@ export default defineConfig(({ mode }) => ({
         target: 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/test-connection/, '/test-connection'),
+        secure: true,
+        headers: {
+          'Content-Type': 'application/json',
+        }
       },
       '/api/api-config': {
         target: 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/api-config/, '/api-config'),
+        secure: true,
+        headers: {
+          'Content-Type': 'application/json',
+        }
       },
-      '/api/companies': {
+      '/api': {
         target: 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/companies/, '/companies'),
-      },
-      '/api/employees': {
-        target: 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/employees/, '/employees'),
-      },
-      '/api/absenteeism': {
-        target: 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/absenteeism/, '/absenteeism'),
-      },
+        rewrite: (path) => path.replace(/^\/api/, ''),
+        secure: true,
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }
     }
   },
   plugins: [

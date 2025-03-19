@@ -2,31 +2,60 @@
 import React, { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import ApiConfigTabs from '@/components/integration/ApiConfigTabs';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCcw } from 'lucide-react';
 import apiService from '@/services/api';
 import { useToast } from '@/components/ui/use-toast';
 import ErrorBoundary from '@/components/ui-custom/ErrorBoundary';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
 
 const Settings = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    // Check if user is authenticated
+    const checkAuth = async () => {
+      const { data } = await supabase.auth.getSession();
+      setIsAuthenticated(!!data.session);
+    };
+    
+    checkAuth();
+  }, []);
 
   const loadAllConfigs = async () => {
     try {
       setIsLoading(true);
       setHasError(false);
+      
+      // If user is not authenticated, show an error
+      if (isAuthenticated === false) {
+        setHasError(true);
+        setErrorMessage('Você precisa estar autenticado para acessar as configurações');
+        setIsLoading(false);
+        return;
+      }
+      
       // Preload all configs when the settings page loads
-      const results = await Promise.all([
+      const results = await Promise.allSettled([
         apiService.apiConfig.get('company'),
         apiService.apiConfig.get('employee'),
         apiService.apiConfig.get('absenteeism')
       ]);
       
-      console.log('All API configs loaded:', results);
-      setHasError(false);
+      // Check if all promises were rejected
+      if (results.every(result => result.status === 'rejected')) {
+        throw new Error('Não foi possível carregar nenhuma das configurações. Verifique sua conexão com a internet e tente novamente.');
+      }
+      
+      // If at least one config was loaded successfully, consider it a success
+      if (results.some(result => result.status === 'fulfilled')) {
+        console.log('At least some API configs loaded:', results);
+        setHasError(false);
+      }
     } catch (err) {
       console.error('Error loading API configurations:', err);
       setHasError(true);
@@ -42,8 +71,35 @@ const Settings = () => {
   };
 
   useEffect(() => {
-    loadAllConfigs();
-  }, []);
+    // Only try to load configs if authentication status has been determined
+    if (isAuthenticated !== null) {
+      loadAllConfigs();
+    }
+  }, [isAuthenticated]);
+
+  if (isAuthenticated === false) {
+    return (
+      <DashboardLayout 
+        title="Configurações" 
+        subtitle="Configure as integrações com APIs externas"
+      >
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-center">
+          <AlertTriangle className="mx-auto h-10 w-10 text-amber-400 mb-3" />
+          <h3 className="text-lg font-medium text-amber-800 mb-2">Autenticação necessária</h3>
+          <p className="text-amber-600 mb-4">
+            Você precisa estar autenticado para acessar as configurações. Por favor, faça login e tente novamente.
+          </p>
+          <Button 
+            onClick={() => window.location.href = '/login'} 
+            variant="outline" 
+            className="flex mx-auto items-center gap-2 bg-white text-amber-700 border-amber-300"
+          >
+            Ir para o login
+          </Button>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -78,7 +134,7 @@ const Settings = () => {
             variant="outline" 
             className="flex mx-auto items-center gap-2"
           >
-            <Loader2 className="h-4 w-4" />
+            <RefreshCcw className="h-4 w-4" />
             Tentar novamente
           </Button>
         </div>
