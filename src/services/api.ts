@@ -1,4 +1,3 @@
-
 import axios from 'axios';
 
 // Define the structure of the API configuration
@@ -459,8 +458,8 @@ const getSectorAbsenceData = (absenteeismData: any[]): {name: string, value: num
   }, {} as Record<string, number>);
   
   return Object.entries(sectorCounts)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value)
+    .map(( [name, value] ) => ({ name, value }))
+    .sort((a, b) => (b.value) - (a.value))
     .slice(0, 5);
 };
 
@@ -477,7 +476,7 @@ const calculateAbsenteeismRate = (absenteeismData: any[]) => {
 };
 
 const getTopCids = (absenteeismData: any[]) => {
-  const cidCounts = absenteeismData.reduce((acc, record) => {
+  const cidCounts = absenteeismData.reduce((acc: Record<string, number>, record) => {
     const cid = record.primary_icd || 'Não informado';
     acc[cid] = (acc[cid] || 0) + 1;
     return acc;
@@ -490,7 +489,7 @@ const getTopCids = (absenteeismData: any[]) => {
 };
 
 const getTopSectors = (absenteeismData: any[]) => {
-  const sectorCounts = absenteeismData.reduce((acc, record) => {
+  const sectorCounts = absenteeismData.reduce((acc: Record<string, number>, record) => {
     const sector = record.sector || 'Não informado';
     acc[sector] = (acc[sector] || 0) + 1;
     return acc;
@@ -503,7 +502,7 @@ const getTopSectors = (absenteeismData: any[]) => {
 };
 
 const getMonthlyEvolution = (absenteeismData: any[]) => {
-  const monthlyData = absenteeismData.reduce((acc, record) => {
+  const monthlyData = absenteeismData.reduce((acc: Record<string, {month: string, count: number, hours: number}>, record) => {
     const date = new Date(record.start_date);
     const monthYear = `${date.getMonth() + 1}/${date.getFullYear()}`;
     
@@ -526,4 +525,3 @@ const getMonthlyEvolution = (absenteeismData: any[]) => {
 };
 
 export default apiService;
-
