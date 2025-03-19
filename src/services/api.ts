@@ -4,7 +4,6 @@ import { DashboardData, MonthlyTrendData, SectorData } from '@/types/dashboard';
 import type { MockCompanyData, MockEmployeeData } from '@/types/dashboard';
 import { localStorageService } from '@/services/localStorageService';
 
-// Function to retry failed requests
 const retryRequest = async (fn, maxRetries = 3, delay = 1000) => {
   let lastError;
   for (let i = 0; i < maxRetries; i++) {
@@ -15,7 +14,6 @@ const retryRequest = async (fn, maxRetries = 3, delay = 1000) => {
       lastError = error;
       if (i < maxRetries - 1) {
         await new Promise(res => setTimeout(res, delay));
-        // Increase delay for next retry (exponential backoff)
         delay *= 1.5;
       }
     }
@@ -23,19 +21,17 @@ const retryRequest = async (fn, maxRetries = 3, delay = 1000) => {
   throw lastError;
 };
 
-// Create a base axios instance that will be used for all API calls to Supabase Functions
 const supabaseAPI = axios.create({
   baseURL: import.meta.env.DEV 
-    ? '/api' // Use local proxy in development
+    ? '/api'
     : 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1',
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 15000, // Set timeout to 15 seconds
-  withCredentials: false, // Don't include credentials by default as they can cause CORS issues
+  timeout: 15000,
+  withCredentials: false,
 });
 
-// Add request interceptor to include authentication
 supabaseAPI.interceptors.request.use(async (config) => {
   try {
     const { data: { session } } = await supabase.auth.getSession();
@@ -54,10 +50,8 @@ supabaseAPI.interceptors.request.use(async (config) => {
   return Promise.reject(error);
 });
 
-// Add response interceptor for better error handling
 supabaseAPI.interceptors.response.use(
   response => {
-    // Check if response is valid JSON or HTML
     if (typeof response.data === 'string' && response.data.includes('<!DOCTYPE html>')) {
       console.error('Received HTML instead of JSON:', {
         url: response.config?.url,
@@ -69,7 +63,6 @@ supabaseAPI.interceptors.response.use(
     return response;
   },
   error => {
-    // Log detailed error information
     console.error('API request failed:', {
       url: error.config?.url,
       method: error.config?.method,
@@ -79,7 +72,6 @@ supabaseAPI.interceptors.response.use(
       error: error.message
     });
     
-    // Check if the response is HTML (possibly from a redirect)
     if (typeof error.response?.data === 'string' && 
         error.response.data.includes('<!DOCTYPE html>')) {
       console.error('Received HTML instead of JSON - possible auth or endpoint issue');
@@ -87,7 +79,6 @@ supabaseAPI.interceptors.response.use(
       error.message = 'Authentication error. Please log in and try again.';
     }
     
-    // Add more context to the error for better debugging
     if (error.message === 'Network Error') {
       console.error('Network error details:', {
         navigator: navigator?.onLine ? 'Online' : 'Offline',
@@ -101,7 +92,6 @@ supabaseAPI.interceptors.response.use(
   }
 );
 
-// Define the structure of the API configuration
 export interface ApiConfig {
   type: 'company' | 'employee' | 'absenteeism';
   empresa: string;
@@ -109,9 +99,10 @@ export interface ApiConfig {
   chave: string;
   tipoSaida: string;
   isConfigured?: boolean;
+  savedLocally?: boolean;
+  savedAt?: string;
 }
 
-// Specific config types for different APIs
 export interface CompanyApiConfig extends ApiConfig {
   type: 'company';
 }
@@ -132,13 +123,11 @@ export interface AbsenteeismApiConfig extends ApiConfig {
   dataFim: string;
 }
 
-// Define the structure of the API response
 interface ApiResponse<T> {
   data: T[] | null;
   error: string | null;
 }
 
-// Define the structure of the Company
 export interface Company {
   id: number;
   name: string;
@@ -147,7 +136,6 @@ export interface Company {
   updatedAt: Date;
 }
 
-// Define the structure of the Employee
 export interface Employee {
   id: number;
   name: string;
@@ -158,7 +146,6 @@ export interface Employee {
   updatedAt: Date;
 }
 
-// Define the structure of the Absenteeism
 export interface Absenteeism {
   id: number;
   employeeId: number;
@@ -171,7 +158,6 @@ export interface Absenteeism {
   updatedAt: Date;
 }
 
-// Define the structure of the User
 export interface User {
   id: number;
   name: string;
@@ -180,7 +166,6 @@ export interface User {
   updatedAt: Date;
 }
 
-// Function to generate mock data
 const generateMockData = (type: string): MockCompanyData[] | MockEmployeeData[] | DashboardData => {
   if (type === 'dashboard') {
     return {
@@ -232,7 +217,6 @@ const generateMockData = (type: string): MockCompanyData[] | MockEmployeeData[] 
   return [] as MockCompanyData[];
 };
 
-// Function to convert hours string to decimal
 const hoursToDecimal = (hoursString: string): number => {
   if (!hoursString) return 0;
   
@@ -244,7 +228,6 @@ const hoursToDecimal = (hoursString: string): number => {
   return hours + (minutes / 60);
 };
 
-// Function to fetch data from an external API
 async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiResponse<T>> {
   try {
     if (!config) {
@@ -262,7 +245,6 @@ async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiRespon
       throw new Error('Invalid API type');
     }
 
-    // Use retry logic for external API calls
     const response = await retryRequest(() => supabaseAPI.get(url), 2);
 
     if (response.status !== 200) {
@@ -276,23 +258,18 @@ async function fetchDataFromExternalApi<T>(config: ApiConfig): Promise<ApiRespon
   }
 }
 
-// Check API connectivity
 const checkApiConnectivity = async (): Promise<boolean> => {
   try {
-    // If in preview environment, return false to indicate no API connectivity
     if (localStorageService.isPreviewEnvironment()) {
       console.log('Preview environment detected, API connectivity check skipped');
       return false;
     }
     
-    // Try a simple request to check connectivity
     await supabaseAPI.get('/test-connection');
     return true;
   } catch (error) {
     console.warn('API connectivity check failed:', error.message);
     
-    // If it's not a network error, the API might still be reachable
-    // but returned an error response
     if (error.response) {
       return true;
     }
@@ -301,12 +278,10 @@ const checkApiConnectivity = async (): Promise<boolean> => {
   }
 };
 
-// API service
 const apiService = {
   companies: {
     getAll: async (): Promise<MockCompanyData[]> => {
       try {
-        // Check if API is configured first
         const config = await apiService.apiConfig.get('company');
         
         if (!config || !config.isConfigured) {
@@ -365,7 +340,6 @@ const apiService = {
     },
     sync: async (): Promise<boolean> => {
       try {
-        // Check if API is configured first
         const config = await apiService.apiConfig.get('company');
         
         if (!config || !config.isConfigured) {
@@ -384,7 +358,6 @@ const apiService = {
   employees: {
     getAll: async (): Promise<MockEmployeeData[]> => {
       try {
-        // Check if API is configured first
         const config = await apiService.apiConfig.get('employee');
         
         if (!config || !config.isConfigured) {
@@ -443,7 +416,6 @@ const apiService = {
     },
     sync: async (): Promise<boolean> => {
       try {
-        // Check if API is configured first
         const config = await apiService.apiConfig.get('employee');
         
         if (!config || !config.isConfigured) {
@@ -521,9 +493,8 @@ const apiService = {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return null;
         
-        // Construct a user object from Supabase auth
         return {
-          id: parseInt(user.id, 36) % 1000000, // Convert UUID to a numeric ID
+          id: parseInt(user.id, 36) % 1000000,
           name: user.user_metadata?.name || 'User',
           email: user.email || '',
           createdAt: new Date(user.created_at),
@@ -540,7 +511,6 @@ const apiService = {
       try {
         console.log(`Fetching ${type} API config...`);
         
-        // Check if we're in preview mode
         if (localStorageService.isPreviewEnvironment()) {
           console.log(`Preview environment detected, using localStorage for ${type} config`);
           const localConfig = localStorageService.getConfig(type);
@@ -553,7 +523,6 @@ const apiService = {
             };
           }
           
-          // No local config, return empty one
           return {
             type,
             empresa: '',
@@ -564,7 +533,6 @@ const apiService = {
           };
         }
         
-        // First check local storage for cached config (fallback if API is unreachable)
         const cachedConfig = localStorage.getItem(`api_config_${type}`);
         let localConfig = null;
         
@@ -577,24 +545,19 @@ const apiService = {
           }
         }
         
-        // Try to get fresh data from API with retry logic
         try {
           const response = await retryRequest(() => supabaseAPI.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api-config/${type}`), 2);
           
-          // Ensure the response is valid
           if (!response.data || typeof response.data !== 'object') {
             console.warn(`Invalid response for ${type} API config:`, response.data);
-            // Fall back to cached config if available
             return localConfig || null;
           }
           
           console.log(`Successfully fetched ${type} API config:`, response.data);
           
-          // Add isConfigured flag based on required fields
           if (response.data) {
             response.data.isConfigured = !!(response.data.empresa && response.data.codigo && response.data.chave);
             
-            // Update cache with fresh data
             localStorage.setItem(`api_config_${type}`, JSON.stringify(response.data));
           }
           
@@ -602,24 +565,21 @@ const apiService = {
         } catch (err) {
           console.error(`Error fetching ${type} API config from server:`, err);
           
-          // Fall back to cached config if available
           if (localConfig) {
             console.log(`Using cached ${type} config due to API error`);
             return localConfig;
           }
           
-          throw err; // Re-throw if no cached config
+          throw err;
         }
       } catch (error) {
         console.error(`Error fetching ${type} API config:`, error);
         
-        // Check if user is authenticated
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
           console.error('User is not authenticated when fetching API config');
         }
         
-        // Return a default empty config on error
         return {
           type,
           empresa: '',
@@ -632,7 +592,6 @@ const apiService = {
     },
     save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
       try {
-        // Check if we're in preview mode
         if (localStorageService.isPreviewEnvironment()) {
           console.log(`Preview environment detected, saving ${config.type} config to localStorage`);
           const success = localStorageService.saveConfig(config.type, config);
@@ -649,14 +608,12 @@ const apiService = {
           }
         }
         
-        // Check if user is authenticated first
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
           console.error('User is not authenticated when saving API config');
           throw new Error('Authentication required to save configuration');
         }
         
-        // Ensure tipoSaida is always "json"
         const configToSave = {
           ...config,
           tipoSaida: 'json'
@@ -664,23 +621,19 @@ const apiService = {
         
         console.log('Saving API config:', configToSave);
         
-        // Check API connectivity first
         const isConnected = await checkApiConnectivity();
         if (!isConnected) {
           console.warn('API connectivity check failed, saving to localStorage only');
-          // Save to local storage as fallback
           localStorage.setItem(`api_config_${config.type}`, JSON.stringify(configToSave));
           throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
         }
         
-        // Use retry logic for the save operation
         const response = await retryRequest(
           async () => {
             try {
               return await supabaseAPI.post<ApiConfig>('/api-config', configToSave);
             } catch (err) {
               if (err.message.includes('Network Error')) {
-                // If direct call fails with network error, try an alternate endpoint
                 console.log("Network error, trying alternate endpoint format...");
                 return await axios.post(
                   'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/save-api-config',
@@ -693,13 +646,12 @@ const apiService = {
                   }
                 );
               }
-              throw err; // Rethrow if it's not a network error
+              throw err;
             }
           }, 
           2
         );
         
-        // Ensure the response is valid
         if (!response.data || typeof response.data !== 'object') {
           console.warn('Invalid response when saving API config:', 
             typeof response.data === 'string' ? response.data.substring(0, 100) : response.data);
@@ -708,23 +660,19 @@ const apiService = {
         
         console.log('API config saved successfully:', response.data);
         
-        // Add isConfigured flag based on required fields
         const result = {...response.data};
         result.isConfigured = !!(result.empresa && result.codigo && result.chave);
         
-        // Update local storage cache
         localStorage.setItem(`api_config_${config.type}`, JSON.stringify(result));
         
         return result;
       } catch (error) {
         console.error('Error saving API config:', error);
         
-        // If we got HTML instead of JSON, show a more helpful error
         if ((error as any).isHtmlResponse) {
           throw new Error('Authentication error. Please log in and try again.');
         }
         
-        // Save to local storage as fallback if it was a network error
         if (error.message.includes('Network Error') || error.message.includes('Não foi possível conectar')) {
           const savedConfig = {
             ...config,
@@ -734,7 +682,6 @@ const apiService = {
           };
           localStorage.setItem(`api_config_${config.type}`, JSON.stringify(savedConfig));
           
-          // Still throw, but now we've saved the data
           throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
         }
         
@@ -743,10 +690,8 @@ const apiService = {
     },
     test: async (type: 'company' | 'employee' | 'absenteeism'): Promise<{success: boolean, message: string}> => {
       try {
-        // Check if we're in preview mode
         if (localStorageService.isPreviewEnvironment()) {
           console.log(`Preview environment detected, simulating test for ${type} API`);
-          // Simulate a delay to make it feel like a real test
           await new Promise(resolve => setTimeout(resolve, 1500));
           
           return {
@@ -775,10 +720,8 @@ const apiService = {
   },
   testApiConnection: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<{success: boolean, message: string}> => {
     try {
-      // Check if we're in preview mode
       if (localStorageService.isPreviewEnvironment()) {
         console.log(`Preview environment detected, simulating test for API connection`);
-        // Simulate a delay to make it feel like a real test
         await new Promise(resolve => setTimeout(resolve, 1500));
         
         return {
@@ -789,16 +732,13 @@ const apiService = {
       
       console.log('Testing API connection with config:', config);
       
-      // Use retry logic for connection testing
       const response = await retryRequest(
         async () => {
           try {
             return await supabaseAPI.post('/test-connection', config);
           } catch (err) {
             if (err.message === 'Network Error') {
-              // If direct call fails, try an alternate endpoint format
               console.log("Network error, trying direct endpoint...");
-              // Get auth token for the direct request
               const { data: { session } } = await supabase.auth.getSession();
               return await axios.post(
                 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/test-connection',
@@ -822,7 +762,6 @@ const apiService = {
     } catch (error: any) {
       console.error('Error testing API connection:', error);
       
-      // If we got HTML instead of JSON, show a more helpful error
       if (error.isHtmlResponse) {
         return { 
           success: false, 
@@ -830,7 +769,6 @@ const apiService = {
         };
       }
       
-      // If it's a network error, provide a clear message
       if (error.message === 'Network Error' || error.code === 'ERR_NETWORK') {
         return {
           success: false,
@@ -838,7 +776,6 @@ const apiService = {
         };
       }
       
-      // Try to extract a meaningful error message from the response
       let message = 'Failed to connect to the API';
       if (error.response?.data?.message) {
         message = error.response.data.message;
@@ -851,7 +788,6 @@ const apiService = {
   },
   async getDashboardData(): Promise<DashboardData> {
     try {
-      // Check if all APIs are configured first
       const [companyConfig, employeeConfig, absenteeismConfig] = await Promise.all([
         this.apiConfig.get('company'),
         this.apiConfig.get('employee'),
@@ -876,25 +812,22 @@ const apiService = {
         return generateMockData('dashboard') as DashboardData;
       }
       
-      // Process data for dashboard metrics
       return {
         absenteeismRate: calculateAbsenteeismRate(absenteeismData),
         totalAbsenceDays: calculateTotalAbsenceDays(absenteeismData),
         employeesAbsent: countUniqueEmployees(absenteeismData),
         costImpact: calculateCostImpact(absenteeismData),
-        trend: determineTrend(absenteeismData), 
+        trend: determineTrend(absenteeismData),
         monthlyTrend: getMonthlyEvolution(absenteeismData),
         bySector: getSectorAbsenceData(absenteeismData)
       };
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      // Return mock data on any error
       return generateMockData('dashboard') as DashboardData;
     }
-  },
+  }
 };
 
-// Helper function to determine the trend
 const determineTrend = (absenteeismData: any[]): 'up' | 'down' | 'stable' => {
   const monthlyData = getMonthlyEvolution(absenteeismData);
   
@@ -914,7 +847,6 @@ const determineTrend = (absenteeismData: any[]): 'up' | 'down' | 'stable' => {
   }
 };
 
-// Additional helper functions for the dashboard data
 const calculateTotalAbsenceDays = (absenteeismData: any[]): number => {
   return absenteeismData.reduce((sum, record) => {
     const startDate = new Date(record.start_date || record.startDate);
@@ -956,7 +888,6 @@ const getSectorAbsenceData = (absenteeismData: any[]): SectorData[] => {
       acc[sector] = 0;
     }
     
-    // Try to calculate days based on dates first
     let days = 0;
     const startDate = new Date(record.start_date || record.startDate);
     const endDate = new Date(record.end_date || record.endDate);
@@ -965,7 +896,6 @@ const getSectorAbsenceData = (absenteeismData: any[]): SectorData[] => {
       const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
       days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
     } else {
-      // Fallback to days_absent field
       days = record.days_absent || 1;
     }
     
@@ -979,7 +909,6 @@ const getSectorAbsenceData = (absenteeismData: any[]): SectorData[] => {
     .slice(0, 5);
 };
 
-// Original helper functions
 const calculateAbsenteeismRate = (absenteeismData: any[]) => {
   const totalAbsentHours = absenteeismData.reduce((sum, record) => {
     return sum + hoursToDecimal(record.hours_absent || record.hoursAbsent || "0:00");
@@ -1017,12 +946,10 @@ const getTopSectors = (absenteeismData: any[]) => {
     .slice(0, 10);
 };
 
-// Fix the getMonthlyEvolution function to ensure proper typing
 const getMonthlyEvolution = (absenteeismData: any[]): MonthlyTrendData[] => {
   const monthlyData: Record<string, MonthlyTrendData> = absenteeismData.reduce((acc: Record<string, MonthlyTrendData>, record) => {
     const startDate = new Date(record.start_date || record.startDate);
     
-    // If date is invalid, skip this record
     if (isNaN(startDate.getTime())) {
       return acc;
     }
@@ -1041,7 +968,6 @@ const getMonthlyEvolution = (absenteeismData: any[]): MonthlyTrendData[] => {
     acc[monthYear].count += 1;
     acc[monthYear].hours += hoursToDecimal(record.hours_absent || record.hoursAbsent || "0:00");
     
-    // Calculate absenteeism rate for this month
     const avgWorkHoursPerMonth = 220;
     acc[monthYear].value = (acc[monthYear].hours / (acc[monthYear].count * avgWorkHoursPerMonth)) * 100;
     
