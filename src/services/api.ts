@@ -508,19 +508,122 @@ const apiService = {
   },
   apiConfig: {
     get: async (type: 'company' | 'employee' | 'absenteeism'): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig | null> => {
-    try {
-      console.log(`Fetching ${type} API config...`);
-      
-      if (localStorageService.isPreviewEnvironment()) {
-        console.log(`Preview environment detected, using localStorage for ${type} config`);
-        const localConfig = localStorageService.getConfig<ApiConfig>(type);
+      try {
+        console.log(`Fetching ${type} API config...`);
         
-        if (localConfig) {
-          console.log(`Found local ${type} config:`, localConfig);
+        if (localStorageService.isPreviewEnvironment()) {
+          console.log(`Preview environment detected, using localStorage for ${type} config`);
+          const localConfig = localStorageService.getConfig<ApiConfig>(type);
+          
+          if (localConfig) {
+            console.log(`Found local ${type} config:`, localConfig);
+            return {
+              ...localConfig,
+              isConfigured: !!(localConfig.empresa && localConfig.codigo && localConfig.chave)
+            };
+          }
+          
           return {
-            ...localConfig,
-            isConfigured: !!(localConfig.empresa && localConfig.codigo && localConfig.chave)
+            type,
+            empresa: '',
+            codigo: '',
+            chave: '',
+            tipoSaida: 'json',
+            isConfigured: false
           };
+        }
+        
+        // Try to get config from Supabase directly
+        try {
+          const { data: credentials, error } = await supabase
+            .from('api_credentials')
+            .select('*')
+            .eq('type', type)
+            .maybeSingle();
+            
+          if (error) {
+            console.error(`Error fetching ${type} credentials from Supabase:`, error);
+          } else if (credentials) {
+            console.log(`Found ${type} credentials in Supabase:`, credentials);
+            
+            // Convert from Supabase schema to our API schema
+            const config: ApiConfig = {
+              type: credentials.type,
+              empresa: credentials.empresa,
+              codigo: credentials.codigo,
+              chave: credentials.chave,
+              tipoSaida: 'json',
+              isConfigured: true
+            };
+            
+            // Add specific properties based on type
+            if (type === 'employee' && credentials) {
+              (config as EmployeeApiConfig).ativo = credentials.ativo || 'Sim';
+              (config as EmployeeApiConfig).inativo = credentials.inativo || '';
+              (config as EmployeeApiConfig).afastado = credentials.afastado || '';
+              (config as EmployeeApiConfig).pendente = credentials.pendente || '';
+              (config as EmployeeApiConfig).ferias = credentials.ferias || '';
+            } else if (type === 'absenteeism' && credentials) {
+              (config as AbsenteeismApiConfig).empresaTrabalho = credentials.empresatrabalho || '';
+              (config as AbsenteeismApiConfig).dataInicio = credentials.datainicio || '';
+              (config as AbsenteeismApiConfig).dataFim = credentials.datafim || '';
+            }
+            
+            return config;
+          }
+          
+          // Fall through to try the function API if no credentials found in Supabase
+        } catch (err) {
+          console.error(`Error accessing Supabase for ${type} credentials:`, err);
+          // Proceed to try function API
+        }
+        
+        // If direct Supabase query didn't work, try the function API
+        const cachedConfig = localStorage.getItem(`api_config_${type}`);
+        let localConfig = null;
+        
+        if (cachedConfig) {
+          try {
+            localConfig = JSON.parse(cachedConfig);
+            console.log(`Found cached ${type} config in localStorage:`, localConfig);
+          } catch (e) {
+            console.error('Failed to parse cached config:', e);
+          }
+        }
+        
+        try {
+          const response = await retryRequest(() => supabaseAPI.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api-config/${type}`), 2);
+          
+          if (!response.data || typeof response.data !== 'object') {
+            console.warn(`Invalid response for ${type} API config:`, response.data);
+            return localConfig || null;
+          }
+          
+          console.log(`Successfully fetched ${type} API config:`, response.data);
+          
+          if (response.data) {
+            response.data.isConfigured = !!(response.data.empresa && response.data.codigo && response.data.chave);
+            
+            localStorage.setItem(`api_config_${type}`, JSON.stringify(response.data));
+          }
+          
+          return response.data;
+        } catch (err) {
+          console.error(`Error fetching ${type} API config from server:`, err);
+          
+          if (localConfig) {
+            console.log(`Using cached ${type} config due to API error`);
+            return localConfig;
+          }
+          
+          throw err;
+        }
+      } catch (error) {
+        console.error(`Error fetching ${type} API config:`, error);
+        
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          console.error('User is not authenticated when fetching API config');
         }
         
         return {
@@ -532,286 +635,183 @@ const apiService = {
           isConfigured: false
         };
       }
-      
-      // Try to get config from Supabase directly
+    },
+    
+    save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
       try {
-        const { data: credentials, error } = await supabase
-          .from('api_credentials')
-          .select('*')
-          .eq('type', type)
-          .maybeSingle();
+        if (localStorageService.isPreviewEnvironment()) {
+          console.log(`Preview environment detected, saving ${config.type} config to localStorage`);
+          const success = localStorageService.saveConfig(config.type, config);
           
-        if (error) {
-          console.error(`Error fetching ${type} credentials from Supabase:`, error);
-        } else if (credentials) {
-          console.log(`Found ${type} credentials in Supabase:`, credentials);
-          
-          // Convert from Supabase schema to our API schema
-          const config: ApiConfig = {
-            type: credentials.type,
-            empresa: credentials.empresa,
-            codigo: credentials.codigo,
-            chave: credentials.chave,
-            tipoSaida: 'json',
-            isConfigured: true
+          if (success) {
+            return {
+              ...config,
+              isConfigured: !!(config.empresa && config.codigo && config.chave),
+              savedLocally: true,
+              savedAt: new Date().toISOString()
+            };
+          } else {
+            throw new Error('Failed to save to localStorage');
+          }
+        }
+        
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          console.error('User is not authenticated when saving API config');
+          throw new Error('Authentication required to save configuration');
+        }
+        
+        // Try to save directly to Supabase first
+        try {
+          // Prepare credentials object based on config type
+          let credentials: any = {
+            type: config.type,
+            empresa: config.empresa,
+            codigo: config.codigo,
+            chave: config.chave
           };
           
-          // Add specific properties based on type
-          if (type === 'employee' && credentials) {
-            (config as EmployeeApiConfig).ativo = credentials.ativo || 'Sim';
-            (config as EmployeeApiConfig).inativo = credentials.inativo || '';
-            (config as EmployeeApiConfig).afastado = credentials.afastado || '';
-            (config as EmployeeApiConfig).pendente = credentials.pendente || '';
-            (config as EmployeeApiConfig).ferias = credentials.ferias || '';
-          } else if (type === 'absenteeism' && credentials) {
-            (config as AbsenteeismApiConfig).empresaTrabalho = credentials.empresatrabalho || '';
-            (config as AbsenteeismApiConfig).dataInicio = credentials.datainicio || '';
-            (config as AbsenteeismApiConfig).dataFim = credentials.datafim || '';
+          // Add type-specific fields
+          if (config.type === 'employee') {
+            const empConfig = config as EmployeeApiConfig;
+            credentials.ativo = empConfig.ativo || 'Sim';
+            credentials.inativo = empConfig.inativo || '';
+            credentials.afastado = empConfig.afastado || '';
+            credentials.pendente = empConfig.pendente || '';
+            credentials.ferias = empConfig.ferias || '';
+          } else if (config.type === 'absenteeism') {
+            const absConfig = config as AbsenteeismApiConfig;
+            credentials.empresatrabalho = absConfig.empresaTrabalho || '';
+            credentials.datainicio = absConfig.dataInicio || '';
+            credentials.datafim = absConfig.dataFim || '';
           }
           
-          return config;
+          // Check if record already exists
+          const { data: existingRecord } = await supabase
+            .from('api_credentials')
+            .select('id')
+            .eq('type', config.type)
+            .maybeSingle();
+            
+          if (existingRecord) {
+            // Update existing record
+            const { data, error } = await supabase
+              .from('api_credentials')
+              .update(credentials)
+              .eq('id', existingRecord.id)
+              .select()
+              .single();
+              
+            if (error) throw error;
+            console.log(`Updated ${config.type} credentials in Supabase`, data);
+            
+            // Convert and return
+            return {
+              ...config,
+              isConfigured: true
+            };
+          } else {
+            // Insert new record
+            const { data, error } = await supabase
+              .from('api_credentials')
+              .insert({
+                ...credentials,
+                user_id: session.user.id
+              })
+              .select()
+              .single();
+              
+            if (error) throw error;
+            console.log(`Inserted new ${config.type} credentials in Supabase`, data);
+            
+            // Convert and return
+            return {
+              ...config,
+              isConfigured: true
+            };
+          }
+        } catch (supabaseError) {
+          console.error(`Error saving ${config.type} config directly to Supabase:`, supabaseError);
+          // Fall through to try function API
         }
         
-        // Fall through to try the function API if no credentials found in Supabase
-      } catch (err) {
-        console.error(`Error accessing Supabase for ${type} credentials:`, err);
-        // Proceed to try function API
-      }
-      
-      // If direct Supabase query didn't work, try the function API
-      const cachedConfig = localStorage.getItem(`api_config_${type}`);
-      let localConfig = null;
-      
-      if (cachedConfig) {
-        try {
-          localConfig = JSON.parse(cachedConfig);
-          console.log(`Found cached ${type} config in localStorage:`, localConfig);
-        } catch (e) {
-          console.error('Failed to parse cached config:', e);
+        // If direct Supabase save fails, try the function API
+        const configToSave = {
+          ...config,
+          tipoSaida: 'json'
+        };
+        
+        console.log('Saving API config:', configToSave);
+        
+        const isConnected = await checkApiConnectivity();
+        if (!isConnected) {
+          console.warn('API connectivity check failed, saving to localStorage only');
+          localStorage.setItem(`api_config_${config.type}`, JSON.stringify(configToSave));
+          throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
         }
-      }
-      
-      try {
-        const response = await retryRequest(() => supabaseAPI.get<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig>(`/api-config/${type}`), 2);
+        
+        const response = await retryRequest(
+          async () => {
+            try {
+              return await supabaseAPI.post<ApiConfig>('/api-config', configToSave);
+            } catch (err) {
+              if (err.message.includes('Network Error')) {
+                console.log("Network error, trying alternate endpoint format...");
+                return await axios.post(
+                  'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/save-api-config',
+                  configToSave,
+                  {
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${session.access_token}`
+                    }
+                  }
+                );
+              }
+              throw err;
+            }
+          }, 
+          2
+        );
         
         if (!response.data || typeof response.data !== 'object') {
-          console.warn(`Invalid response for ${type} API config:`, response.data);
-          return localConfig || null;
+          console.warn('Invalid response when saving API config:', 
+            typeof response.data === 'string' ? response.data.substring(0, 100) : response.data);
+          throw new Error('Invalid response from server');
         }
         
-        console.log(`Successfully fetched ${type} API config:`, response.data);
+        console.log('API config saved successfully:', response.data);
         
-        if (response.data) {
-          response.data.isConfigured = !!(response.data.empresa && response.data.codigo && response.data.chave);
-          
-          localStorage.setItem(`api_config_${type}`, JSON.stringify(response.data));
+        const result = {...response.data};
+        result.isConfigured = !!(result.empresa && result.codigo && result.chave);
+        
+        localStorage.setItem(`api_config_${config.type}`, JSON.stringify(result));
+        
+        return result;
+      } catch (error) {
+        console.error('Error saving API config:', error);
+        
+        if ((error as any).isHtmlResponse) {
+          throw new Error('Authentication error. Please log in and try again.');
         }
         
-        return response.data;
-      } catch (err) {
-        console.error(`Error fetching ${type} API config from server:`, err);
-        
-        if (localConfig) {
-          console.log(`Using cached ${type} config due to API error`);
-          return localConfig;
-        }
-        
-        throw err;
-      }
-    } catch (error) {
-      console.error(`Error fetching ${type} API config:`, error);
-      
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.error('User is not authenticated when fetching API config');
-      }
-      
-      return {
-        type,
-        empresa: '',
-        codigo: '',
-        chave: '',
-        tipoSaida: 'json',
-        isConfigured: false
-      };
-    }
-  },
-  
-  save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig | CompanyApiConfig): Promise<ApiConfig | null> => {
-    try {
-      if (localStorageService.isPreviewEnvironment()) {
-        console.log(`Preview environment detected, saving ${config.type} config to localStorage`);
-        const success = localStorageService.saveConfig(config.type, config);
-        
-        if (success) {
-          return {
+        if (error.message.includes('Network Error') || error.message.includes('Não foi possível conectar')) {
+          const savedConfig = {
             ...config,
             isConfigured: !!(config.empresa && config.codigo && config.chave),
             savedLocally: true,
             savedAt: new Date().toISOString()
           };
-        } else {
-          throw new Error('Failed to save to localStorage');
-        }
-      }
-      
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.error('User is not authenticated when saving API config');
-        throw new Error('Authentication required to save configuration');
-      }
-      
-      // Try to save directly to Supabase first
-      try {
-        // Prepare credentials object based on config type
-        let credentials: any = {
-          type: config.type,
-          empresa: config.empresa,
-          codigo: config.codigo,
-          chave: config.chave
-        };
-        
-        // Add type-specific fields
-        if (config.type === 'employee') {
-          const empConfig = config as EmployeeApiConfig;
-          credentials.ativo = empConfig.ativo || 'Sim';
-          credentials.inativo = empConfig.inativo || '';
-          credentials.afastado = empConfig.afastado || '';
-          credentials.pendente = empConfig.pendente || '';
-          credentials.ferias = empConfig.ferias || '';
-        } else if (config.type === 'absenteeism') {
-          const absConfig = config as AbsenteeismApiConfig;
-          credentials.empresatrabalho = absConfig.empresaTrabalho || '';
-          credentials.datainicio = absConfig.dataInicio || '';
-          credentials.datafim = absConfig.dataFim || '';
+          localStorage.setItem(`api_config_${config.type}`, JSON.stringify(savedConfig));
+          
+          throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
         }
         
-        // Check if record already exists
-        const { data: existingRecord } = await supabase
-          .from('api_credentials')
-          .select('id')
-          .eq('type', config.type)
-          .maybeSingle();
-          
-        if (existingRecord) {
-          // Update existing record
-          const { data, error } = await supabase
-            .from('api_credentials')
-            .update(credentials)
-            .eq('id', existingRecord.id)
-            .select()
-            .single();
-            
-          if (error) throw error;
-          console.log(`Updated ${config.type} credentials in Supabase`, data);
-          
-          // Convert and return
-          return {
-            ...config,
-            isConfigured: true
-          };
-        } else {
-          // Insert new record
-          const { data, error } = await supabase
-            .from('api_credentials')
-            .insert({
-              ...credentials,
-              user_id: session.user.id
-            })
-            .select()
-            .single();
-            
-          if (error) throw error;
-          console.log(`Inserted new ${config.type} credentials in Supabase`, data);
-          
-          // Convert and return
-          return {
-            ...config,
-            isConfigured: true
-          };
-        }
-      } catch (supabaseError) {
-        console.error(`Error saving ${config.type} config directly to Supabase:`, supabaseError);
-        // Fall through to try function API
+        throw error;
       }
-      
-      // If direct Supabase save fails, try the function API
-      const configToSave = {
-        ...config,
-        tipoSaida: 'json'
-      };
-      
-      console.log('Saving API config:', configToSave);
-      
-      const isConnected = await checkApiConnectivity();
-      if (!isConnected) {
-        console.warn('API connectivity check failed, saving to localStorage only');
-        localStorage.setItem(`api_config_${config.type}`, JSON.stringify(configToSave));
-        throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
-      }
-      
-      const response = await retryRequest(
-        async () => {
-          try {
-            return await supabaseAPI.post<ApiConfig>('/api-config', configToSave);
-          } catch (err) {
-            if (err.message.includes('Network Error')) {
-              console.log("Network error, trying alternate endpoint format...");
-              return await axios.post(
-                'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/save-api-config',
-                configToSave,
-                {
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session.access_token}`
-                  }
-                }
-              );
-            }
-            throw err;
-          }
-        }, 
-        2
-      );
-      
-      if (!response.data || typeof response.data !== 'object') {
-        console.warn('Invalid response when saving API config:', 
-          typeof response.data === 'string' ? response.data.substring(0, 100) : response.data);
-        throw new Error('Invalid response from server');
-      }
-      
-      console.log('API config saved successfully:', response.data);
-      
-      const result = {...response.data};
-      result.isConfigured = !!(result.empresa && result.codigo && result.chave);
-      
-      localStorage.setItem(`api_config_${config.type}`, JSON.stringify(result));
-      
-      return result;
-    } catch (error) {
-      console.error('Error saving API config:', error);
-      
-      if ((error as any).isHtmlResponse) {
-        throw new Error('Authentication error. Please log in and try again.');
-      }
-      
-      if (error.message.includes('Network Error') || error.message.includes('Não foi possível conectar')) {
-        const savedConfig = {
-          ...config,
-          isConfigured: !!(config.empresa && config.codigo && config.chave),
-          savedLocally: true,
-          savedAt: new Date().toISOString()
-        };
-        localStorage.setItem(`api_config_${config.type}`, JSON.stringify(savedConfig));
-        
-        throw new Error('Não foi possível conectar ao servidor. Configurações salvas apenas localmente.');
-      }
-      
-      throw error;
-    }
-  },
+    },
 
-  test: async (type: 'company' | 'employee' | 'absenteeism'): Promise<{success: boolean, message: string}> => {
+    test: async (type: 'company' | 'employee' | 'absenteeism'): Promise<{success: boolean, message: string}> => {
       try {
         if (localStorageService.isPreviewEnvironment()) {
           console.log(`Preview environment detected, simulating test for ${type} API`);
@@ -866,3 +866,36 @@ const apiService = {
               return await axios.post(
                 'https://rdrvashvfvjdtuuuqjio.supabase.co/functions/v1/test-connection',
                 config,
+                {
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token || ''}`
+                  }
+                }
+              );
+            }
+            throw err;
+          }
+        }, 
+        2
+      );
+      
+      if (!response.data) {
+        return {
+          success: false,
+          message: 'Teste falhou: Resposta vazia do servidor'
+        };
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error testing API connection:', error);
+      return {
+        success: false,
+        message: `Teste falhou: ${error.message || 'Erro desconhecido'}`
+      };
+    }
+  }
+};
+
+export default apiService;
