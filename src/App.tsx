@@ -26,7 +26,7 @@ function App() {
         <NavBar />
         <PageTransition>
           <Routes>
-            {/* Rota pública principal que redireciona para o dashboard se estiver autenticado */}
+            {/* Rota pública principal */}
             <Route path="/" element={<Index />} />
             
             {/* Rotas públicas que não devem ser acessíveis quando autenticado */}

@@ -1,6 +1,6 @@
 
 import React, { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import LoginForm from '@/components/auth/LoginForm';
 import GlassPanel from '@/components/ui-custom/GlassPanel';
 import Logo from '@/components/ui-custom/Logo';
@@ -8,14 +8,34 @@ import { useAuth } from '@/context/AuthContext';
 import { Loader2 } from 'lucide-react';
 
 const Login = () => {
-  const { isLoading, isAuthenticated } = useAuth();
+  const { isLoading, isAuthenticated, checkAuth } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  // Verificar se tem algum erro na sessão
+  // Verificar status de autenticação ao carregar a página
   useEffect(() => {
     console.log("Página de login carregada, status de autenticação:", 
       isAuthenticated ? "Autenticado" : "Não autenticado",
       "isLoading:", isLoading);
-  }, [isAuthenticated, isLoading]);
+    
+    const verifyAuth = async () => {
+      if (!isAuthenticated && !isLoading) {
+        // Tentar verificar autenticação uma vez ao carregar a página
+        await checkAuth();
+      }
+    };
+    
+    verifyAuth();
+  }, [isAuthenticated, isLoading, checkAuth]);
+  
+  // Redirecionar se já autenticado
+  useEffect(() => {
+    if (isAuthenticated) {
+      const intended = location.state?.from || '/dashboard';
+      console.log(`Usuário já autenticado, redirecionando para: ${intended}`);
+      navigate(intended, { replace: true });
+    }
+  }, [isAuthenticated, navigate, location]);
 
   if (isLoading) {
     return (

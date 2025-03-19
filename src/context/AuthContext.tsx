@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -34,9 +35,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       async (event, session) => {
         console.log(`Evento de autenticação detectado: ${event}`, session ? 'Com sessão' : 'Sem sessão');
         
-        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
-          // Usuário conectado ou token atualizado
-          try {
+        try {
+          if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+            // Usuário conectado ou token atualizado
             console.log("Obtendo dados do usuário após evento de autenticação");
             const userData = await authService.getCurrentUser();
             if (userData) {
@@ -51,22 +52,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 navigate(intended, { replace: true });
               }
             }
-          } catch (err) {
-            console.error('Erro ao obter dados do usuário após alteração de estado de autenticação:', err);
+          } else if (event === 'SIGNED_OUT') {
+            // Usuário desconectado
+            console.log("Usuário desconectado, limpando estado");
+            setUser(null);
+            setIsLoading(false);
+            
+            // Redirecionar para página de login após logout
+            if (location.pathname !== '/login' && location.pathname !== '/') {
+              navigate('/login', { replace: true });
+            }
+          } else {
+            // Para outros eventos, garanta que isLoading não fique preso
             setIsLoading(false);
           }
-        } else if (event === 'SIGNED_OUT') {
-          // Usuário desconectado
-          console.log("Usuário desconectado, limpando estado");
-          setUser(null);
-          setIsLoading(false);
-          
-          // Redirecionar para página de login após logout
-          if (location.pathname !== '/login' && location.pathname !== '/') {
-            navigate('/login', { replace: true });
-          }
-        } else {
-          // Para outros eventos, garanta que isLoading não fique preso
+        } catch (err) {
+          console.error('Erro ao processar evento de autenticação:', err);
           setIsLoading(false);
         }
       }
@@ -77,7 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log("Limpando inscrição de eventos de autenticação");
       subscription.unsubscribe();
     };
-  }, [navigate, location]);
+  }, [navigate, location.pathname]);
 
   // Verificar status de autenticação
   const checkAuth = async (): Promise<boolean> => {
@@ -85,11 +86,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log("Verificando status de autenticação...");
       setIsLoading(true);
       
-      // Primeiro, verificar se temos uma sessão
+      // Verificar se temos uma sessão explicitamente
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
-        // Tentar atualizar a sessão se nenhuma sessão existir
         console.log("Nenhuma sessão encontrada, tentando atualizar...");
         const { data, error } = await supabase.auth.refreshSession();
         
