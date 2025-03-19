@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,9 +10,12 @@ import { Loader2, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import PreviewModeIndicator from '@/components/ui-custom/PreviewModeIndicator';
 import { localStorageService } from '@/services/localStorageService';
+import { supabase } from '@/integrations/supabase/client';
+import { useNavigate } from 'react-router-dom';
 
 const EmployeeApiConfig = () => {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -219,6 +223,25 @@ const EmployeeApiConfig = () => {
     try {
       setIsSaving(true);
       
+      // Verificar autenticação explicitamente antes de salvar
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        console.error("Sessão não encontrada antes de salvar, forçando login");
+        toast({
+          variant: 'destructive',
+          title: 'Erro de autenticação',
+          description: 'Sua sessão expirou. Redirecionando para login...',
+        });
+        
+        setTimeout(() => {
+          navigate('/login', { state: { from: '/settings' } });
+        }, 2000);
+        return;
+      }
+      
+      console.log("Sessão válida encontrada, token:", 
+                data.session.access_token?.substring(0, 10) + "...");
+      
       const configToSave: EmployeeApiConfigType = {
         type: 'employee',
         empresa: config.empresa,
@@ -251,11 +274,26 @@ const EmployeeApiConfig = () => {
       }
     } catch (error) {
       console.error('Error saving employee API config:', error);
-      toast({
-        title: "Erro ao salvar",
-        description: "Não foi possível salvar as configurações da API de funcionários.",
-        variant: "destructive"
-      });
+      
+      // Verificar se é erro de autenticação
+      if (error.message?.includes('Not authenticated') || 
+          error.response?.status === 401) {
+        toast({
+          variant: 'destructive',
+          title: 'Erro de autenticação',
+          description: 'Sua sessão expirou. Por favor, faça login novamente.',
+        });
+        
+        setTimeout(() => {
+          navigate('/login', { state: { from: '/settings' } });
+        }, 2000);
+      } else {
+        toast({
+          title: "Erro ao salvar",
+          description: "Não foi possível salvar as configurações da API de funcionários.",
+          variant: "destructive"
+        });
+      }
     } finally {
       setIsSaving(false);
     }

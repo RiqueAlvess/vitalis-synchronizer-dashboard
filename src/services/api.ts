@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { supabaseAPI, retryRequest } from './apiClient';
+import { supabase } from '@/integrations/supabase/client';
 
 // Define API configuration types
 export type ApiConfigType = 'company' | 'employee' | 'absenteeism';
@@ -82,11 +83,33 @@ const apiService = {
   
   saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig): Promise<ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig> => {
     try {
-      // Always save to API
+      // Verificar se há sessão antes de tentar salvar
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        console.error('Sem sessão válida ao salvar config. Tentando refresh...');
+        const { data, error } = await supabase.auth.refreshSession();
+        
+        if (error || !data.session) {
+          throw new Error('Não foi possível autenticar. Faça login novamente.');
+        }
+        
+        console.log('Sessão renovada, continuando...');
+      }
+      
+      // Agora realiza a chamada com token renovado
       const response = await supabaseAPI.post('/save-api-config', config);
       return { ...response.data, isConfigured: true };
     } catch (error) {
       console.error('Error saving API config:', error);
+      
+      // Se o erro for de autenticação, tenta forçar um redirecionamento para login
+      if (error?.message?.includes('Not authenticated') || 
+          error?.response?.status === 401) {
+        // Redirecionar para login
+        window.location.href = '/login?redirect=settings';
+      }
+      
       throw error;
     }
   },

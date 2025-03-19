@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService, User } from '@/services/authService';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -136,9 +135,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(userData);
       
-      // Explicitly set the session to ensure it's available
+      // Garantir que a sessão está definida globalmente
       if (userData.token) {
-        console.log("Setting session with token");
+        await supabase.auth.setSession({
+          access_token: userData.token,
+          refresh_token: userData.refreshToken || ''
+        });
+        console.log("Sessão configurada explicitamente após login");
       }
       
       // Redirect to intended page or dashboard

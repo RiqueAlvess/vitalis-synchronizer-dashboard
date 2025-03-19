@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,9 +12,12 @@ import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { localStorageService } from '@/services/localStorageService';
 import PreviewModeIndicator from '@/components/ui-custom/PreviewModeIndicator';
+import { supabase } from '@/integrations/supabase/client';
+import { useNavigate } from 'react-router-dom';
 
 const AbsenteeismApiConfig = () => {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -108,6 +112,26 @@ const AbsenteeismApiConfig = () => {
   const handleSave = async () => {
     try {
       setIsSaving(true);
+      
+      // Verificar autenticação explicitamente antes de salvar
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        console.error("Sessão não encontrada antes de salvar, forçando login");
+        toast({
+          variant: 'destructive',
+          title: 'Erro de autenticação',
+          description: 'Sua sessão expirou. Redirecionando para login...',
+        });
+        
+        setTimeout(() => {
+          navigate('/login', { state: { from: '/settings' } });
+        }, 2000);
+        return;
+      }
+      
+      console.log("Sessão válida encontrada, token:", 
+                data.session.access_token?.substring(0, 10) + "...");
+      
       const configToSave: AbsenteeismApiConfigType = {
         type: 'absenteeism',
         empresa: config.empresa,
@@ -137,11 +161,26 @@ const AbsenteeismApiConfig = () => {
       }
     } catch (error) {
       console.error('Error saving absenteeism API config:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Erro',
-        description: 'Não foi possível salvar a configuração da API de absenteísmo.'
-      });
+      
+      // Verificar se é erro de autenticação
+      if (error.message?.includes('Not authenticated') || 
+          error.response?.status === 401) {
+        toast({
+          variant: 'destructive',
+          title: 'Erro de autenticação',
+          description: 'Sua sessão expirou. Por favor, faça login novamente.',
+        });
+        
+        setTimeout(() => {
+          navigate('/login', { state: { from: '/settings' } });
+        }, 2000);
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Erro',
+          description: 'Não foi possível salvar a configuração da API de absenteísmo.'
+        });
+      }
     } finally {
       setIsSaving(false);
     }
