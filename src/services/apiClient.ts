@@ -9,7 +9,7 @@ export const supabaseAPI = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 15000,
+  timeout: 20000, // Increased timeout
 });
 
 // Add request interceptor to include authentication headers
@@ -41,17 +41,22 @@ supabaseAPI.interceptors.response.use(
     return response;
   },
   async error => {
+    const originalRequest = error.config;
+    
+    // Log detailed error information
     console.error('API request failed:', {
-      url: error.config?.url,
-      method: error.config?.method,
+      url: originalRequest?.url,
+      method: originalRequest?.method,
       status: error.response?.status,
       statusText: error.response?.statusText,
       data: error.response?.data,
       error: error.message
     });
     
-    if (error.response?.status === 401) {
+    // Handle authentication errors (token expired)
+    if (error.response?.status === 401 && !originalRequest._retry) {
       console.error('Authentication error (401 Unauthorized)');
+      originalRequest._retry = true;
       
       // Try to refresh the session
       try {
@@ -65,10 +70,8 @@ supabaseAPI.interceptors.response.use(
         }
         
         // Retry the original request with the new token
-        if (error.config) {
-          error.config.headers['Authorization'] = `Bearer ${data.session.access_token}`;
-          return axios(error.config);
-        }
+        originalRequest.headers['Authorization'] = `Bearer ${data.session.access_token}`;
+        return axios(originalRequest);
       } catch (refreshError) {
         console.error('Error refreshing session:', refreshError);
         window.location.href = '/login';
@@ -76,6 +79,7 @@ supabaseAPI.interceptors.response.use(
       }
     }
     
+    // Handle HTML responses (indicates CORS or server issues)
     if (typeof error.response?.data === 'string' && 
         error.response.data.includes('<!DOCTYPE html>')) {
       console.error('Received HTML instead of JSON - possible auth or endpoint issue');
@@ -83,13 +87,17 @@ supabaseAPI.interceptors.response.use(
       error.message = 'Authentication error. Please log in and try again.';
     }
     
+    // Handle network errors with more details
     if (error.message === 'Network Error') {
+      const isOnline = navigator.onLine;
       console.error('Network error details:', {
-        navigator: navigator?.onLine ? 'Online' : 'Offline',
-        url: error.config?.url,
-        method: error.config?.method,
+        navigator: isOnline ? 'Online' : 'Offline',
+        url: originalRequest?.url,
+        method: originalRequest?.method,
       });
-      error.message = 'Falha na conexão com o servidor. Verifique sua conexão com a internet.';
+      error.message = isOnline 
+        ? 'Falha na conexão com o servidor. Tente novamente mais tarde.' 
+        : 'Sem conexão com a internet.';
     }
     
     return Promise.reject(error);
@@ -106,7 +114,7 @@ export const retryRequest = async (fn, maxRetries = 3, delay = 1000) => {
       lastError = error;
       if (i < maxRetries - 1) {
         await new Promise(res => setTimeout(res, delay));
-        delay *= 1.5;
+        delay *= 1.5; // Exponential backoff
       }
     }
   }
