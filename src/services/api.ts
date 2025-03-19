@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 
 // Define the structure of the API configuration
@@ -458,8 +459,8 @@ const getSectorAbsenceData = (absenteeismData: any[]): {name: string, value: num
   }, {} as Record<string, number>);
   
   return Object.entries(sectorCounts)
-    .map(( [name, value] ) => ({ name, value }))
-    .sort((a, b) => (b.value) - (a.value))
+    .map(([name, value]): {name: string, value: number} => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
     .slice(0, 5);
 };
 
