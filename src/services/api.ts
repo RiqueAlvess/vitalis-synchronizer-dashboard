@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { useToast } from "@/components/ui/use-toast"
 
 // Define the structure of the API configuration
 export interface ApiConfig {
@@ -9,26 +8,6 @@ export interface ApiConfig {
   chave: string;
   tipoSaida: string;
   isConfigured?: boolean;
-}
-
-export interface CompanyApiConfig extends ApiConfig {
-  type: 'company';
-}
-
-export interface EmployeeApiConfig extends ApiConfig {
-  type: 'employee';
-  ativo: string;
-  inativo: string;
-  afastado: string;
-  pendente: string;
-  ferias: string;
-}
-
-export interface AbsenteeismApiConfig extends ApiConfig {
-  type: 'absenteeism';
-  empresaTrabalho: string;
-  dataInicio: string;
-  dataFim: string;
 }
 
 // Define the structure of the API response
@@ -87,6 +66,7 @@ interface ApiService {
     create: (data: Omit<Company, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Company | null>;
     update: (id: number, data: Omit<Company, 'createdAt' | 'updatedAt' | 'id'>) => Promise<Company | null>;
     delete: (id: number) => Promise<boolean>;
+    sync: () => Promise<boolean>;
   };
   employees: {
     getAll: () => Promise<Employee[]>;
@@ -94,6 +74,8 @@ interface ApiService {
     create: (data: Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Employee | null>;
     update: (id: number, data: Omit<Employee, 'createdAt' | 'updatedAt' | 'id'>) => Promise<Employee | null>;
     delete: (id: number) => Promise<boolean>;
+    sync: () => Promise<boolean>;
+    testConnection: (config: EmployeeApiConfig) => Promise<{success: boolean, count: number}>;
   };
   absenteeism: {
     getAll: () => Promise<Absenteeism[]>;
@@ -203,6 +185,15 @@ const apiService: ApiService = {
         return false;
       }
     },
+    sync: async (): Promise<boolean> => {
+      try {
+        await axios.post('/api/companies/sync');
+        return true;
+      } catch (error) {
+        console.error('Error syncing companies:', error);
+        return false;
+      }
+    }
   },
   employees: {
     getAll: async (): Promise<Employee[]> => {
@@ -250,6 +241,24 @@ const apiService: ApiService = {
         return false;
       }
     },
+    sync: async (): Promise<boolean> => {
+      try {
+        await axios.post('/api/employees/sync');
+        return true;
+      } catch (error) {
+        console.error('Error syncing employees:', error);
+        return false;
+      }
+    },
+    testConnection: async (config: EmployeeApiConfig): Promise<{success: boolean, count: number}> => {
+      try {
+        const response = await axios.post('/api/employees/test-connection', config);
+        return response.data;
+      } catch (error) {
+        console.error('Error testing employee API connection:', error);
+        throw error;
+      }
+    }
   },
   absenteeism: {
     getAll: async (): Promise<Absenteeism[]> => {
@@ -296,7 +305,7 @@ const apiService: ApiService = {
         console.error('Error deleting absenteeism:', error);
         return false;
       }
-    },
+    }
   },
   users: {
     getMe: async (): Promise<User | null> => {
@@ -340,8 +349,11 @@ const apiService: ApiService = {
         totalAbsences: absenteeismData.length,
         topCids: getTopCids(absenteeismData),
         topSectors: getTopSectors(absenteeismData),
-        monthlyEvolution: getMonthlyEvolution(absenteeismData),
-        // Additional premium metrics might be added here
+        monthlyTrend: getMonthlyEvolution(absenteeismData),
+        totalAbsenceDays: calculateTotalAbsenceDays(absenteeismData),
+        employeesAbsent: countUniqueEmployees(absenteeismData),
+        costImpact: calculateCostImpact(absenteeismData),
+        bySector: getSectorAbsenceData(absenteeismData)
       };
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -350,7 +362,61 @@ const apiService: ApiService = {
   },
 };
 
-// These are helper functions for the dashboard data
+// Additional helper functions for the dashboard data
+const calculateTotalAbsenceDays = (absenteeismData: any[]): number => {
+  return absenteeismData.reduce((sum, record) => {
+    const startDate = new Date(record.start_date);
+    const endDate = new Date(record.end_date);
+    const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+    return sum + diffDays;
+  }, 0);
+};
+
+const countUniqueEmployees = (absenteeismData: any[]): number => {
+  const uniqueEmployees = new Set(absenteeismData.map(record => record.employee_id));
+  return uniqueEmployees.size;
+};
+
+const calculateCostImpact = (absenteeismData: any[]): string => {
+  // Simple cost calculation (can be more complex in a real app)
+  const totalAbsentHours = absenteeismData.reduce((sum, record) => {
+    return sum + hoursToDecimal(record.hours_absent || "0:00");
+  }, 0);
+  
+  // Assuming an average hourly cost of R$30
+  const averageHourlyCost = 30;
+  const totalCost = totalAbsentHours * averageHourlyCost;
+  
+  return new Intl.NumberFormat('pt-BR', { 
+    style: 'currency', 
+    currency: 'BRL' 
+  }).format(totalCost);
+};
+
+const getSectorAbsenceData = (absenteeismData: any[]): {name: string, value: number}[] => {
+  const sectorCounts = absenteeismData.reduce((acc, record) => {
+    const sector = record.sector || 'Não informado';
+    if (!acc[sector]) {
+      acc[sector] = 0;
+    }
+    
+    const startDate = new Date(record.start_date);
+    const endDate = new Date(record.end_date);
+    const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+    
+    acc[sector] += diffDays;
+    return acc;
+  }, {});
+  
+  return Object.entries(sectorCounts)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => (b.value as number) - (a.value as number))
+    .slice(0, 5);
+};
+
+// Original helper functions
 const calculateAbsenteeismRate = (absenteeismData: any[]) => {
   // Implementation according to the formula in the requirements
   // Total Hours Absent / Total Work Hours * 100

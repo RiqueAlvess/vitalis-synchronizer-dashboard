@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui-custom/Card';
 import StatCard from '@/components/ui-custom/StatCard';
-import { apiService } from '@/services/api';
+import apiService from '@/services/api';
 import { BarChart3, Users, CalendarDays, DollarSign, AlertTriangle } from 'lucide-react';
 import AbsenteeismChart from './AbsenteeismChart';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,8 +15,7 @@ const DashboardOverview = () => {
     const fetchDashboardData = async () => {
       try {
         setIsLoading(true);
-        // Fixed: Now calling the properly implemented getDashboardData method
-        const data = await apiService.absenteeism.getDashboardData();
+        const data = await apiService.getDashboardData();
         setDashboardData(data);
         setError(null);
       } catch (err) {

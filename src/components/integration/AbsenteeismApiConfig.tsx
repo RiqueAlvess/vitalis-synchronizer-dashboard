@@ -4,8 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
-import { AbsenteeismApiConfig as AbsenteeismApiConfigType } from '@/services/api';
-import { apiService } from '@/services/api';
+import apiService from '@/services/api';
 import { DatePicker } from '@/components/ui/date-picker';
 import { format } from 'date-fns';
 import { Loader2 } from 'lucide-react';
@@ -16,7 +15,6 @@ const AbsenteeismApiConfig = () => {
   const [isTesting, setIsTesting] = useState(false);
   const [testSuccess, setTestSuccess] = useState<boolean | null>(null);
 
-  // Initialize config with the correct structure
   const initialConfig: AbsenteeismApiConfigType = {
     type: 'absenteeism',
     empresa: '',
@@ -41,7 +39,6 @@ const AbsenteeismApiConfig = () => {
         if (savedConfig) {
           setConfig(savedConfig as AbsenteeismApiConfigType);
           
-          // Set date pickers if dates exist
           if (savedConfig.dataInicio) {
             setStartDate(new Date(savedConfig.dataInicio));
           }
@@ -86,7 +83,6 @@ const AbsenteeismApiConfig = () => {
   const handleSave = async () => {
     try {
       setIsLoading(true);
-      // Create proper AbsenteeismApiConfig object
       const configToSave: AbsenteeismApiConfigType = {
         type: 'absenteeism',
         empresa: config.empresa,

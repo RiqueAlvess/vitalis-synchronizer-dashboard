@@ -1,10 +1,11 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { apiService, EmployeeApiConfig as EmployeeApiConfigType } from '@/services/api';
+import apiService from '@/services/api';
 import { Loader2 } from 'lucide-react';
 import { useApiConfig } from '@/hooks/use-api-config';
 
@@ -16,8 +17,8 @@ const EmployeeApiConfig = () => {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Initialize config with the correct structure
-  const initialConfig: EmployeeApiConfigType = {
-    type: 'employee',
+  const initialConfig = {
+    type: 'employee' as const,
     empresa: '',
     codigo: '',
     chave: '',
@@ -30,11 +31,11 @@ const EmployeeApiConfig = () => {
     isConfigured: false
   };
 
-  const [config, setConfig] = useState<EmployeeApiConfigType>(initialConfig);
+  const [config, setConfig] = useState(initialConfig);
 
   useEffect(() => {
     if (savedConfig) {
-      setConfig(savedConfig as EmployeeApiConfigType);
+      setConfig(savedConfig as any);
     }
   }, [savedConfig]);
 
@@ -59,7 +60,7 @@ const EmployeeApiConfig = () => {
       toast({
         title: "Teste concluído",
         description: "Conexão com a API de funcionários estabelecida com sucesso.",
-        variant: "success"
+        variant: "default"
       });
     } catch (error) {
       console.error('Error testing employee API connection:', error);
@@ -84,8 +85,8 @@ const EmployeeApiConfig = () => {
       setIsLoading(true);
       
       // Create proper EmployeeApiConfig object
-      const configToSave: EmployeeApiConfigType = {
-        type: 'employee',
+      const configToSave = {
+        type: 'employee' as const,
         empresa: config.empresa,
         codigo: config.codigo,
         chave: config.chave,
@@ -102,7 +103,7 @@ const EmployeeApiConfig = () => {
       toast({
         title: "Configuração salva",
         description: "As configurações da API de funcionários foram salvas com sucesso.",
-        variant: "success"
+        variant: "default"
       });
     } catch (error) {
       console.error('Error saving employee API config:', error);

@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { apiService } from '@/services/api';
+import apiService from '@/services/api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui-custom/Card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -19,7 +18,6 @@ const CompanyList = () => {
   const fetchCompanies = async () => {
     setIsLoading(true);
     try {
-      // Fixed: Changed .list() to .getAll()
       const data = await apiService.companies.getAll();
       setCompanies(data);
     } catch (err) {
@@ -33,8 +31,7 @@ const CompanyList = () => {
     setIsSyncing(true);
     try {
       await apiService.companies.sync();
-      // In a real app, you would handle the sync job status
-      setTimeout(fetchCompanies, 1500); // Simulating sync completion
+      setTimeout(fetchCompanies, 1500);
     } catch (err) {
       console.error('Error syncing companies:', err);
     } finally {
