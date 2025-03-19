@@ -56,7 +56,22 @@ const EmployeeApiConfig = () => {
     setIsLoading(true);
     try {
       const data = await apiService.apiConfig.get('employee');
-      setConfig(data || config);
+      
+      // Fixed: Transform the API response to match our EmployeeApiConfig interface
+      if (data) {
+        setConfig({
+          empresa: data.empresa || '',
+          codigo: data.codigo || '',
+          chave: data.chave || '',
+          tipoSaida: data.tipoSaida || 'json',
+          ativo: data.ativo || 'Sim',
+          inativo: data.inativo || '',
+          afastado: data.afastado || '',
+          pendente: data.pendente || '',
+          ferias: data.ferias || '',
+          isConfigured: data.isConfigured || false
+        });
+      }
     } catch (err) {
       console.error('Error fetching employee API config:', err);
       toast({

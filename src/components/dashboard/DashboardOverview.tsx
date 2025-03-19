@@ -16,6 +16,7 @@ const DashboardOverview = () => {
     const fetchDashboardData = async () => {
       try {
         setIsLoading(true);
+        // Fixed: Now calling the properly implemented getDashboardData method
         const data = await apiService.absenteeism.getDashboardData();
         setDashboardData(data);
         setError(null);

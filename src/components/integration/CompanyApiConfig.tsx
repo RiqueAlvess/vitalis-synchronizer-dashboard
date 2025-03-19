@@ -46,7 +46,17 @@ const CompanyApiConfig = () => {
     setIsLoading(true);
     try {
       const data = await apiService.apiConfig.get('company');
-      setConfig(data || config);
+      
+      // Fixed: Transform the API response to match our CompanyApiConfig interface
+      if (data) {
+        setConfig({
+          empresa: data.empresa || '',
+          codigo: data.codigo || '',
+          chave: data.chave || '',
+          tipoSaida: data.tipoSaida || 'json',
+          isConfigured: data.isConfigured || false
+        });
+      }
     } catch (err) {
       console.error('Error fetching company API config:', err);
       toast({

@@ -37,9 +37,17 @@ const ApiConfigForm = () => {
   const fetchConfig = async () => {
     setIsLoading(true);
     try {
-      // Fixed: Using the correct signature for get - just needs a type parameter
       const data = await apiService.apiConfig.get('company');
-      setConfig(data);
+      
+      // Fixed: Transform the API response to match our ApiConfig interface
+      if (data) {
+        setConfig({
+          apiKey: data.codigo || '',
+          apiSecret: data.chave || '',
+          baseUrl: data.empresa ? `https://ws1.soc.com.br/WebSoc/exportadados?empresa=${data.empresa}` : 'https://api.soc.com.br',
+          isConfigured: data.isConfigured || false
+        });
+      }
     } catch (err) {
       console.error('Error fetching API config:', err);
       toast({
@@ -67,8 +75,14 @@ const ApiConfigForm = () => {
     setIsSaving(true);
     
     try {
-      // Fixed: Using the correct signature for save - needs type and config
-      await apiService.apiConfig.save('company', config);
+      // Transform our ApiConfig format to the format expected by the API
+      await apiService.apiConfig.save('company', {
+        empresa: config.baseUrl.includes('empresa=') ? config.baseUrl.split('empresa=')[1] : '423',
+        codigo: config.apiKey,
+        chave: config.apiSecret,
+        tipoSaida: 'json'
+      });
+      
       toast({
         title: 'Configurações salvas',
         description: 'As configurações da API foram salvas com sucesso.',

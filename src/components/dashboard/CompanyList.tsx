@@ -19,7 +19,8 @@ const CompanyList = () => {
   const fetchCompanies = async () => {
     setIsLoading(true);
     try {
-      const data = await apiService.companies.list();
+      // Fixed: Changed .list() to .getAll()
+      const data = await apiService.companies.getAll();
       setCompanies(data);
     } catch (err) {
       console.error('Error fetching companies:', err);

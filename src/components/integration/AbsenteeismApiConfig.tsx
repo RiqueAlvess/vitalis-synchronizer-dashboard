@@ -52,7 +52,20 @@ const AbsenteeismApiConfig = () => {
     setIsLoading(true);
     try {
       const data = await apiService.apiConfig.get('absenteeism');
-      setConfig(data || config);
+      
+      // Fixed: Transform the API response to match our AbsenteeismApiConfig interface
+      if (data) {
+        setConfig({
+          empresa: data.empresa || '',
+          codigo: data.codigo || '',
+          chave: data.chave || '',
+          tipoSaida: data.tipoSaida || 'json',
+          empresaTrabalho: data.empresaTrabalho || '',
+          dataInicio: data.dataInicio || '',
+          dataFim: data.dataFim || '',
+          isConfigured: data.isConfigured || false
+        });
+      }
     } catch (err) {
       console.error('Error fetching absenteeism API config:', err);
       toast({

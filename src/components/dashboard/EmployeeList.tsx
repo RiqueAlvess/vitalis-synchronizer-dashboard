@@ -21,7 +21,8 @@ const EmployeeList = () => {
   const fetchEmployees = async () => {
     setIsLoading(true);
     try {
-      const data = await apiService.employees.list();
+      // Fixed: Changed .list() to .getAll()
+      const data = await apiService.employees.getAll();
       setEmployees(data);
     } catch (err) {
       console.error('Error fetching employees:', err);

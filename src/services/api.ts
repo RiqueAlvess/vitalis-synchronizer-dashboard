@@ -1,4 +1,3 @@
-
 import { supabase } from '@/integrations/supabase/client';
 
 // API Service - Handles all API calls for data
@@ -226,6 +225,105 @@ export const apiService = {
       } catch (error: any) {
         console.error('Error syncing absenteeism data:', error);
         throw new Error(error.message || 'Failed to sync absenteeism data');
+      }
+    },
+    
+    async getDashboardData() {
+      try {
+        const { data: absenteeismData, error } = await supabase
+          .from('absenteeism')
+          .select(`
+            *,
+            company:companies(id, corporate_name),
+            employee:employees(id, full_name)
+          `)
+          .order('start_date', { ascending: false });
+
+        if (error) throw error;
+
+        // Process data for dashboard
+        const totalAbsenceDays = absenteeismData.reduce((sum, item) => sum + (item.days_absent || 0), 0);
+        const employeesAbsent = new Set(absenteeismData.map(item => item.employee_id).filter(Boolean)).size;
+        
+        // Calculate monthly trend (last 6 months)
+        const now = new Date();
+        const monthlyTrend = [];
+        for (let i = 5; i >= 0; i--) {
+          const month = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const monthName = month.toLocaleString('default', { month: 'short' });
+          const monthData = absenteeismData.filter(item => {
+            const itemDate = new Date(item.start_date);
+            return itemDate.getMonth() === month.getMonth() && 
+                  itemDate.getFullYear() === month.getFullYear();
+          });
+          const totalDays = monthData.reduce((sum, item) => sum + (item.days_absent || 0), 0);
+          monthlyTrend.push({
+            name: monthName,
+            value: totalDays
+          });
+        }
+        
+        // Calculate by sector
+        const sectors = {};
+        absenteeismData.forEach(item => {
+          if (item.sector) {
+            sectors[item.sector] = (sectors[item.sector] || 0) + (item.days_absent || 0);
+          }
+        });
+        
+        const bySector = Object.entries(sectors)
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => (b.value as number) - (a.value as number))
+          .slice(0, 5);
+        
+        // Calculate current month absenteeism rate
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+        const currentMonthData = absenteeismData.filter(item => {
+          const itemDate = new Date(item.start_date);
+          return itemDate.getMonth() === currentMonth && 
+                itemDate.getFullYear() === currentYear;
+        });
+        
+        const totalHoursAbsent = currentMonthData.reduce((sum, item) => {
+          return sum + this.hoursToDecimal(item.hours_absent || '0:00');
+        }, 0);
+        
+        const absenteeismRate = this.calculateRate(totalHoursAbsent).toFixed(2);
+        
+        // Calculate trend compared to previous month
+        const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+        const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+        const prevMonthData = absenteeismData.filter(item => {
+          const itemDate = new Date(item.start_date);
+          return itemDate.getMonth() === prevMonth && 
+                itemDate.getFullYear() === prevYear;
+        });
+        
+        const prevTotalHoursAbsent = prevMonthData.reduce((sum, item) => {
+          return sum + this.hoursToDecimal(item.hours_absent || '0:00');
+        }, 0);
+        
+        const prevAbsenteeismRate = this.calculateRate(prevTotalHoursAbsent);
+        const trend = prevAbsenteeismRate === 0 ? 0 : 
+          ((parseFloat(absenteeismRate) - prevAbsenteeismRate) / prevAbsenteeismRate * 100).toFixed(1);
+        
+        // Calculate cost impact
+        const costImpact = this.calculateFinancialImpact(totalHoursAbsent)
+          .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        
+        return {
+          absenteeismRate,
+          totalAbsenceDays,
+          employeesAbsent,
+          costImpact,
+          monthlyTrend,
+          bySector,
+          trend: parseFloat(trend)
+        };
+      } catch (err) {
+        console.error('Error in getDashboardData:', err);
+        throw err;
       }
     },
     
