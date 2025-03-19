@@ -1,5 +1,3 @@
-
-
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -10,7 +8,7 @@ export const supabaseAPI = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 20000, // Increased timeout
+  timeout: 30000, // Increased timeout
   withCredentials: true, // Enable sending cookies with cross-origin requests
 });
 
@@ -21,8 +19,9 @@ function isTokenExpired(token) {
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const expiryTime = payload.exp * 1000;
-    return Date.now() >= expiryTime;
+    return Date.now() >= expiryTime - 60000; // Consider token expired 1 minute before actual expiry
   } catch (e) {
+    console.error('Error checking token expiry:', e);
     return true;
   }
 }
@@ -31,28 +30,29 @@ function isTokenExpired(token) {
 supabaseAPI.interceptors.request.use(
   async config => {
     try {
-      // Verificar sessão atual
+      // Get current session
       const { data: { session } } = await supabase.auth.getSession();
       
-      // Se não houver sessão ou o token expirou, tente renovar
+      // If no session or token expired, try to refresh
       if (!session || isTokenExpired(session.access_token)) {
-        console.log('Token expirado ou ausente, renovando...');
-        const { data } = await supabase.auth.refreshSession();
+        console.log('Token expired or missing, refreshing...');
+        const { data, error } = await supabase.auth.refreshSession();
         
         if (data.session) {
+          console.log('Session refreshed successfully');
           config.headers['Authorization'] = `Bearer ${data.session.access_token}`;
         } else {
-          // Não foi possível renovar a sessão
-          window.location.href = '/login?session=expired';
-          throw new Error('Sessão expirada');
+          console.error('Session refresh failed:', error);
+          throw new Error('Authentication session expired');
         }
       } else {
+        // Use existing valid token
         config.headers['Authorization'] = `Bearer ${session.access_token}`;
       }
       
       return config;
     } catch (error) {
-      console.error('Erro no interceptor:', error);
+      console.error('Error in request interceptor:', error);
       return Promise.reject(error);
     }
   },
@@ -75,23 +75,24 @@ supabaseAPI.interceptors.response.use(
       method: originalRequest?.method,
       status: error.response?.status,
       statusText: error.response?.statusText,
-      data: error.response?.data,
-      error: error.message
+      message: error.message,
+      data: error.response?.data
     });
     
     // Handle authentication errors (token expired)
     if (error.response?.status === 401 && !originalRequest._retry) {
-      console.error('Authentication error (401 Unauthorized)');
+      console.log('Received 401, attempting to refresh token...');
       originalRequest._retry = true;
       
-      // Try to refresh the session
       try {
+        // Try to refresh the session
         const { data, error: refreshError } = await supabase.auth.refreshSession();
         
         if (refreshError || !data.session) {
-          console.error('Session refresh failed:', refreshError);
-          // Redirect to login page
-          window.location.href = '/login';
+          console.error('Session refresh failed during 401 handling:', refreshError);
+          // Redirect to login page with current location
+          const currentPath = window.location.pathname;
+          window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
           return Promise.reject(new Error('Authentication session expired. Please log in again.'));
         }
         
@@ -99,7 +100,7 @@ supabaseAPI.interceptors.response.use(
         originalRequest.headers['Authorization'] = `Bearer ${data.session.access_token}`;
         return axios(originalRequest);
       } catch (refreshError) {
-        console.error('Error refreshing session:', refreshError);
+        console.error('Error during token refresh:', refreshError);
         window.location.href = '/login';
         return Promise.reject(new Error('Authentication failed. Please log in again.'));
       }
