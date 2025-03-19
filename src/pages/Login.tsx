@@ -6,7 +6,6 @@ import GlassPanel from '@/components/ui-custom/GlassPanel';
 import Logo from '@/components/ui-custom/Logo';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2 } from 'lucide-react';
-import { hasStoredSession } from '@/integrations/supabase/client';
 
 const Login = () => {
   const { isLoading, isAuthenticated } = useAuth();
@@ -14,35 +13,33 @@ const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const initialCheck = useRef(false);
+  const redirected = useRef(false);
 
-  // Redirect if already authenticated
+  // Redirecionar se já estiver autenticado
   useEffect(() => {
-    const checkAuth = async () => {
-      // Prevent multiple checks
-      if (initialCheck.current) return;
-      initialCheck.current = true;
+    // Impedir verificações múltiplas
+    if (initialCheck.current || redirected.current) return;
+    initialCheck.current = true;
 
-      console.log("Página de login carregada, status de autenticação:", 
-        isAuthenticated ? "Autenticado" : "Não autenticado",
-        "isLoading:", isLoading);
-      
-      // If already authenticated, redirect
-      if (isAuthenticated) {
-        const intended = location.state?.from || '/dashboard';
-        console.log(`Usuário já autenticado, redirecionando para: ${intended}`);
-        navigate(intended, { replace: true });
-      }
-    };
+    console.log("Página de login carregada, status de autenticação:", 
+      isAuthenticated ? "Autenticado" : "Não autenticado",
+      "isLoading:", isLoading);
     
-    // Wait briefly before checking to ensure auth state is loaded
-    setTimeout(checkAuth, 100);
-  }, []);
-  
-  // Redirect when authenticated
-  useEffect(() => {
+    // Se já estiver autenticado, redirecionar
     if (isAuthenticated && !isLoading) {
       const intended = location.state?.from || '/dashboard';
+      console.log(`Usuário já autenticado, redirecionando para: ${intended}`);
+      redirected.current = true;
+      navigate(intended, { replace: true });
+    }
+  }, []);
+  
+  // Redirecionar quando autenticado
+  useEffect(() => {
+    if (isAuthenticated && !isLoading && !redirected.current) {
+      const intended = location.state?.from || '/dashboard';
       console.log(`Usuário autenticado, redirecionando para: ${intended}`);
+      redirected.current = true;
       navigate(intended, { replace: true });
     }
   }, [isAuthenticated, isLoading, navigate, location]);

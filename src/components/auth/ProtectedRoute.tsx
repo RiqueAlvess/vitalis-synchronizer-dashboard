@@ -11,51 +11,62 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { isAuthenticated, isLoading, checkAuth } = useAuth();
+  const { isAuthenticated, isLoading, checkAuth, user } = useAuth();
   const [isAuthChecking, setIsAuthChecking] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const checkAttempts = useRef(0);
-  const maxAttempts = 2;
-  const redirected = useRef(false);
   const initialCheckDone = useRef(false);
+  const redirected = useRef(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const maxLoadingTime = useRef<NodeJS.Timeout | null>(null);
 
+  // Effect para limpar e redefinir estados quando a rota muda
   useEffect(() => {
-    // Reset attempts when route changes
     if (location.pathname) {
-      checkAttempts.current = 0;
       redirected.current = false;
+      
+      // Se já estiver autenticado, não precisamos verificar novamente
+      if (user) {
+        initialCheckDone.current = true;
+      }
     }
-  }, [location.pathname]);
+    
+    return () => {
+      // Limpar timeouts quando componente desmonta ou rota muda
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      if (maxLoadingTime.current) {
+        clearTimeout(maxLoadingTime.current);
+      }
+    };
+  }, [location.pathname, user]);
 
   useEffect(() => {
     const verifyAuthentication = async () => {
-      // If already authenticated, no need to check
+      // Se já estiver autenticado, não precisamos verificar novamente
       if (!isLoading && isAuthenticated) {
         console.log('Already authenticated, showing content');
+        initialCheckDone.current = true;
         return;
       }
 
-      // Prevent concurrent or excessive checks
-      if (isAuthChecking || checkAttempts.current >= maxAttempts || initialCheckDone.current) {
+      // Evitar verificações concorrentes
+      if (isAuthChecking || initialCheckDone.current) {
         return;
       }
 
-      // Check for stored session before attempting auth verification
+      // Verificar sessão armazenada antes de tentar autenticação
       if (!hasStoredSession()) {
         if (!redirected.current) {
           console.log('No stored session, redirecting to login');
           redirected.current = true;
           initialCheckDone.current = true;
           
-          // Delay redirect slightly to avoid potential race conditions
-          setTimeout(() => {
-            navigate('/login', { 
-              state: { from: location.pathname },
-              replace: true 
-            });
-          }, 100);
+          navigate('/login', { 
+            state: { from: location.pathname },
+            replace: true 
+          });
         }
         return;
       }
@@ -63,7 +74,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       try {
         console.log('Verifying authentication for protected route:', location.pathname);
         setIsAuthChecking(true);
-        checkAttempts.current += 1;
         
         const isAuth = await checkAuth();
         initialCheckDone.current = true;
@@ -99,45 +109,21 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       }
     };
 
-    // Clear any existing timeout
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
+    // Definir um tempo máximo de carregamento
+    if (!initialCheckDone.current && !maxLoadingTime.current) {
+      maxLoadingTime.current = setTimeout(() => {
+        console.log('Max loading time reached, showing content anyway');
+        initialCheckDone.current = true;
+      }, 3000); // 3 segundo de tempo máximo
     }
 
-    // Delay the initial check slightly to allow auth context to initialize
-    if (!initialCheckDone.current) {
+    // Atrasar a verificação inicial para permitir inicialização do contexto de autenticação
+    if (!initialCheckDone.current && !timeoutRef.current) {
       timeoutRef.current = setTimeout(verifyAuthentication, 100);
     }
-
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-    };
   }, [isAuthenticated, isLoading, location.pathname, navigate, checkAuth, isAuthChecking]);
 
-  // Show loading state while checking authentication, but with a maximum timeout
-  useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    
-    if (isLoading || isAuthChecking) {
-      // Set a maximum timeout for loading state
-      timeout = setTimeout(() => {
-        if (!redirected.current) {
-          console.log('Authentication check timed out, showing content anyway');
-          initialCheckDone.current = true;
-        }
-      }, 3000); // 3 second timeout - reduced from 5
-    }
-    
-    return () => {
-      if (timeout) clearTimeout(timeout);
-    };
-  }, [isLoading, isAuthChecking]);
-
-  // After 3 seconds, just show content even if still loading
+  // Mostrar estado de carregamento enquanto verifica autenticação, mas com timeout máximo
   if ((isLoading || isAuthChecking) && !initialCheckDone.current) {
     return (
       <div className="flex flex-col items-center justify-center h-screen">
@@ -147,7 +133,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     );
   }
 
-  // Render children - even if not fully authenticated after timeout
+  // Renderizar children - mesmo se não estiver totalmente autenticado após o timeout
   return <>{children}</>;
 };
 

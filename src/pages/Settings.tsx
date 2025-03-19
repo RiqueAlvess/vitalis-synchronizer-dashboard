@@ -17,59 +17,43 @@ const Settings = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [apiConnectivity, setApiConnectivity] = useState<boolean | null>(null);
   const { toast } = useToast();
-  const { user, isAuthenticated, isLoading: authLoading, checkAuth } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const initialLoadAttempted = useRef(false);
 
   useEffect(() => {
-    // Set a timeout to ensure we don't get stuck in loading
+    // Definir um timeout para garantir que não fiquemos presos no carregamento
     loadTimeoutRef.current = setTimeout(() => {
-      setIsLoading(false);
-    }, 5000);
-
-    // Check if user is authenticated
-    const verifyAuthentication = async () => {
-      try {
-        console.log('Verifying authentication for settings page...');
-        if (!isAuthenticated && !authLoading) {
-          const isAuth = await checkAuth();
-          
-          if (!isAuth) {
-            console.log('User not authenticated, redirecting to login');
-            navigate('/login', { 
-              replace: true,
-              state: { from: '/settings' } 
-            });
-            
-            toast({
-              variant: 'destructive',
-              title: 'Acesso negado',
-              description: 'Você precisa estar logado para acessar as configurações.',
-            });
-            return;
-          }
-        }
-        
-        // If we reach here, the user is authenticated, proceed with loading configs
-        loadAllConfigs();
-      } catch (error) {
-        console.error('Error verifying authentication:', error);
-        setHasError(true);
-        setErrorMessage('Erro ao verificar autenticação');
+      if (isLoading) {
+        console.log('Safety timeout triggered for settings page');
         setIsLoading(false);
       }
-    };
+    }, 5000);
     
-    verifyAuthentication();
+    // Carregar configurações quando o componente montar
+    if (!initialLoadAttempted.current) {
+      initialLoadAttempted.current = true;
+      
+      // Se o usuário estiver autenticado, carregar as configurações
+      if (isAuthenticated) {
+        console.log('User is authenticated, loading settings');
+        loadAllConfigs();
+      } else {
+        console.log('User is not authenticated, not loading settings');
+        setIsLoading(false);
+      }
+    }
 
     return () => {
       if (loadTimeoutRef.current) {
         clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
       }
     };
-  }, [isAuthenticated, authLoading]);
+  }, [isAuthenticated]);
 
-  // Check API connectivity
+  // Verificar conectividade da API
   const checkApiConnectivity = async () => {
     try {
       console.log('Testing API connectivity...');
@@ -85,8 +69,8 @@ const Settings = () => {
       
       console.log('API connectivity test result:', result);
       
-      // Even if the test fails due to invalid credentials,
-      // as long as we got a response, the API is reachable
+      // Mesmo que o teste falhe devido a credenciais inválidas,
+      // desde que obtivemos uma resposta, a API está acessível
       setApiConnectivity(true);
       return true;
     } catch (error) {
@@ -101,7 +85,7 @@ const Settings = () => {
       setIsLoading(true);
       setHasError(false);
       
-      // Check API connectivity first
+      // Verificar conectividade da API primeiro
       const isConnected = await checkApiConnectivity();
       if (!isConnected) {
         setHasError(true);
@@ -112,7 +96,7 @@ const Settings = () => {
       
       console.log('Starting to load API configurations...');
       
-      // Preload all configs when the settings page loads
+      // Pré-carregar todas as configurações quando a página de configurações for carregada
       const results = await Promise.allSettled([
         apiService.getApiConfig('employee'),
         apiService.getApiConfig('absenteeism')
@@ -123,12 +107,12 @@ const Settings = () => {
         value: r.status === 'fulfilled' ? 'Config loaded' : 'Failed to load' 
       })));
       
-      // Check if all promises were rejected
+      // Verificar se todas as promessas foram rejeitadas
       if (results.every(result => result.status === 'rejected')) {
         throw new Error('Não foi possível carregar nenhuma das configurações. Verifique sua conexão com a internet e tente novamente.');
       }
       
-      // If at least one config was loaded successfully, consider it a success
+      // Se pelo menos uma configuração foi carregada com sucesso, considerar como sucesso
       if (results.some(result => result.status === 'fulfilled')) {
         console.log('At least some API configs loaded successfully');
         setHasError(false);
@@ -144,7 +128,7 @@ const Settings = () => {
       });
     } finally {
       setIsLoading(false);
-      // Clear the safety timeout
+      // Limpar o timeout de segurança
       if (loadTimeoutRef.current) {
         clearTimeout(loadTimeoutRef.current);
         loadTimeoutRef.current = null;
@@ -152,8 +136,8 @@ const Settings = () => {
     }
   };
 
-  // If authLoading, show a loading state with skeletons instead of full page spinner
-  if (authLoading) {
+  // Mostrar um esqueleto de carregamento
+  if (isLoading) {
     return (
       <DashboardLayout 
         title="Configurações" 
@@ -211,20 +195,6 @@ const Settings = () => {
             <RefreshCcw className="h-4 w-4" />
             Tentar novamente
           </Button>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <DashboardLayout 
-        title="Configurações" 
-        subtitle="Configure as integrações com APIs externas"
-      >
-        <div className="space-y-6">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-64 w-full" />
         </div>
       </DashboardLayout>
     );
