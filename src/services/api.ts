@@ -1,14 +1,12 @@
-
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
 import { 
   DashboardData, 
   MonthlyTrendData, 
   SectorData, 
-  ApiStorageProps 
+  ApiStorageProps,
+  MockEmployeeData
 } from '@/types/dashboard';
-import type { MockEmployeeData } from '@/types/dashboard';
-import { localStorageService } from '@/services/localStorageService';
 
 const retryRequest = async (fn: () => Promise<any>, maxRetries = 3, delay = 1000) => {
   let lastError;
@@ -107,6 +105,7 @@ export interface ApiConfig extends ApiStorageProps {
   chave: string;
   tipoSaida: string;
   isConfigured?: boolean;
+  savedLocally?: boolean;
 }
 
 export interface EmployeeApiConfig extends ApiConfig {
@@ -384,7 +383,9 @@ const apiService = {
             console.log(`Found local ${type} config:`, localConfig);
             return {
               ...localConfig,
-              isConfigured: !!(localConfig.empresa && localConfig.codigo && localConfig.chave)
+              isConfigured: !!(localConfig.empresa && localConfig.codigo && localConfig.chave),
+              savedLocally: true,
+              savedAt: new Date().toISOString()
             };
           }
           

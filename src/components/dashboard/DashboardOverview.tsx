@@ -73,15 +73,25 @@ const DashboardOverview = () => {
       // This is a heuristic, since our mock data always returns 3.42%
       setIsUsingMockData(data.absenteeismRate === 3.42);
       
-      // Ensure we have default values for all needed properties
+      // Ensure we have default values and correct property names for all needed properties
       const processedData: DashboardData = {
         absenteeismRate: data.absenteeismRate || 0,
         totalAbsenceDays: data.totalAbsenceDays || 0,
         employeesAbsent: data.employeesAbsent || 0,
         costImpact: data.costImpact || 'R$ 0,00',
         trend: data.trend || 'stable',
-        monthlyTrend: data.monthlyTrend || [],
-        bySector: data.bySector || []
+        // Ensure correct property mapping from rate to value
+        monthlyTrend: data.monthlyTrend ? data.monthlyTrend.map(item => ({
+          month: item.month,
+          value: item.rate || item.value || 0
+        })) : [],
+        // Ensure correct property mapping from sector/rate to name/value
+        bySector: data.bySector ? data.bySector.map(item => ({
+          name: item.sector || item.name || 'Setor desconhecido',
+          value: item.rate || item.value || 0,
+          count: item.count || 0
+        })) : [],
+        topCIDs: data.topCIDs || []
       };
       
       setDashboardData(processedData);
