@@ -8,6 +8,7 @@ import apiService, { EmployeeApiConfig as EmployeeApiConfigType } from '@/servic
 import { Loader2, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import PreviewModeIndicator from '@/components/ui-custom/PreviewModeIndicator';
+import { localStorageService } from '@/services/localStorageService';
 
 const EmployeeApiConfig = () => {
   const { toast } = useToast();
@@ -19,14 +20,12 @@ const EmployeeApiConfig = () => {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Status checkboxes
   const [isAtivo, setIsAtivo] = useState(false);
   const [isInativo, setIsInativo] = useState(false);
   const [isAfastado, setIsAfastado] = useState(false);
   const [isPendente, setIsPendente] = useState(false);
   const [isFerias, setIsFerias] = useState(false);
 
-  // Initialize config with the correct structure
   const initialConfig: EmployeeApiConfigType = {
     type: 'employee',
     empresa: '',
@@ -51,7 +50,6 @@ const EmployeeApiConfig = () => {
         if (data) {
           const typedData = data as EmployeeApiConfigType;
           
-          // Set checkboxes based on config values
           setIsAtivo(typedData.ativo === 'Sim');
           setIsInativo(typedData.inativo === 'Sim');
           setIsAfastado(typedData.afastado === 'Sim');
@@ -60,7 +58,6 @@ const EmployeeApiConfig = () => {
           
           setConfig({
             ...typedData,
-            // Force tipoSaida to always be 'json'
             tipoSaida: 'json',
             isConfigured: !!typedData.empresa && !!typedData.codigo && !!typedData.chave
           });
@@ -92,13 +89,11 @@ const EmployeeApiConfig = () => {
   };
 
   const handleCheckboxChange = (name: string, checked: boolean) => {
-    // Update the config with "Sim" if checked, empty string if not
     setConfig(prev => ({ 
       ...prev, 
       [name]: checked ? 'Sim' : '' 
     }));
     
-    // Update the checkbox state
     switch (name) {
       case 'ativo':
         setIsAtivo(checked);
@@ -130,17 +125,14 @@ const EmployeeApiConfig = () => {
       setIsTesting(true);
       setTestResult(null);
       
-      // Use current form values for testing
       const testConfig = {
         ...config,
         tipoSaida: 'json'
       };
       
-      // Test the API connection
       let result;
       
       if (localStorageService.isPreviewEnvironment()) {
-        // In preview mode, simulate a successful test after a delay
         await new Promise(resolve => setTimeout(resolve, 1500));
         result = {
           success: true,
@@ -186,12 +178,10 @@ const EmployeeApiConfig = () => {
       setIsSyncing(true);
       setSyncResult(null);
       
-      // First, we need to make sure the config is saved
       if (!config.isConfigured) {
         await handleSave();
       }
       
-      // Now sync the employee data
       const result = await apiService.employees.sync();
       
       setSyncResult({
@@ -229,7 +219,6 @@ const EmployeeApiConfig = () => {
     try {
       setIsSaving(true);
       
-      // Create proper EmployeeApiConfig object with complete fields
       const configToSave: EmployeeApiConfigType = {
         type: 'employee',
         empresa: config.empresa,
@@ -256,7 +245,6 @@ const EmployeeApiConfig = () => {
         variant: "default"
       });
       
-      // Refresh the config
       const savedConfig = await apiService.getApiConfig('employee');
       if (savedConfig) {
         setConfig(savedConfig as EmployeeApiConfigType);
