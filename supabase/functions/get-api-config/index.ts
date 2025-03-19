@@ -70,11 +70,18 @@ Deno.serve(async (req) => {
       );
     }
 
-    // If no config found, return null but still 200 status
+    // If no config found, return empty object with default values but still 200 status
     if (!data) {
       console.log(`No ${configType} config found for user ${session.user.id}`);
       return new Response(
-        JSON.stringify(null),
+        JSON.stringify({
+          type: configType,
+          empresa: '',
+          codigo: '',
+          chave: '',
+          tipoSaida: 'json',
+          isConfigured: false
+        }),
         { 
           status: 200, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -85,12 +92,15 @@ Deno.serve(async (req) => {
     // Log the config found
     console.log(`Found ${configType} config for user ${session.user.id}:`, data);
 
-    // Return the config
+    // Return the config with proper defaults to ensure all fields exist
     return new Response(
       JSON.stringify({ 
         ...data,
         // Ensure these are proper strings
         type: data.type || configType,
+        empresa: data.empresa || '',
+        codigo: data.codigo || '',
+        chave: data.chave || '',
         tipoSaida: data.tipoSaida || 'json',
         isConfigured: !!data.empresa && !!data.codigo && !!data.chave
       }),

@@ -38,9 +38,8 @@ class ErrorBoundary extends Component<Props, State> {
     this.setState({ hasError: false, error: null, errorInfo: null });
     if (this.props.onReset) {
       this.props.onReset();
+      console.log("Called onReset handler");
     } else {
-      // Instead of full page reload, just clear the error state
-      // This allows the component to remount and try again
       console.log("No onReset handler provided, just clearing error state");
     }
   };

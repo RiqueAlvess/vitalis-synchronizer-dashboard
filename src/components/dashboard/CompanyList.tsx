@@ -20,16 +20,20 @@ const CompanyList = () => {
     setError(null);
     try {
       console.log('Fetching companies...');
-      const data = await apiService.companies.getAll();
-      console.log('Companies data received:', data);
+      const response = await apiService.companies.getAll();
+      console.log('Companies data received:', response);
       
-      // Ensure data is an array before setting it to state
-      if (Array.isArray(data)) {
-        setCompanies(data);
+      // Always ensure we have an array, even if the API returns null, undefined or a non-array
+      if (Array.isArray(response)) {
+        setCompanies(response);
       } else {
-        console.warn('Company data is not an array:', data);
+        console.warn('Company data is not an array:', response);
+        // Initialize with empty array instead of throwing error
         setCompanies([]);
-        setError('Os dados recebidos não estão no formato esperado. Contate o suporte.');
+        // Only set error if response exists but isn't array format
+        if (response !== null && response !== undefined) {
+          setError('Os dados recebidos não estão no formato esperado. Contate o suporte.');
+        }
       }
     } catch (err) {
       console.error('Error fetching companies:', err);
@@ -63,6 +67,7 @@ const CompanyList = () => {
       } else {
         throw new Error('Falha na sincronização');
       }
+      // Add a slight delay before fetching to allow backend processing
       setTimeout(fetchCompanies, 1500);
     } catch (err) {
       console.error('Error syncing companies:', err);
@@ -79,14 +84,19 @@ const CompanyList = () => {
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Nunca';
     
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(date);
+    try {
+      const date = new Date(dateString);
+      return new Intl.DateTimeFormat('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(date);
+    } catch (e) {
+      console.error('Error formatting date:', e);
+      return 'Data inválida';
+    }
   };
 
   const getSyncStatusBadge = (status: string) => {
