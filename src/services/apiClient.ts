@@ -63,8 +63,8 @@ supabaseAPI.interceptors.request.use(
         }
       }
       
-      // Add custom headers for debugging and CORS
-      config.headers['x-request-time'] = new Date().toISOString();
+      // Remove the problematic header that's causing CORS issues
+      // config.headers['x-request-time'] = new Date().toISOString();
       
       // Prevent caching of API calls
       if (config.method?.toLowerCase() === 'get') {
