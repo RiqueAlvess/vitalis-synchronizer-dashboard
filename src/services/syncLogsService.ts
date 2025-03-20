@@ -2,6 +2,26 @@
 import { supabase } from "@/integrations/supabase/client";
 import { SyncLog, SyncLogStatus, SyncLogType } from "@/types/sync";
 
+// Define the database response type to match what's coming from Supabase
+interface DbSyncLog {
+  id: number;
+  type: string;
+  status: string;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  message?: string;
+  error_details?: string;
+  user_id?: string;
+  parent_id?: number;
+  batch?: number;
+  total_batches?: number;
+  total_records?: number;
+  processed_records?: number;
+  success_count?: number;
+  error_count?: number;
+}
+
 export const syncLogsService = {
   // Get all sync logs
   getLogs: async (): Promise<SyncLog[]> => {
@@ -19,7 +39,7 @@ export const syncLogsService = {
       }
 
       // Transform the database response to match SyncLog type
-      const transformedData: SyncLog[] = data ? data.map(item => ({
+      const transformedData: SyncLog[] = data ? data.map((item: DbSyncLog) => ({
         id: item.id,
         type: item.type as SyncLogType,
         status: item.status as SyncLogStatus,
@@ -62,23 +82,25 @@ export const syncLogsService = {
       if (!data) return null;
 
       // Transform the data to match SyncLog type
+      const item = data as DbSyncLog;
+      
       const transformedData: SyncLog = {
-        id: data.id,
-        type: data.type as SyncLogType,
-        status: data.status as SyncLogStatus,
-        created_at: data.created_at,
-        started_at: data.started_at || data.created_at, // Use created_at as fallback if started_at is missing
-        completed_at: data.completed_at || undefined,
-        message: data.message || undefined,
-        error_details: data.error_details || undefined,
-        user_id: data.user_id || undefined,
-        parent_id: data.parent_id || undefined,
-        batch: data.batch || undefined,
-        total_batches: data.total_batches || undefined,
-        total_records: data.total_records || undefined,
-        processed_records: data.processed_records || undefined,
-        success_count: data.success_count || undefined,
-        error_count: data.error_count || undefined
+        id: item.id,
+        type: item.type as SyncLogType,
+        status: item.status as SyncLogStatus,
+        created_at: item.created_at,
+        started_at: item.started_at || item.created_at, // Use created_at as fallback if started_at is missing
+        completed_at: item.completed_at || undefined,
+        message: item.message || undefined,
+        error_details: item.error_details || undefined,
+        user_id: item.user_id || undefined,
+        parent_id: item.parent_id || undefined,
+        batch: item.batch || undefined,
+        total_batches: item.total_batches || undefined,
+        total_records: item.total_records || undefined,
+        processed_records: item.processed_records || undefined,
+        success_count: item.success_count || undefined,
+        error_count: item.error_count || undefined
       };
 
       return transformedData;
@@ -103,7 +125,7 @@ export const syncLogsService = {
       }
 
       // Transform the database response to match SyncLog type
-      const transformedData: SyncLog[] = data ? data.map(item => ({
+      const transformedData: SyncLog[] = data ? data.map((item: DbSyncLog) => ({
         id: item.id,
         type: item.type as SyncLogType,
         status: item.status as SyncLogStatus,
