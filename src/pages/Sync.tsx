@@ -30,7 +30,15 @@ const Sync = () => {
         description: 'A sincronização foi iniciada e pode levar alguns minutos.',
       });
       
-      const result = await apiService.sync[type]();
+      // Corrigindo o erro de chamada de método
+      let result;
+      if (type === 'employee') {
+        result = await apiService.sync.employee();
+      } else if (type === 'absenteeism') {
+        result = await apiService.sync.absenteeism();
+      } else {
+        throw new Error(`Tipo de sincronização não suportado: ${type}`);
+      }
       
       setSyncResult({
         type,
