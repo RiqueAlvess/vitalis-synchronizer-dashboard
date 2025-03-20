@@ -6,19 +6,58 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Loader2, RefreshCw, AlertCircle, CheckCircle2, Ban } from 'lucide-react';
 import apiService from '@/services/api';
 import SyncHistory from '@/components/sync/SyncHistory';
 import { useNavigate } from 'react-router-dom';
+import { syncLogsService } from '@/services/syncLogsService';
 
 const Sync = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [syncInProgress, setSyncInProgress] = useState(false);
+  const [activeSyncProcesses, setActiveSyncProcesses] = useState<{count: number, types: string[]}>({ count: 0, types: [] });
   const [syncResult, setSyncResult] = useState<{type: string; success: boolean; message: string} | null>(null);
+  
+  // Verificar se há sincronizações ativas
+  const checkActiveSyncs = async () => {
+    try {
+      const activeSyncs = await syncLogsService.getActiveSyncs();
+      if (activeSyncs.count > 0) {
+        setActiveSyncProcesses(activeSyncs);
+      } else {
+        setActiveSyncProcesses({ count: 0, types: [] });
+      }
+    } catch (error) {
+      console.error('Error checking active syncs:', error);
+    }
+  };
+  
+  // Verificar sincronizações ativas ao carregar a página e a cada 5 segundos
+  useEffect(() => {
+    checkActiveSyncs();
+    
+    const interval = setInterval(() => {
+      checkActiveSyncs();
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, []);
   
   const handleSync = async (type: 'employee' | 'absenteeism') => {
     try {
+      // Verificar novamente se há sincronizações ativas
+      await checkActiveSyncs();
+      
+      if (activeSyncProcesses.count > 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Sincronização já em andamento',
+          description: `Já existe uma sincronização de ${activeSyncProcesses.types.join(', ')} em andamento. Aguarde a conclusão para iniciar uma nova.`,
+        });
+        return;
+      }
+      
       setSyncInProgress(true);
       setSyncResult(null);
       
@@ -52,6 +91,9 @@ const Sync = () => {
         title: 'Sincronização iniciada',
         description: `A sincronização de ${typeLabels[type]} foi iniciada com sucesso.`,
       });
+      
+      // Atualizar lista de sincronizações ativas
+      checkActiveSyncs();
       
     } catch (error) {
       console.error(`Error syncing ${type}:`, error);
@@ -95,6 +137,17 @@ const Sync = () => {
       subtitle="Sincronize dados do SOC com o Vitalis"
     >
       <div className="space-y-6">
+        {activeSyncProcesses.count > 0 && (
+          <Alert className="bg-amber-50 border-amber-200">
+            <Ban className="h-4 w-4 text-amber-600" />
+            <AlertTitle className="text-amber-700">Sincronização em andamento</AlertTitle>
+            <AlertDescription className="text-amber-600">
+              Já existe uma sincronização de {activeSyncProcesses.types.join(', ')} em andamento. 
+              Aguarde a conclusão ou cancele o processo atual para iniciar uma nova sincronização.
+            </AlertDescription>
+          </Alert>
+        )}
+        
         <Card>
           <CardHeader>
             <CardTitle>Iniciar Sincronização</CardTitle>
@@ -115,7 +168,7 @@ const Sync = () => {
                 </div>
                 <Button 
                   onClick={() => handleSync('employee')} 
-                  disabled={syncInProgress}
+                  disabled={syncInProgress || activeSyncProcesses.count > 0}
                   className="w-full"
                 >
                   {syncInProgress ? (
@@ -138,7 +191,7 @@ const Sync = () => {
                 </div>
                 <Button 
                   onClick={() => handleSync('absenteeism')} 
-                  disabled={syncInProgress}
+                  disabled={syncInProgress || activeSyncProcesses.count > 0}
                   className="w-full"
                 >
                   {syncInProgress ? (

@@ -12,20 +12,38 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, Search, UserRound } from 'lucide-react';
+import { 
+  RefreshCw, 
+  Search, 
+  UserRound 
+} from 'lucide-react';
 import apiService from '@/services/api';
 import { MockEmployeeData } from '@/types/dashboard';
 import { Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { retryRequest } from '@/services/apiClient';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const ITEMS_PER_PAGE = 10;
 
 const EmployeeList = () => {
   const [employees, setEmployees] = useState<MockEmployeeData[]>([]);
   const [filteredEmployees, setFilteredEmployees] = useState<MockEmployeeData[]>([]);
+  const [displayedEmployees, setDisplayedEmployees] = useState<MockEmployeeData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [syncProgress, setSyncProgress] = useState<{current: number, total: number} | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const { toast } = useToast();
 
   // Function to load employees with retry logic
@@ -165,6 +183,15 @@ const EmployeeList = () => {
   useEffect(() => {
     if (!searchTerm.trim()) {
       setFilteredEmployees(employees);
+      
+      // Calculate total pages based on all employees
+      const pages = Math.max(1, Math.ceil(employees.length / ITEMS_PER_PAGE));
+      setTotalPages(pages);
+      
+      // Reset to first page when clearing search
+      if (currentPage > pages) {
+        setCurrentPage(1);
+      }
       return;
     }
 
@@ -177,7 +204,28 @@ const EmployeeList = () => {
         employee.sector_name?.toLowerCase().includes(lowercasedTerm)
     );
     setFilteredEmployees(filtered);
+    
+    // Calculate total pages based on filtered results
+    const pages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+    setTotalPages(pages);
+    
+    // Reset to first page when search changes
+    setCurrentPage(1);
   }, [searchTerm, employees]);
+  
+  // Update displayed employees when page or filtered list changes
+  useEffect(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    setDisplayedEmployees(filteredEmployees.slice(startIndex, endIndex));
+  }, [filteredEmployees, currentPage]);
+
+  // Change page handler
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
 
   // Helper function to get status badge color
   const getStatusBadge = (status: string) => {
@@ -187,6 +235,89 @@ const EmployeeList = () => {
     if (lowerStatus.includes('afastado')) return 'bg-yellow-100 text-yellow-800';
     if (lowerStatus.includes('férias')) return 'bg-blue-100 text-blue-800';
     return 'bg-gray-100 text-gray-800';
+  };
+  
+  // Generate pagination items
+  const renderPaginationItems = () => {
+    const items = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      // Show all pages if there are 5 or fewer
+      for (let i = 1; i <= totalPages; i++) {
+        items.push(
+          <PaginationItem key={i}>
+            <PaginationLink 
+              onClick={() => handlePageChange(i)} 
+              isActive={currentPage === i}
+            >
+              {i}
+            </PaginationLink>
+          </PaginationItem>
+        );
+      }
+    } else {
+      // Show first page
+      items.push(
+        <PaginationItem key={1}>
+          <PaginationLink 
+            onClick={() => handlePageChange(1)} 
+            isActive={currentPage === 1}
+          >
+            1
+          </PaginationLink>
+        </PaginationItem>
+      );
+      
+      // Show ellipsis if current page is far from start
+      if (currentPage > 3) {
+        items.push(
+          <PaginationItem key="ellipsis-start">
+            <PaginationEllipsis />
+          </PaginationItem>
+        );
+      }
+      
+      // Show nearby pages
+      const startNearby = Math.max(2, currentPage - 1);
+      const endNearby = Math.min(totalPages - 1, currentPage + 1);
+      
+      for (let i = startNearby; i <= endNearby; i++) {
+        items.push(
+          <PaginationItem key={i}>
+            <PaginationLink 
+              onClick={() => handlePageChange(i)} 
+              isActive={currentPage === i}
+            >
+              {i}
+            </PaginationLink>
+          </PaginationItem>
+        );
+      }
+      
+      // Show ellipsis if current page is far from end
+      if (currentPage < totalPages - 2) {
+        items.push(
+          <PaginationItem key="ellipsis-end">
+            <PaginationEllipsis />
+          </PaginationItem>
+        );
+      }
+      
+      // Show last page
+      items.push(
+        <PaginationItem key={totalPages}>
+          <PaginationLink 
+            onClick={() => handlePageChange(totalPages)} 
+            isActive={currentPage === totalPages}
+          >
+            {totalPages}
+          </PaginationLink>
+        </PaginationItem>
+      );
+    }
+    
+    return items;
   };
 
   if (isLoading) {
@@ -260,33 +391,61 @@ const EmployeeList = () => {
           )}
         </div>
       ) : (
-        <div className="border rounded-md">
-          <Table>
-            <TableCaption>Lista de funcionários ({filteredEmployees.length})</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead>Cargo</TableHead>
-                <TableHead>Setor</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredEmployees.map((employee) => (
-                <TableRow key={employee.id || employee.soc_code || employee.employee_id || Math.random().toString()}>
-                  <TableCell className="font-medium">{employee.full_name || employee.name || '-'}</TableCell>
-                  <TableCell>{employee.position_name || employee.position || '-'}</TableCell>
-                  <TableCell>{employee.sector_name || employee.sector || '-'}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={getStatusBadge(employee.status || '')}>
-                      {employee.status || 'Desconhecido'}
-                    </Badge>
-                  </TableCell>
+        <>
+          <div className="border rounded-md">
+            <Table>
+              <TableCaption>
+                Mostrando {displayedEmployees.length} de {filteredEmployees.length} funcionários 
+                (Página {currentPage} de {totalPages})
+              </TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Cargo</TableHead>
+                  <TableHead>Setor</TableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {displayedEmployees.map((employee) => (
+                  <TableRow key={employee.id || employee.soc_code || employee.employee_id || Math.random().toString()}>
+                    <TableCell className="font-medium">{employee.full_name || employee.name || '-'}</TableCell>
+                    <TableCell>{employee.position_name || employee.position || '-'}</TableCell>
+                    <TableCell>{employee.sector_name || employee.sector || '-'}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={getStatusBadge(employee.status || '')}>
+                        {employee.status || 'Desconhecido'}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <Pagination className="mt-4">
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious 
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                  />
+                </PaginationItem>
+                
+                {renderPaginationItems()}
+                
+                <PaginationItem>
+                  <PaginationNext 
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          )}
+        </>
       )}
     </div>
   );

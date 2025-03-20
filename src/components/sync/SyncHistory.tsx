@@ -18,7 +18,10 @@ import {
   Clock, 
   Loader2,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Trash2,
+  StopCircle,
+  XCircle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
@@ -26,19 +29,29 @@ import { SyncLog } from '@/types/sync';
 import { Skeleton } from '@/components/ui/skeleton';
 import { syncLogsService } from '@/services/syncLogsService';
 import { Progress } from '@/components/ui/progress';
-import { 
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/components/ui/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import apiService from '@/services/api';
 
 const SyncHistory = () => {
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState<Record<number, boolean>>({});
+  const { toast } = useToast();
   
   // Organizar logs por grupos de sincronização
   const organizeLogsByGroup = (logs: SyncLog[]): Record<string, SyncLog[]> => {
@@ -75,6 +88,11 @@ const SyncHistory = () => {
       setLogs(syncLogs);
     } catch (error) {
       console.error('Error fetching sync logs:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao carregar histórico',
+        description: 'Não foi possível carregar o histórico de sincronização.',
+      });
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -170,6 +188,13 @@ const SyncHistory = () => {
             Erro
           </Badge>
         );
+      case 'cancelled':
+        return (
+          <Badge variant="outline" className="flex items-center bg-gray-50 text-gray-700 border-gray-200 gap-1">
+            <XCircle className="w-3 h-3" />
+            Cancelado
+          </Badge>
+        );
       default:
         return <Badge variant="outline" className="text-xs">{status}</Badge>;
     }
@@ -196,6 +221,82 @@ const SyncHistory = () => {
         return type;
     }
   };
+  
+  // Verificar se há sincronização ativa para o usuário atual
+  const hasActiveSyncProcess = () => {
+    return logs.some(log => 
+      ['processing', 'in_progress', 'queued', 'started', 'continues'].includes(log.status)
+    );
+  };
+  
+  // Verificar se o log específico está em processamento
+  const isLogProcessing = (log: SyncLog) => {
+    return ['processing', 'in_progress', 'queued', 'started', 'continues'].includes(log.status);
+  };
+  
+  // Cancelar processo de sincronização
+  const cancelSyncProcess = async (logId: number) => {
+    try {
+      setIsCancelling(prev => ({ ...prev, [logId]: true }));
+      
+      // Chamar API para cancelar processo
+      await apiService.sync.cancelSync(logId);
+      
+      toast({
+        title: 'Processo cancelado',
+        description: 'O processo de sincronização foi cancelado com sucesso.',
+      });
+      
+      // Atualizar lista após cancelamento
+      fetchLogs();
+    } catch (error) {
+      console.error('Error cancelling sync process:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao cancelar',
+        description: 'Não foi possível cancelar o processo de sincronização.',
+      });
+    } finally {
+      setIsCancelling(prev => ({ ...prev, [logId]: false }));
+    }
+  };
+  
+  // Limpar histórico de sincronização
+  const clearSyncHistory = async () => {
+    try {
+      setIsDeleting(true);
+      
+      // Verificar se há processos ativos
+      if (hasActiveSyncProcess()) {
+        toast({
+          variant: 'destructive',
+          title: 'Operação não permitida',
+          description: 'Existem processos de sincronização ativos. Cancele-os antes de limpar o histórico.',
+        });
+        return;
+      }
+      
+      // Chamar API para limpar histórico
+      await syncLogsService.clearHistory();
+      
+      toast({
+        title: 'Histórico limpo',
+        description: 'O histórico de sincronização foi limpo com sucesso.',
+      });
+      
+      // Atualizar lista após limpeza
+      setLogs([]);
+    } catch (error) {
+      console.error('Error clearing sync history:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao limpar histórico',
+        description: 'Não foi possível limpar o histórico de sincronização.',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const hasPendingSync = logs.some(log => 
     ['processing', 'in_progress', 'queued', 'started'].includes(log.status)
@@ -208,19 +309,58 @@ const SyncHistory = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-medium">Histórico de Sincronização</h3>
-        <Button variant="outline" onClick={fetchLogs} disabled={isRefreshing} size="sm">
-          {isRefreshing ? (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              Atualizando...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Atualizar
-            </>
-          )}
-        </Button>
+        <div className="flex gap-2">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm"
+                disabled={isDeleting || logs.length === 0}
+                className="flex items-center gap-1"
+              >
+                {isDeleting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                Limpar Histórico
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Limpar histórico de sincronização</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Esta ação irá remover todos os registros de sincronização concluídos ou com erro.
+                  {hasActiveSyncProcess() && (
+                    <p className="mt-2 text-amber-500 font-medium">
+                      Atenção: Existem processos de sincronização ativos que não serão afetados.
+                    </p>
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={clearSyncHistory}>
+                  Limpar Histórico
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          
+          <Button variant="outline" onClick={fetchLogs} disabled={isRefreshing} size="sm">
+            {isRefreshing ? (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                Atualizando...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Atualizar
+              </>
+            )}
+          </Button>
+        </div>
       </div>
       
       {hasPendingSync && (
@@ -260,6 +400,7 @@ const SyncHistory = () => {
                 <TableHead>Progresso</TableHead>
                 <TableHead>Iniciado em</TableHead>
                 <TableHead>Concluído em</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -267,6 +408,7 @@ const SyncHistory = () => {
                 const childLogs = getChildLogs(logs, log.id);
                 const hasChildren = childLogs.length > 0;
                 const isExpanded = expandedLogs[log.id] || false;
+                const isProcessing = isLogProcessing(log);
 
                 return (
                   <React.Fragment key={log.id}>
@@ -303,31 +445,71 @@ const SyncHistory = () => {
                       </TableCell>
                       <TableCell>{formatDateTime(log.started_at)}</TableCell>
                       <TableCell>{log.completed_at ? formatDateTime(log.completed_at) : '-'}</TableCell>
+                      <TableCell className="text-right">
+                        {isProcessing && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => cancelSyncProcess(log.id)}
+                            disabled={isCancelling[log.id]}
+                          >
+                            {isCancelling[log.id] ? (
+                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            ) : (
+                              <StopCircle className="h-3 w-3 mr-1" />
+                            )}
+                            Cancelar
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                     
                     {/* Exibir logs filhos quando expandido */}
-                    {isExpanded && hasChildren && childLogs.map(childLog => (
-                      <TableRow key={childLog.id} className="bg-muted/30">
-                        <TableCell></TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2 pl-4">
-                            <div className="h-4 w-0.5 bg-muted-foreground/20 mr-2"></div>
-                            <span className="text-xs">Continuação</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>{getStatusBadge(childLog)}</TableCell>
-                        <TableCell>
-                          <div className="max-w-md text-sm truncate" title={childLog.message}>
-                            {childLog.message || '-'}
-                          </div>
-                        </TableCell>
-                        <TableCell className="w-24">
-                          <Progress value={getProgressValue(childLog)} className="h-2 w-full" />
-                        </TableCell>
-                        <TableCell>{formatDateTime(childLog.started_at)}</TableCell>
-                        <TableCell>{childLog.completed_at ? formatDateTime(childLog.completed_at) : '-'}</TableCell>
-                      </TableRow>
-                    ))}
+                    {isExpanded && hasChildren && childLogs.map(childLog => {
+                      const isChildProcessing = isLogProcessing(childLog);
+                      
+                      return (
+                        <TableRow key={childLog.id} className="bg-muted/30">
+                          <TableCell></TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2 pl-4">
+                              <div className="h-4 w-0.5 bg-muted-foreground/20 mr-2"></div>
+                              <span className="text-xs">Continuação</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>{getStatusBadge(childLog)}</TableCell>
+                          <TableCell>
+                            <div className="max-w-md text-sm truncate" title={childLog.message}>
+                              {childLog.message || '-'}
+                            </div>
+                          </TableCell>
+                          <TableCell className="w-24">
+                            <Progress value={getProgressValue(childLog)} className="h-2 w-full" />
+                          </TableCell>
+                          <TableCell>{formatDateTime(childLog.started_at)}</TableCell>
+                          <TableCell>{childLog.completed_at ? formatDateTime(childLog.completed_at) : '-'}</TableCell>
+                          <TableCell className="text-right">
+                            {isChildProcessing && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-2 text-xs"
+                                onClick={() => cancelSyncProcess(childLog.id)}
+                                disabled={isCancelling[childLog.id]}
+                              >
+                                {isCancelling[childLog.id] ? (
+                                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                ) : (
+                                  <StopCircle className="h-3 w-3 mr-1" />
+                                )}
+                                Cancelar
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </React.Fragment>
                 );
               })}
