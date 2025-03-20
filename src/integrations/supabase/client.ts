@@ -15,6 +15,21 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     persistSession: true,
     storageKey: 'vitalis-auth-token',
     detectSessionInUrl: false
+  },
+  global: {
+    // Extended timeout for longer operations
+    fetch: (url, options = {}) => {
+      // @ts-ignore
+      options.headers = options.headers || {};
+      // Set longer timeout for large data operations
+      const timeoutController = new AbortController();
+      const timeoutId = setTimeout(() => timeoutController.abort(), 120000); // 2 minutes timeout
+      
+      // @ts-ignore
+      options.signal = timeoutController.signal;
+      
+      return fetch(url, options).finally(() => clearTimeout(timeoutId));
+    }
   }
 });
 

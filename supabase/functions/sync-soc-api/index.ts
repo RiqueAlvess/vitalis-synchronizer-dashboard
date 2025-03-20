@@ -6,6 +6,11 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const SOC_API_URL = 'https://ws1.soc.com.br/WebSoc/exportadados';
 
+// Increased batch size for efficiency but still manageable
+const BATCH_SIZE = 50;
+// Maximum time to run before refreshing the function (in milliseconds)
+const MAX_EXECUTION_TIME = 25 * 60 * 1000; // 25 minutes
+
 Deno.serve(async (req) => {
   // Handle CORS preflight request
   if (req.method === 'OPTIONS') {
@@ -120,6 +125,7 @@ Deno.serve(async (req) => {
     EdgeRuntime.waitUntil((async () => {
       try {
         console.log(`Processing ${type} data in background for sync ID ${syncId}`);
+        const startTime = Date.now();
         
         // Make the API request
         const response = await fetch(apiUrl);
@@ -133,16 +139,23 @@ Deno.serve(async (req) => {
         const decoder = new TextDecoder('latin1');
         const decodedContent = decoder.decode(responseBuffer);
         
-        console.log("API Response (sample):", decodedContent.substring(0, 200) + "...");
+        console.log("API Response received, length:", decodedContent.length);
         
         // Parse the JSON response
         let jsonData;
         try {
           jsonData = JSON.parse(decodedContent);
-          console.log("JSON parsed successfully. First record sample:", JSON.stringify(jsonData[0]).substring(0, 200) + "...");
+          console.log("JSON parsed successfully. Record count:", jsonData.length);
         } catch (e) {
           console.error('Error parsing JSON:', e);
-          throw new Error(`Invalid JSON response: ${e.message}`);
+          // Try to clean the JSON string before parsing
+          try {
+            const cleanedJson = decodedContent.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+            jsonData = JSON.parse(cleanedJson);
+            console.log("JSON parsed after cleaning. Record count:", jsonData.length);
+          } catch (cleanError) {
+            throw new Error(`Invalid JSON response: ${e.message}`);
+          }
         }
         
         if (!Array.isArray(jsonData)) {
@@ -159,16 +172,76 @@ Deno.serve(async (req) => {
           })
           .eq('id', syncId);
         
-        // Process in smaller batches to avoid request size issues
-        const BATCH_SIZE = 20; // Reduced batch size
+        // Process in batches
+        const totalRecords = jsonData.length;
         let processedCount = 0;
         let successCount = 0;
         let errorCount = 0;
-        let totalBatches = Math.ceil(jsonData.length / BATCH_SIZE);
+        let totalBatches = Math.ceil(totalRecords / BATCH_SIZE);
         
-        console.log(`Processing ${jsonData.length} records in ${totalBatches} batches of ${BATCH_SIZE}`);
+        console.log(`Processing ${totalRecords} records in ${totalBatches} batches of ${BATCH_SIZE}`);
         
-        for (let i = 0; i < jsonData.length; i += BATCH_SIZE) {
+        for (let i = 0; i < totalRecords; i += BATCH_SIZE) {
+          // Check if we're approaching the max execution time
+          if (Date.now() - startTime > MAX_EXECUTION_TIME) {
+            console.log(`Approaching max execution time, creating continuation log`);
+            
+            // Create a new sync log entry for continuation
+            const { data: continuationLog } = await supabaseAdmin
+              .from('sync_logs')
+              .insert({
+                type,
+                status: 'processing',
+                message: `Continuing ${type} sync. ${processedCount} of ${totalRecords} processed. Creating new process.`,
+                user_id: userId,
+                started_at: new Date().toISOString()
+              })
+              .select()
+              .single();
+              
+            if (continuationLog) {
+              // Update current log with partial completion
+              await supabaseAdmin
+                .from('sync_logs')
+                .update({
+                  status: 'completed',
+                  message: `Partially completed: ${processedCount} of ${totalRecords} ${type} records processed. Continuing in new process.`,
+                  completed_at: new Date().toISOString()
+                })
+                .eq('id', syncId);
+                
+              // Remaining records to process
+              const remainingRecords = jsonData.slice(i);
+              
+              // Call the same endpoint to continue processing
+              try {
+                await fetch(`${SUPABASE_URL}/functions/v1/sync-soc-api`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                  },
+                  body: JSON.stringify({
+                    type,
+                    params,
+                    continuationData: {
+                      records: remainingRecords,
+                      processedSoFar: processedCount,
+                      totalRecords,
+                      syncId: continuationLog.id
+                    }
+                  })
+                });
+                
+                console.log(`Continuation request sent, ending current process`);
+                return; // End current process after sending continuation
+              } catch (continuationError) {
+                console.error(`Error sending continuation request:`, continuationError);
+                // Continue with current process if continuation fails
+              }
+            }
+          }
+          
           const batchData = jsonData.slice(i, i + BATCH_SIZE);
           const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
           
@@ -192,16 +265,23 @@ Deno.serve(async (req) => {
             await supabaseAdmin
               .from('sync_logs')
               .update({
-                message: `Processed ${processedCount} of ${jsonData.length} ${type} records (${Math.round((processedCount / jsonData.length) * 100)}%). Success: ${successCount}, Errors: ${errorCount}`
+                message: `Processed ${processedCount} of ${totalRecords} ${type} records (${Math.round((processedCount / totalRecords) * 100)}%). Success: ${successCount}, Errors: ${errorCount}`
               })
               .eq('id', syncId);
               
-            console.log(`Batch ${batchNumber} processed. Success: ${result.success || 0}, Errors: ${result.error || 0}. Total progress: ${processedCount}/${jsonData.length}`);
+            console.log(`Batch ${batchNumber} processed. Success: ${result.success || 0}, Errors: ${result.error || 0}. Total progress: ${processedCount}/${totalRecords}`);
             
           } catch (batchError) {
             console.error(`Error processing batch ${batchNumber}:`, batchError);
             errorCount += batchData.length;
+            
             // Continue with next batch even if one fails
+            await supabaseAdmin
+              .from('sync_logs')
+              .update({
+                message: `Error processing batch ${batchNumber}: ${batchError.message}. Continuing with next batch.`
+              })
+              .eq('id', syncId);
           }
           
           // Small delay between batches to avoid overload
@@ -213,7 +293,7 @@ Deno.serve(async (req) => {
           .from('sync_logs')
           .update({
             status: 'completed',
-            message: `Synchronization completed: ${successCount} of ${jsonData.length} ${type} records processed successfully. Errors: ${errorCount}`,
+            message: `Synchronization completed: ${successCount} of ${totalRecords} ${type} records processed successfully. Errors: ${errorCount}`,
             completed_at: new Date().toISOString()
           })
           .eq('id', syncId);
@@ -260,209 +340,241 @@ Deno.serve(async (req) => {
   }
 });
 
-// Function to process employee batches
+// Function to process employee batches with improved error handling
 async function processEmployeeBatch(supabase, data, userId) {
   console.log(`Processing batch of ${data.length} employee records`);
   let success = 0;
   let error = 0;
   
-  // Process each employee individually to better track errors
-  for (const item of data) {
-    try {
-      // First check if this employee already exists by soc_code and user_id
-      const { data: existingEmployee } = await supabase
-        .from('employees')
-        .select('id')
-        .eq('soc_code', item.CODIGO)
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      const employeeData = {
-        soc_code: item.CODIGO,
-        company_soc_code: item.CODIGOEMPRESA,
-        company_name: item.NOMEEMPRESA,
-        full_name: item.NOME,
-        unit_code: item.CODIGOUNIDADE,
-        unit_name: item.NOMEUNIDADE,
-        sector_code: item.CODIGOSETOR,
-        sector_name: item.NOMESETOR,
-        position_code: item.CODIGOCARGO,
-        position_name: item.NOMECARGO,
-        position_cbo: item.CBOCARGO,
-        cost_center: item.CCUSTO,
-        cost_center_name: item.NOMECENTROCUSTO,
-        employee_registration: item.MATRICULAFUNCIONARIO,
-        cpf: item.CPF,
-        rg: item.RG,
-        rg_state: item.UFRG,
-        rg_issuer: item.ORGAOEMISSORRG,
-        status: item.SITUACAO,
-        gender: typeof item.SEXO === 'number' ? item.SEXO : null,
-        pis: item.PIS,
-        work_card: item.CTPS,
-        work_card_series: item.SERIECTPS,
-        marital_status: typeof item.ESTADOCIVIL === 'number' ? item.ESTADOCIVIL : null,
-        contract_type: typeof item.TIPOCONTATACAO === 'number' ? item.TIPOCONTATACAO : null,
-        birth_date: item.DATA_NASCIMENTO ? new Date(item.DATA_NASCIMENTO) : null,
-        hire_date: item.DATA_ADMISSAO ? new Date(item.DATA_ADMISSAO) : null,
-        termination_date: item.DATA_DEMISSAO ? new Date(item.DATA_DEMISSAO) : null,
-        address: item.ENDERECO,
-        address_number: item.NUMERO_ENDERECO,
-        neighborhood: item.BAIRRO,
-        city: item.CIDADE,
-        state: item.UF,
-        zip_code: item.CEP,
-        home_phone: item.TELEFONERESIDENCIAL,
-        mobile_phone: item.TELEFONECELULAR,
-        email: item.EMAIL,
-        is_disabled: item.DEFICIENTE === 1,
-        disability_description: item.DEFICIENCIA,
-        mother_name: item.NM_MAE_FUNCIONARIO,
-        last_update_date: item.DATAULTALTERACAO ? new Date(item.DATAULTALTERACAO) : null,
-        hr_registration: item.MATRICULARH,
-        skin_color: typeof item.COR === 'number' && item.COR <= 32767 ? item.COR : null,
-        education: typeof item.ESCOLARIDADE === 'number' && item.ESCOLARIDADE <= 32767 ? item.ESCOLARIDADE : null,
-        birthplace: item.NATURALIDADE,
-        extension: item.RAMAL,
-        shift_regime: typeof item.REGIMEREVEZAMENTO === 'number' && item.REGIMEREVEZAMENTO <= 32767 ? item.REGIMEREVEZAMENTO : null,
-        work_regime: item.REGIMETRABALHO,
-        commercial_phone: item.TELCOMERCIAL,
-        work_shift: typeof item.TURNOTRABALHO === 'number' && item.TURNOTRABALHO <= 32767 ? item.TURNOTRABALHO : null,
-        hr_unit: item.RHUNIDADE,
-        hr_sector: item.RHSETOR,
-        hr_position: item.RHCARGO,
-        hr_cost_center_unit: item.RHCENTROCUSTOUNIDADE,
-        user_id: userId
-      };
-
-      // Check for and handle company relationship
+  // Process employees in smaller chunks to avoid timeout
+  const employeeChunks = chunkArray(data, 10);
+  
+  for (const chunk of employeeChunks) {
+    // Process each employee individually to better track errors
+    for (const item of chunk) {
       try {
-        // Look for existing company or create one if needed
-        const { data: existingCompany } = await supabase
-          .from('companies')
+        // Basic validation
+        if (!item.CODIGO || !item.NOME) {
+          console.error(`Skipping invalid employee record:`, item);
+          error++;
+          continue;
+        }
+        
+        // First check if this employee already exists by soc_code and user_id
+        const { data: existingEmployee } = await supabase
+          .from('employees')
           .select('id')
-          .eq('soc_code', item.CODIGOEMPRESA)
+          .eq('soc_code', item.CODIGO)
           .eq('user_id', userId)
           .maybeSingle();
-          
-        if (!existingCompany) {
-          // Create a placeholder company if needed
-          const { data: newCompany, error: companyError } = await supabase
+
+        const employeeData = {
+          soc_code: item.CODIGO,
+          company_soc_code: item.CODIGOEMPRESA,
+          company_name: item.NOMEEMPRESA,
+          full_name: item.NOME,
+          unit_code: item.CODIGOUNIDADE,
+          unit_name: item.NOMEUNIDADE,
+          sector_code: item.CODIGOSETOR,
+          sector_name: item.NOMESETOR,
+          position_code: item.CODIGOCARGO,
+          position_name: item.NOMECARGO,
+          position_cbo: item.CBOCARGO,
+          cost_center: item.CCUSTO,
+          cost_center_name: item.NOMECENTROCUSTO,
+          employee_registration: item.MATRICULAFUNCIONARIO,
+          cpf: item.CPF,
+          rg: item.RG,
+          rg_state: item.UFRG,
+          rg_issuer: item.ORGAOEMISSORRG,
+          status: item.SITUACAO,
+          gender: typeof item.SEXO === 'number' && item.SEXO <= 32767 ? item.SEXO : null,
+          pis: item.PIS,
+          work_card: item.CTPS,
+          work_card_series: item.SERIECTPS,
+          marital_status: typeof item.ESTADOCIVIL === 'number' && item.ESTADOCIVIL <= 32767 ? item.ESTADOCIVIL : null,
+          contract_type: typeof item.TIPOCONTATACAO === 'number' && item.TIPOCONTATACAO <= 32767 ? item.TIPOCONTATACAO : null,
+          birth_date: item.DATA_NASCIMENTO ? new Date(item.DATA_NASCIMENTO) : null,
+          hire_date: item.DATA_ADMISSAO ? new Date(item.DATA_ADMISSAO) : null,
+          termination_date: item.DATA_DEMISSAO ? new Date(item.DATA_DEMISSAO) : null,
+          address: item.ENDERECO,
+          address_number: item.NUMERO_ENDERECO,
+          neighborhood: item.BAIRRO,
+          city: item.CIDADE,
+          state: item.UF,
+          zip_code: item.CEP,
+          home_phone: item.TELEFONERESIDENCIAL,
+          mobile_phone: item.TELEFONECELULAR,
+          email: item.EMAIL,
+          is_disabled: item.DEFICIENTE === 1,
+          disability_description: item.DEFICIENCIA,
+          mother_name: item.NM_MAE_FUNCIONARIO,
+          last_update_date: item.DATAULTALTERACAO ? new Date(item.DATAULTALTERACAO) : null,
+          hr_registration: item.MATRICULARH,
+          skin_color: typeof item.COR === 'number' && item.COR <= 32767 ? item.COR : null,
+          education: typeof item.ESCOLARIDADE === 'number' && item.ESCOLARIDADE <= 32767 ? item.ESCOLARIDADE : null,
+          birthplace: item.NATURALIDADE,
+          extension: item.RAMAL,
+          shift_regime: typeof item.REGIMEREVEZAMENTO === 'number' && item.REGIMEREVEZAMENTO <= 32767 ? item.REGIMEREVEZAMENTO : null,
+          work_regime: item.REGIMETRABALHO,
+          commercial_phone: item.TELCOMERCIAL,
+          work_shift: typeof item.TURNOTRABALHO === 'number' && item.TURNOTRABALHO <= 32767 ? item.TURNOTRABALHO : null,
+          hr_unit: item.RHUNIDADE,
+          hr_sector: item.RHSETOR,
+          hr_position: item.RHCARGO,
+          hr_cost_center_unit: item.RHCENTROCUSTOUNIDADE,
+          user_id: userId
+        };
+
+        // Check for and handle company relationship
+        try {
+          // Look for existing company or create one if needed
+          const { data: existingCompany } = await supabase
             .from('companies')
-            .insert({
-              soc_code: item.CODIGOEMPRESA,
-              short_name: item.NOMEEMPRESA || 'Empresa sem nome',
-              corporate_name: item.NOMEEMPRESA || 'Empresa sem nome',
-              user_id: userId
-            })
             .select('id')
-            .single();
+            .eq('soc_code', item.CODIGOEMPRESA)
+            .eq('user_id', userId)
+            .maybeSingle();
             
-          if (!companyError && newCompany) {
-            employeeData.company_id = newCompany.id;
+          if (!existingCompany) {
+            // Create a placeholder company if needed
+            const { data: newCompany, error: companyError } = await supabase
+              .from('companies')
+              .insert({
+                soc_code: item.CODIGOEMPRESA,
+                short_name: item.NOMEEMPRESA || 'Empresa sem nome',
+                corporate_name: item.NOMEEMPRESA || 'Empresa sem nome',
+                user_id: userId
+              })
+              .select('id')
+              .single();
+              
+            if (!companyError && newCompany) {
+              employeeData.company_id = newCompany.id;
+            }
+          } else {
+            employeeData.company_id = existingCompany.id;
           }
-        } else {
-          employeeData.company_id = existingCompany.id;
+        } catch (companyError) {
+          console.error(`Error handling company for employee ${item.CODIGO}:`, companyError);
         }
-      } catch (companyError) {
-        console.error(`Error handling company for employee ${item.CODIGO}:`, companyError);
-      }
-      
-      let result;
-      if (existingEmployee) {
-        // Update existing employee
-        result = await supabase
-          .from('employees')
-          .update(employeeData)
-          .eq('id', existingEmployee.id);
-      } else {
-        // Insert new employee
-        result = await supabase
-          .from('employees')
-          .insert(employeeData);
-      }
-      
-      if (result.error) {
-        console.error(`Error processing employee ${item.CODIGO}:`, result.error);
+        
+        let result;
+        if (existingEmployee) {
+          // Update existing employee
+          result = await supabase
+            .from('employees')
+            .update(employeeData)
+            .eq('id', existingEmployee.id);
+        } else {
+          // Insert new employee
+          result = await supabase
+            .from('employees')
+            .insert(employeeData);
+        }
+        
+        if (result.error) {
+          console.error(`Error processing employee ${item.CODIGO}:`, result.error);
+          error++;
+        } else {
+          success++;
+        }
+      } catch (individualError) {
+        console.error(`Error processing individual employee ${item?.CODIGO || 'unknown'}:`, individualError);
         error++;
-      } else {
-        success++;
       }
-    } catch (individualError) {
-      console.error(`Error processing individual employee ${item?.CODIGO || 'unknown'}:`, individualError);
-      error++;
     }
+    
+    // Small delay between chunks
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
   
   return { count: data.length, success, error };
 }
 
-// Function to process absenteeism batches - Updated to use insert instead of upsert
+// Function to process absenteeism batches
 async function processAbsenteeismBatch(supabase, data, userId) {
   console.log(`Processing batch of ${data.length} absenteeism records`);
   let success = 0;
   let error = 0;
   
-  // Process each absenteeism record individually
-  for (const item of data) {
-    try {
-      let employeeId = null;
-      
-      // Try to find the employee by registration number
-      if (item.MATRICULA_FUNC) {
-        const { data: employee } = await supabase
-          .from('employees')
-          .select('id')
-          .eq('employee_registration', item.MATRICULA_FUNC)
-          .eq('user_id', userId)
-          .maybeSingle();
-          
-        if (employee) {
-          employeeId = employee.id;
-        }
-      }
-      
-      // Ensure genders, certificate_type don't exceed smallint range
-      const gender = typeof item.SEXO === 'number' && item.SEXO <= 32767 ? item.SEXO : null;
-      const certificateType = typeof item.TIPO_ATESTADO === 'number' && item.TIPO_ATESTADO <= 32767 ? item.TIPO_ATESTADO : null;
-      
-      const absenteeismData = {
-        unit: item.UNIDADE,
-        sector: item.SETOR,
-        employee_registration: item.MATRICULA_FUNC,
-        employee_id: employeeId,
-        birth_date: item.DT_NASCIMENTO ? new Date(item.DT_NASCIMENTO) : null,
-        gender: gender,
-        certificate_type: certificateType,
-        start_date: item.DT_INICIO_ATESTADO ? new Date(item.DT_INICIO_ATESTADO) : new Date(),
-        end_date: item.DT_FIM_ATESTADO ? new Date(item.DT_FIM_ATESTADO) : new Date(),
-        start_time: item.HORA_INICIO_ATESTADO,
-        end_time: item.HORA_FIM_ATESTADO,
-        days_absent: typeof item.DIAS_AFASTADOS === 'number' ? item.DIAS_AFASTADOS : null,
-        hours_absent: item.HORAS_AFASTADO,
-        primary_icd: item.CID_PRINCIPAL,
-        icd_description: item.DESCRICAO_CID,
-        pathological_group: item.GRUPO_PATOLOGICO,
-        license_type: item.TIPO_LICENCA,
-        user_id: userId
-      };
-      
-      // Always use insert for absenteeism records
-      const { error: insertError } = await supabase
-        .from('absenteeism')
-        .insert(absenteeismData);
+  // Process absenteeism in smaller chunks
+  const absenteeismChunks = chunkArray(data, 10);
+  
+  for (const chunk of absenteeismChunks) {
+    // Process each absenteeism record individually
+    for (const item of chunk) {
+      try {
+        let employeeId = null;
         
-      if (insertError) {
-        console.error(`Error inserting absenteeism record:`, insertError);
+        // Try to find the employee by registration number
+        if (item.MATRICULA_FUNC) {
+          const { data: employee } = await supabase
+            .from('employees')
+            .select('id')
+            .eq('employee_registration', item.MATRICULA_FUNC)
+            .eq('user_id', userId)
+            .maybeSingle();
+            
+          if (employee) {
+            employeeId = employee.id;
+          }
+        }
+        
+        // Ensure numeric fields don't exceed smallint range
+        const gender = typeof item.SEXO === 'number' && item.SEXO <= 32767 ? item.SEXO : null;
+        const certificateType = typeof item.TIPO_ATESTADO === 'number' && item.TIPO_ATESTADO <= 32767 ? item.TIPO_ATESTADO : null;
+        
+        const absenteeismData = {
+          unit: item.UNIDADE,
+          sector: item.SETOR,
+          employee_registration: item.MATRICULA_FUNC,
+          employee_id: employeeId,
+          birth_date: item.DT_NASCIMENTO ? new Date(item.DT_NASCIMENTO) : null,
+          gender: gender,
+          certificate_type: certificateType,
+          start_date: item.DT_INICIO_ATESTADO ? new Date(item.DT_INICIO_ATESTADO) : new Date(),
+          end_date: item.DT_FIM_ATESTADO ? new Date(item.DT_FIM_ATESTADO) : new Date(),
+          start_time: item.HORA_INICIO_ATESTADO,
+          end_time: item.HORA_FIM_ATESTADO,
+          days_absent: typeof item.DIAS_AFASTADOS === 'number' ? item.DIAS_AFASTADOS : null,
+          hours_absent: item.HORAS_AFASTADO,
+          primary_icd: item.CID_PRINCIPAL,
+          icd_description: item.DESCRICAO_CID,
+          pathological_group: item.GRUPO_PATOLOGICO,
+          license_type: item.TIPO_LICENCA,
+          user_id: userId
+        };
+        
+        // Always use insert for absenteeism records
+        const { error: insertError } = await supabase
+          .from('absenteeism')
+          .insert(absenteeismData);
+          
+        if (insertError) {
+          console.error(`Error inserting absenteeism record:`, insertError);
+          error++;
+        } else {
+          success++;
+        }
+      } catch (individualError) {
+        console.error(`Error processing individual absenteeism record:`, individualError);
         error++;
-      } else {
-        success++;
       }
-    } catch (individualError) {
-      console.error(`Error processing individual absenteeism record:`, individualError);
-      error++;
     }
+    
+    // Small delay between chunks
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
   
   return { count: data.length, success, error };
+}
+
+// Helper function to chunk array into smaller pieces
+function chunkArray(array, chunkSize) {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += chunkSize) {
+    chunks.push(array.slice(i, i + chunkSize));
+  }
+  return chunks;
 }

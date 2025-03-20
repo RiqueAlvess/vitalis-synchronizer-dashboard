@@ -2,7 +2,7 @@
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
 
-// Create a base axios instance for Supabase Functions
+// Create a base axios instance for Supabase Functions with increased timeout
 export const supabaseAPI = axios.create({
   baseURL: import.meta.env.DEV 
     ? '/api'
@@ -10,7 +10,7 @@ export const supabaseAPI = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 60000 // Aumentado para 60 segundos para operações de sincronização
+  timeout: 180000 // Increased to 3 minutes for sync operations
 });
 
 // Track if we're currently refreshing the token
@@ -117,7 +117,7 @@ supabaseAPI.interceptors.response.use(
     
     // Handle timeout errors
     if (error.code === 'ECONNABORTED') {
-      error.message = 'A solicitação demorou muito para ser concluída. Tente novamente.';
+      error.message = 'A solicitação demorou muito para ser concluída. Tente novamente mais tarde.';
     }
     
     return Promise.reject(error);
