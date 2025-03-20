@@ -1,5 +1,9 @@
+
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
+
+// Enable debug mode for development environments
+const DEBUG = import.meta.env.DEV;
 
 // Create a base axios instance for Supabase Functions with increased timeout
 export const supabaseAPI = axios.create({
@@ -27,8 +31,19 @@ supabaseAPI.interceptors.request.use(
       // Add the token to the request if available
       if (session?.access_token) {
         config.headers['Authorization'] = `Bearer ${session.access_token}`;
+        if (DEBUG) console.log('Setting Authorization header with token');
       } else {
         console.warn('No session token available for API request');
+        // Force token refresh and try again
+        try {
+          const { data } = await supabase.auth.refreshSession();
+          if (data.session?.access_token) {
+            config.headers['Authorization'] = `Bearer ${data.session.access_token}`;
+            if (DEBUG) console.log('Setting Authorization header with refreshed token');
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh token:', refreshError);
+        }
       }
       
       // Add a custom header with the request time for debugging
@@ -93,6 +108,10 @@ supabaseAPI.interceptors.response.use(
         if (newToken) {
           console.log('Token refreshed successfully, retrying request');
           originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+          
+          // Add a small delay to ensure token propagation
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
           return axios(originalRequest);
         } else {
           console.error('No new token received after refresh');

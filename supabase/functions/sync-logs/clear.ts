@@ -12,15 +12,12 @@ Deno.serve(async (req) => {
   }
   
   try {
-    // Initialize Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    
-    // Get the session to verify authentication
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
+    // Get the authorization header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.log('Missing authorization header');
       return new Response(
-        JSON.stringify({ success: false, message: 'Not authenticated' }),
+        JSON.stringify({ success: false, message: 'Missing authorization header' }),
         { 
           status: 401, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
@@ -28,13 +25,43 @@ Deno.serve(async (req) => {
       );
     }
     
-    console.log(`User ${session.user.id} is clearing sync history`);
+    // Extract token (remove Bearer prefix if it exists)
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Initialize Supabase client
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
+    
+    // Get user data to verify the token
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      console.error('User verification error:', userError);
+      return new Response(
+        JSON.stringify({ success: false, message: 'Invalid authentication token' }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+    
+    console.log(`User ${user.id} is clearing sync history`);
     
     // Only delete completed, error or cancelled logs
     const { data, error } = await supabase
       .from('sync_logs')
       .delete()
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .in('status', ['completed', 'error', 'cancelled'])
       .not('completed_at', 'is', null)
       .select('id');

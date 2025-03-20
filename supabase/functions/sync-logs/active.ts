@@ -12,15 +12,12 @@ Deno.serve(async (req) => {
   }
   
   try {
-    // Initialize Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    
-    // Get the session to verify authentication
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
+    // Get the authorization header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.log('Missing authorization header');
       return new Response(
-        JSON.stringify({ success: false, message: 'Not authenticated' }),
+        JSON.stringify({ success: false, message: 'Missing authorization header' }),
         { 
           status: 401, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
@@ -28,14 +25,44 @@ Deno.serve(async (req) => {
       );
     }
     
-    console.log(`Checking active syncs for user ${session.user.id}`);
+    // Extract token (remove Bearer prefix if it exists)
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Initialize Supabase client
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
+    
+    // Get user data to verify the token
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      console.error('User verification error:', userError);
+      return new Response(
+        JSON.stringify({ success: false, message: 'Invalid authentication token' }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+    
+    console.log(`Checking active syncs for user ${user.id}`);
     
     // Get all active sync processes for this user
     // Explicitly check for records without completed_at date and only specific statuses
     const { data: activeSyncs, error } = await supabase
       .from('sync_logs')
       .select('*')
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .is('completed_at', null)
       .in('status', ['processing', 'in_progress', 'queued', 'started', 'continues', 'pending'])
       .order('id', { ascending: false });

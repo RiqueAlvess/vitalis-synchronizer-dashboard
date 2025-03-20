@@ -4,7 +4,6 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
 Deno.serve(async (req) => {
   // Handle CORS preflight request
@@ -23,23 +22,24 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Extract token
+    // Extract token (remove Bearer prefix if it exists)
     const token = authHeader.replace('Bearer ', '');
     
-    // Initialize admin Supabase client
-    const supabaseAdmin = createClient(
-      SUPABASE_URL,
-      SUPABASE_SERVICE_ROLE_KEY,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
+    // Initialize Supabase client
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
         }
       }
-    );
+    });
     
-    // Verify the token
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    // Get user data to verify the token
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
 
     // Check if user exists
     if (userError || !user) {

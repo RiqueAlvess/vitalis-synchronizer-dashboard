@@ -44,7 +44,9 @@ export const hasStoredSession = () => {
     if (!parsedData?.currentSession) return false;
     
     const expiryTime = parsedData.currentSession.expires_at * 1000;
-    return new Date(expiryTime) > new Date();
+    // Add a 5-minute buffer to be safe
+    const bufferTime = 5 * 60 * 1000; 
+    return new Date(expiryTime - bufferTime) > new Date();
   } catch (error) {
     console.error('Error checking stored session:', error);
     return false;
@@ -58,11 +60,14 @@ export const getCurrentToken = async () => {
     if (session?.access_token) {
       // Verify token expiration
       const now = Math.floor(Date.now() / 1000);
-      if (session.expires_at && session.expires_at > now) {
+      // Add a 5-minute buffer to be safe
+      const bufferTime = 5 * 60;
+      if (session.expires_at && (session.expires_at - bufferTime) > now) {
         return session.access_token;
       }
       
-      // Token expired, try to refresh
+      // Token expired or close to expiring, try to refresh
+      console.log('Token expired or close to expiring, refreshing...');
       const { data } = await supabase.auth.refreshSession();
       return data.session?.access_token;
     }
