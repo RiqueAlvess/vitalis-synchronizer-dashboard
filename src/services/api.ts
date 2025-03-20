@@ -1,6 +1,7 @@
-
+// src/services/api.ts
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
+import { syncLogsService } from './syncLogsService';
 
 // Type definitions
 export type ApiConfigType = 'employee' | 'absenteeism' | 'company';
@@ -38,7 +39,7 @@ const ensureUrlFormat = (url: string): string => {
 
 // Create base API instance
 const api = axios.create({
-  baseURL: 'https://rdrvashvfvjdtuuuqjio.supabase.co', // Fixed: replaced SUPABASE_URL with the actual URL
+  baseURL: 'https://rdrvashvfvjdtuuuqjio.supabase.co',
 });
 
 // Add authentication token to all requests
@@ -175,15 +176,43 @@ const apiService = {
 
   // Synchronization
   sync: {
+    // Check for active syncs before starting a new one
+    checkActiveSyncs: async () => {
+      try {
+        const activeSyncs = await syncLogsService.getActiveSyncs();
+        return activeSyncs;
+      } catch (error) {
+        console.error('Error checking active syncs:', error);
+        throw error;
+      }
+    },
+
+    // Start employee sync after checking active syncs
     employees: async () => {
       try {
+        // Check for active syncs first
+        const activeSyncs = await apiService.sync.checkActiveSyncs();
+        if (activeSyncs.count > 0) {
+          throw new Error(`Já existe uma sincronização em andamento: ${activeSyncs.types.join(', ')}. Aguarde a conclusão antes de iniciar uma nova.`);
+        }
+
+        // Set up automatic timeout for hung synchs
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new Error('Timeout: A requisição de sincronização excedeu o tempo limite. O processo pode continuar em segundo plano.'));
+          }, 60000); // 60 second timeout for sync start
+        });
+
         // Iniciar a sincronização com processamento paralelo
-        const { data } = await api.post('/functions/v1/sync-soc-data', { 
+        const syncPromise = api.post('/functions/v1/sync-soc-data', { 
           type: 'employee',
           parallel: true,
           batchSize: 100, // Tamanho reduzido para processamento mais rápido
-          maxConcurrent: 3 // Máximo de lotes processados simultaneamente
+          maxConcurrent: 3, // Máximo de lotes processados simultaneamente
+          timeoutSeconds: 600 // Defina um timeout de 10 minutos para cada operação
         });
+
+        const { data } = await Promise.race([syncPromise, timeoutPromise]) as any;
         return data;
       } catch (error) {
         console.error('Error syncing employees:', error);
@@ -191,15 +220,32 @@ const apiService = {
       }
     },
 
+    // Start absenteeism sync after checking active syncs
     absenteeism: async () => {
       try {
+        // Check for active syncs first
+        const activeSyncs = await apiService.sync.checkActiveSyncs();
+        if (activeSyncs.count > 0) {
+          throw new Error(`Já existe uma sincronização em andamento: ${activeSyncs.types.join(', ')}. Aguarde a conclusão antes de iniciar uma nova.`);
+        }
+
+        // Set up automatic timeout for hung syncs
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new Error('Timeout: A requisição de sincronização excedeu o tempo limite. O processo pode continuar em segundo plano.'));
+          }, 60000); // 60 second timeout for sync start
+        });
+
         // Iniciar a sincronização com processamento paralelo
-        const { data } = await api.post('/functions/v1/sync-soc-data', { 
+        const syncPromise = api.post('/functions/v1/sync-soc-data', { 
           type: 'absenteeism',
           parallel: true,
           batchSize: 100, // Tamanho reduzido para processamento mais rápido
-          maxConcurrent: 3 // Máximo de lotes processados simultaneamente
+          maxConcurrent: 3, // Máximo de lotes processados simultaneamente
+          timeoutSeconds: 600 // Defina um timeout de 10 minutos para cada operação
         });
+        
+        const { data } = await Promise.race([syncPromise, timeoutPromise]) as any;
         return data;
       } catch (error) {
         console.error('Error syncing absenteeism data:', error);
@@ -209,7 +255,9 @@ const apiService = {
 
     checkSyncStatus: async (syncId: number) => {
       try {
-        const { data } = await api.get(`/functions/v1/sync-logs?id=${syncId}`);
+        const { data } = await api.get(`/functions/v1/sync-logs?id=${syncId}`, {
+          timeout: 30000 // 30 second timeout for status check
+        });
         return data;
       } catch (error) {
         console.error('Error checking sync status:', error);
@@ -220,7 +268,12 @@ const apiService = {
     // Method to cancel a sync process
     cancelSync: async (syncId: number) => {
       try {
-        const { data } = await api.post('/functions/v1/sync-logs/cancel', { syncId });
+        const { data } = await api.post('/functions/v1/sync-logs/cancel', { 
+          syncId,
+          force: true // Add force parameter to ensure cancellation works
+        }, {
+          timeout: 30000 // 30 second timeout for cancel operation
+        });
         return data;
       } catch (error) {
         console.error('Error cancelling sync process:', error);
@@ -233,7 +286,9 @@ const apiService = {
   employees: {
     getAll: async () => {
       try {
-        const { data } = await api.get('/functions/v1/employees');
+        const { data } = await api.get('/functions/v1/employees', {
+          timeout: 30000 // 30 second timeout for employees fetch
+        });
         
         // Validar se os dados retornados são um array
         if (Array.isArray(data)) {
@@ -252,18 +307,8 @@ const apiService = {
     },
     
     sync: async () => {
-      try {
-        const { data } = await api.post('/functions/v1/sync-soc-data', { 
-          type: 'employee',
-          parallel: true,
-          batchSize: 100,
-          maxConcurrent: 3
-        });
-        return data;
-      } catch (error) {
-        console.error('Error syncing employees:', error);
-        throw error;
-      }
+      // Delegate to the central sync.employees function to ensure proper checks
+      return apiService.sync.employees();
     },
   },
 
