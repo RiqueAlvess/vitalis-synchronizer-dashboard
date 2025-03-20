@@ -1,4 +1,3 @@
-
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
 import { corsHeaders } from '../_shared/cors.ts';
 
@@ -76,6 +75,15 @@ Deno.serve(async (req) => {
       }
     });
     
+    // Check for continuable syncs before cancelling anything
+    const { data: continuableSyncs } = await supabaseAdmin
+      .from('sync_logs')
+      .select('id, type, status, batch, processed_records, total_records')
+      .eq('user_id', user.id)
+      .in('status', ['needs_continuation', 'continues'])
+      .is('completed_at', null)
+      .order('started_at', { ascending: false });
+    
     // Update all active sync processes to 'cancelled'
     const { data: updatedSyncs, error: updateError } = await supabaseAdmin
       .from('sync_logs')
@@ -85,7 +93,7 @@ Deno.serve(async (req) => {
         completed_at: new Date().toISOString(),
         error_details: 'Reset solicitado pelo usuário'
       })
-      .or('status.eq.pending,status.eq.in_progress,status.eq.processing')
+      .or('status.eq.pending,status.eq.in_progress,status.eq.processing,status.eq.queued,status.eq.started')
       .is('completed_at', null)
       .select();
     
@@ -104,11 +112,14 @@ Deno.serve(async (req) => {
       );
     }
     
+    // Don't cancel syncs that need continuation, just include them in the response
+    
     return new Response(
       JSON.stringify({
         success: true,
         message: 'All active sync processes have been reset',
-        count: updatedSyncs?.length || 0
+        count: updatedSyncs?.length || 0,
+        continuableSyncs: continuableSyncs || []
       }),
       { 
         headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
