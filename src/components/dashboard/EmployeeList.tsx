@@ -1,4 +1,4 @@
-
+// src/components/dashboard/EmployeeList.tsx
 import React, { useState, useEffect } from 'react';
 import {
   Table,
@@ -16,13 +16,15 @@ import {
   RefreshCw, 
   Search, 
   UserRound,
-  AlertCircle 
+  AlertCircle, 
+  SyncIcon,
+  Loader2
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import apiService from '@/services/api';
 import { MockEmployeeData } from '@/types/dashboard';
-import { Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 import { retryRequest } from '@/services/apiClient';
 import {
   Pagination,
@@ -33,10 +35,12 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
+import { syncLogsService } from '@/services/syncLogsService';
 
 const ITEMS_PER_PAGE = 10;
 
 const EmployeeList = () => {
+  const { toast } = useToast();
   const [employees, setEmployees] = useState<MockEmployeeData[]>([]);
   const [filteredEmployees, setFilteredEmployees] = useState<MockEmployeeData[]>([]);
   const [displayedEmployees, setDisplayedEmployees] = useState<MockEmployeeData[]>([]);
@@ -47,7 +51,19 @@ const EmployeeList = () => {
   const [syncProgress, setSyncProgress] = useState<{current: number, total: number} | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const { toast } = useToast();
+  const [activeSyncs, setActiveSyncs] = useState<{count: number, types: string[]}>({ count: 0, types: [] });
+
+  // Function to check for active syncs
+  const checkForActiveSyncs = async () => {
+    try {
+      const activeSyncs = await syncLogsService.getActiveSyncs();
+      setActiveSyncs(activeSyncs);
+      return activeSyncs.count > 0;
+    } catch (error) {
+      console.error('Error checking active syncs:', error);
+      return false;
+    }
+  };
 
   // Function to load employees with retry logic and better error handling
   const loadEmployees = async () => {
@@ -93,19 +109,74 @@ const EmployeeList = () => {
       setFilteredEmployees([]);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
-  // Function to refresh employee data with periodic status check
+  // Function to refresh employee data WITHOUT starting a new sync
   const handleRefresh = async () => {
     try {
       setIsRefreshing(true);
+
+      // Check if there's already a sync in progress
+      const hasSyncInProgress = await checkForActiveSyncs();
+      
+      if (hasSyncInProgress) {
+        // If sync is already in progress, just inform the user
+        toast({
+          title: 'Sincronização em andamento',
+          description: 'Uma sincronização já está em andamento. Os dados serão atualizados automaticamente quando concluído.',
+        });
+        
+        // Still try to fetch latest data
+        await loadEmployees();
+      } else {
+        // No sync in progress, just refresh the data
+        toast({
+          title: 'Atualizando lista',
+          description: 'Carregando dados mais recentes do banco de dados...',
+        });
+        
+        await loadEmployees();
+        
+        toast({
+          title: 'Lista atualizada',
+          description: 'Os dados dos funcionários foram atualizados.',
+        });
+      }
+    } catch (error) {
+      console.error('Error refreshing employees:', error);
+      toast({
+        title: 'Erro ao atualizar',
+        description: 'Não foi possível atualizar a lista de funcionários. Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Function to start sync - SEPARATE from refresh
+  const handleStartSync = async () => {
+    try {
+      // First check for active syncs
+      const hasSyncInProgress = await checkForActiveSyncs();
+      
+      if (hasSyncInProgress) {
+        toast({
+          title: 'Sincronização em andamento',
+          description: 'Uma sincronização já está em andamento. Aguarde a conclusão antes de iniciar uma nova.',
+          variant: 'default'
+        });
+        return;
+      }
+      
+      setIsRefreshing(true);
       setSyncProgress(null);
-      setLoadError(null);
       
       toast({
-        title: 'Atualizando lista de funcionários',
-        description: 'Iniciando sincronização com o SOC...',
+        title: 'Iniciando sincronização',
+        description: 'Iniciando a sincronização de funcionários com o SOC...',
       });
       
       // Start sync process
@@ -134,9 +205,9 @@ const EmployeeList = () => {
         pollSyncStatus();
       }
     } catch (error) {
-      console.error('Error refreshing employees:', error);
+      console.error('Error initiating sync:', error);
       toast({
-        title: 'Erro ao atualizar',
+        title: 'Erro ao iniciar sincronização',
         description: 'Não foi possível iniciar a sincronização de funcionários. Tente novamente.',
         variant: 'destructive',
       });
@@ -199,9 +270,25 @@ const EmployeeList = () => {
     }
   };
 
-  // Load employees on component mount
+  // Load employees on component mount and check for active syncs
   useEffect(() => {
-    loadEmployees();
+    const initialize = async () => {
+      await checkForActiveSyncs();
+      loadEmployees();
+    };
+    
+    initialize();
+    
+    // Set up interval to check for active syncs
+    const intervalId = setInterval(async () => {
+      const hasSyncInProgress = await checkForActiveSyncs();
+      if (!hasSyncInProgress && activeSyncs.count > 0) {
+        // If a sync just completed, reload the data
+        loadEmployees();
+      }
+    }, 10000); // Check every 10 seconds
+    
+    return () => clearInterval(intervalId);
   }, []);
 
   // Filter employees when search term changes
@@ -232,10 +319,10 @@ const EmployeeList = () => {
     const lowercasedTerm = searchTerm.toLowerCase();
     const filtered = employees.filter(
       employee =>
-        employee.name?.toLowerCase().includes(lowercasedTerm) ||
-        employee.full_name?.toLowerCase().includes(lowercasedTerm) ||
-        employee.position_name?.toLowerCase().includes(lowercasedTerm) ||
-        employee.sector_name?.toLowerCase().includes(lowercasedTerm)
+        (employee.name?.toLowerCase() || "").includes(lowercasedTerm) ||
+        (employee.full_name?.toLowerCase() || "").includes(lowercasedTerm) ||
+        (employee.position_name?.toLowerCase() || "").includes(lowercasedTerm) ||
+        (employee.sector_name?.toLowerCase() || "").includes(lowercasedTerm)
     );
     setFilteredEmployees(filtered);
     
@@ -382,7 +469,7 @@ const EmployeeList = () => {
           <Button onClick={loadEmployees} className="mr-2">
             Tentar novamente
           </Button>
-          <Button onClick={handleRefresh} variant="outline">
+          <Button onClick={handleStartSync} variant="outline">
             Sincronizar dados
           </Button>
         </div>
@@ -392,6 +479,16 @@ const EmployeeList = () => {
 
   return (
     <div className="space-y-4">
+      {activeSyncs.count > 0 && (
+        <Alert className="bg-blue-50 border-blue-200">
+          <RefreshCw className="h-4 w-4 text-blue-500 animate-spin" />
+          <AlertTitle className="text-blue-700">Sincronização em andamento</AlertTitle>
+          <AlertDescription className="text-blue-600">
+            Existe uma sincronização de funcionários em andamento. Os dados serão atualizados automaticamente quando concluída.
+          </AlertDescription>
+        </Alert>
+      )}
+      
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
         <div className="relative w-full sm:w-auto flex-1 max-w-md">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -403,6 +500,7 @@ const EmployeeList = () => {
           />
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
+          {/* Separate refresh button from sync button */}
           <Button
             variant="outline"
             size="sm"
@@ -415,13 +513,29 @@ const EmployeeList = () => {
             ) : (
               <RefreshCw className="h-4 w-4" />
             )}
-            {isRefreshing ? 'Sincronizando...' : 'Atualizar Lista'}
+            Atualizar Lista
+          </Button>
+          
+          {/* New separate button for starting a sync */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-1"
+            onClick={handleStartSync}
+            disabled={isRefreshing || activeSyncs.count > 0}
+          >
+            {isRefreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <SyncIcon className="h-4 w-4" />
+            )}
+            Sincronizar
           </Button>
         </div>
       </div>
       
       {/* Sync progress indicator */}
-      {isRefreshing && syncProgress && (
+      {(isRefreshing && syncProgress) && (
         <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-2">
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
@@ -446,7 +560,7 @@ const EmployeeList = () => {
               : 'Nenhum funcionário encontrado com o filtro atual. Tente outro termo de busca.'}
           </p>
           {(!Array.isArray(employees) || employees.length === 0) && (
-            <Button onClick={handleRefresh} className="mt-4" disabled={isRefreshing}>
+            <Button onClick={handleStartSync} className="mt-4" disabled={isRefreshing || activeSyncs.count > 0}>
               {isRefreshing ? 'Sincronizando...' : 'Sincronizar Agora'}
             </Button>
           )}
