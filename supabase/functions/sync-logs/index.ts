@@ -3,112 +3,106 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
 import { corsHeaders } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight request
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders(req) });
   }
-
+  
   try {
-    // Get authorization header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
+    // Initialize Supabase client
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    
+    // Get the session to verify authentication
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
       return new Response(
         JSON.stringify({ success: false, message: 'Not authenticated' }),
-        { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+        { 
+          status: 401, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
       );
     }
-
-    // Extract token
-    const token = authHeader.replace('Bearer ', '');
-
-    // Create admin Supabase client
-    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-
-    // Verify the token
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
-
-    if (userError || !user) {
-      console.error('Auth error:', userError);
-      return new Response(
-        JSON.stringify({ success: false, message: 'Invalid authentication token' }),
-        { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-      );
-    }
-
-    console.log('User authenticated:', user.id);
-
+    
+    // Parse URL and get query parameters
     const url = new URL(req.url);
-    const path = url.pathname.split('/');
-    const logId = path[path.length - 1];
-
-    // Check if requesting a specific log
-    if (logId && logId !== 'sync-logs') {
-      console.log(`Fetching sync log with ID: ${logId}`);
+    const id = url.searchParams.get('id');
+    const limit = parseInt(url.searchParams.get('limit') || '50');
+    const offset = parseInt(url.searchParams.get('offset') || '0');
+    const order = url.searchParams.get('order') || 'desc';
+    
+    // If ID is provided, get a specific log
+    if (id) {
+      console.log(`Fetching sync log with ID ${id}`);
       
-      // Get a specific sync log
-      const { data: log, error: logError } = await supabaseAdmin
+      const { data: log, error } = await supabase
         .from('sync_logs')
         .select('*')
-        .eq('id', logId)
-        .eq('user_id', user.id)
+        .eq('id', id)
+        .eq('user_id', session.user.id)
         .single();
       
-      if (logError) {
-        console.error('Error fetching sync log:', logError);
+      if (error) {
+        console.error(`Error fetching sync log ${id}:`, error);
         return new Response(
-          JSON.stringify({ success: false, message: 'Failed to fetch sync log' }),
-          { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-        );
-      }
-      
-      if (!log) {
-        return new Response(
-          JSON.stringify({ success: false, message: 'Sync log not found' }),
-          { status: 404, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+          JSON.stringify({ success: false, message: `Error fetching sync log ${id}`, error: error.message }),
+          { 
+            status: 500, 
+            headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+          }
         );
       }
       
       return new Response(
         JSON.stringify(log),
-        { status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+        { 
+          status: 200, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
       );
     } else {
-      // Get all sync logs for the user
-      console.log('Fetching all sync logs for user:', user.id);
+      console.log(`Fetching sync logs with limit ${limit}, offset ${offset}, order ${order}`);
       
-      const { data: logs, error: logsError } = await supabaseAdmin
+      // Get all logs for this user with pagination
+      const { data: logs, error } = await supabase
         .from('sync_logs')
         .select('*')
-        .eq('user_id', user.id)
-        .order('started_at', { ascending: false })
-        .limit(50);
-
-      if (logsError) {
-        console.error('Error fetching sync logs:', logsError);
+        .eq('user_id', session.user.id)
+        .order('id', { ascending: order === 'asc' })
+        .limit(limit)
+        .range(offset, offset + limit - 1);
+      
+      if (error) {
+        console.error('Error fetching sync logs:', error);
         return new Response(
-          JSON.stringify({ success: false, message: 'Failed to fetch sync logs' }),
-          { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+          JSON.stringify({ success: false, message: 'Error fetching sync logs', error: error.message }),
+          { 
+            status: 500, 
+            headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+          }
         );
       }
-
+      
       return new Response(
-        JSON.stringify(logs || []),
-        { status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+        JSON.stringify(logs),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
       );
     }
   } catch (error) {
     console.error('Unexpected error:', error);
     return new Response(
-      JSON.stringify({ success: false, message: 'An unexpected error occurred' }),
-      { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: false, message: 'Erro interno no servidor', error: error.message }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+      }
     );
   }
 });

@@ -28,34 +28,20 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Parse request body
-    const body = await req.json();
-    const syncId = body.syncId;
+    console.log(`User ${session.user.id} is resetting all active sync processes`);
     
-    if (!syncId) {
-      return new Response(
-        JSON.stringify({ success: false, message: 'Missing required parameter: syncId' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
-      );
-    }
-    
-    console.log(`Cancelling sync process ${syncId} for user ${session.user.id}`);
-    
-    // Check if the sync log exists and belongs to the user
-    const { data: syncLog, error: fetchError } = await supabase
+    // Find all in-progress sync processes for this user
+    const { data: activeSyncs, error: findError } = await supabase
       .from('sync_logs')
-      .select('id, status, type')
-      .eq('id', syncId)
+      .select('id, type, status')
       .eq('user_id', session.user.id)
-      .single();
+      .in('status', ['processing', 'in_progress', 'queued', 'started', 'continues', 'pending'])
+      .order('id', { ascending: false });
     
-    if (fetchError) {
-      console.error(`Error fetching sync log ${syncId}:`, fetchError);
+    if (findError) {
+      console.error('Error finding active syncs:', findError);
       return new Response(
-        JSON.stringify({ success: false, message: `Error fetching sync log ${syncId}`, error: fetchError.message }),
+        JSON.stringify({ success: false, message: 'Error finding active syncs', error: findError.message }),
         { 
           status: 500, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
@@ -63,31 +49,32 @@ Deno.serve(async (req) => {
       );
     }
     
-    if (!syncLog) {
+    if (!activeSyncs || activeSyncs.length === 0) {
       return new Response(
-        JSON.stringify({ success: false, message: `Sync log ${syncId} not found or does not belong to you` }),
+        JSON.stringify({ success: true, message: 'No active syncs found', count: 0 }),
         { 
-          status: 404, 
+          status: 200, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
     }
     
-    // Update the sync log to cancelled status
+    console.log(`Found ${activeSyncs.length} active syncs to reset`);
+    
+    // Update all in-progress syncs to cancelled
     const { error: updateError } = await supabase
       .from('sync_logs')
       .update({
         status: 'cancelled',
-        message: 'Processo cancelado pelo usuário',
+        message: 'Processo cancelado manualmente por reset de sistema',
         completed_at: new Date().toISOString()
       })
-      .eq('id', syncId)
-      .eq('user_id', session.user.id);
+      .in('id', activeSyncs.map(sync => sync.id));
     
     if (updateError) {
-      console.error(`Error updating sync log ${syncId}:`, updateError);
+      console.error('Error updating sync logs:', updateError);
       return new Response(
-        JSON.stringify({ success: false, message: `Error updating sync log ${syncId}`, error: updateError.message }),
+        JSON.stringify({ success: false, message: 'Error updating sync logs', error: updateError.message }),
         { 
           status: 500, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
@@ -98,9 +85,9 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: `Sync process ${syncId} cancelled successfully`,
-        syncId,
-        type: syncLog.type
+        message: `Reset ${activeSyncs.length} active sync processes`, 
+        count: activeSyncs.length,
+        syncs: activeSyncs
       }),
       { 
         status: 200, 
