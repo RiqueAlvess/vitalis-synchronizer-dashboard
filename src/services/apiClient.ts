@@ -63,8 +63,13 @@ supabaseAPI.interceptors.request.use(
         }
       }
       
-      // Add custom headers for debugging
+      // Add custom headers for debugging and CORS
       config.headers['x-request-time'] = new Date().toISOString();
+      
+      // Prevent caching of API calls
+      if (config.method?.toLowerCase() === 'get') {
+        config.params = { ...config.params, _t: Date.now() };
+      }
       
       return config;
     } catch (error) {
@@ -88,6 +93,13 @@ supabaseAPI.interceptors.response.use(
         method: originalRequest.method,
         responseTime: new Date().toISOString(),
         error: error.response.data
+      });
+    } else if (error.code === 'ECONNABORTED') {
+      console.error('API Timeout Error:', {
+        url: originalRequest?.url,
+        method: originalRequest?.method,
+        timeout: originalRequest?.timeout,
+        error: error.message
       });
     } else {
       console.error('API Error (No Response):', {
@@ -149,16 +161,16 @@ supabaseAPI.interceptors.response.use(
       }
     }
     
+    // Handle timeout errors with a clearer message
+    if (error.code === 'ECONNABORTED') {
+      error.message = `O tempo limite da solicitação expirou (${originalRequest?.timeout/1000 || 'N/A'}s). A operação pode continuar em segundo plano. Verifique a página de sincronização para ver o status atual.`;
+    }
+    
     // Handle network errors with better messages
     if (error.message === 'Network Error') {
       error.message = navigator.onLine 
         ? 'Erro de conexão com o servidor. Tente novamente mais tarde.' 
         : 'Sem conexão com a internet. Verifique sua conexão e tente novamente.';
-    }
-    
-    // Handle timeout errors
-    if (error.code === 'ECONNABORTED') {
-      error.message = 'A solicitação demorou muito para ser concluída. Tente novamente mais tarde.';
     }
     
     return Promise.reject(error);

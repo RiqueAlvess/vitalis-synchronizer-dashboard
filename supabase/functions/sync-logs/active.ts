@@ -2,147 +2,97 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
 import { corsHeaders } from '../_shared/cors.ts';
 
+// Get environment variables
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
-Deno.serve(async (req) => {
+export const corsOptions = {
+  headers: {
+    ...corsHeaders(),
+    'Content-Type': 'application/json',
+  },
+};
+
+export async function activeHandler(req: Request): Promise<Response> {
+  console.log('Active syncs endpoint called');
+    
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders(req) });
   }
-
+  
   try {
-    // Debug request headers
-    const headers: Record<string, string> = {};
-    req.headers.forEach((value, key) => {
-      headers[key] = value;
-    });
+    // Initialize the Supabase client
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     
-    console.log('Sync-Logs Active - Request headers:', JSON.stringify(headers));
-    
-    // Get the authorization header
+    // Authenticate the request
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          message: 'Missing authorization header',
-          headers
-        }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+        JSON.stringify({ success: false, message: 'Missing authorization header' }),
+        { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
     
-    // Extract token (remove Bearer prefix if it exists)
+    // Extract the token
     const token = authHeader.replace('Bearer ', '');
     
-    // Log token details (first and last few characters, for security)
-    const tokenLength = token.length;
-    const maskedToken = tokenLength > 10 ? 
-      `${token.substring(0, 5)}...${token.substring(tokenLength - 5)}` : 
-      'token too short';
-    console.log(`Token received (masked): ${maskedToken}, length: ${tokenLength}`);
+    // Verify the token and get the user
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     
-    // Create admin client to verify the token
-    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-    
-    // Get user with service role to verify the token
-    const { data: { user }, error: userError } = await adminClient.auth.getUser(token);
-    
-    if (userError || !user) {
-      console.error('Error verifying token:', userError);
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          message: 'Not authenticated',
-          error: userError ? userError.message : 'No user found for token'
-        }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+        JSON.stringify({ success: false, message: 'Authentication failed' }),
+        { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
     
-    console.log(`Authenticated as user: ${user.email} (${user.id})`);
+    console.log('Authenticated as user:', user.email, `(${user.id})`);
     
-    // Initialize regular Supabase client for data operations
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
-    
-    // Get active sync processes (status is 'pending' or 'in_progress')
-    const { data: activeSyncs, error: syncsError } = await supabase
+    // Fetch active sync logs - including statuses that may need attention
+    const { data: logs, error } = await supabase
       .from('sync_logs')
       .select('*')
-      .or('status.eq.pending,status.eq.in_progress,status.eq.processing')
-      .is('completed_at', null)
-      .order('created_at', { ascending: false });
+      .or('status.eq.in_progress,status.eq.queued,status.eq.started,status.eq.continues,status.eq.processing')
+      .order('started_at', { ascending: false })
+      .limit(50);
     
-    if (syncsError) {
-      console.error('Error fetching active syncs:', syncsError);
+    if (error) {
+      console.error('Error fetching active syncs:', error);
       return new Response(
         JSON.stringify({ 
           success: false, 
-          message: 'Error fetching active syncs',
-          error: syncsError.message 
+          message: 'Error fetching active syncs', 
+          error: error.message 
         }),
-        { 
-          status: 500, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+        { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
     
-    // Count active syncs by type
-    const types: string[] = [];
-    activeSyncs?.forEach(sync => {
-      if (sync.type && !types.includes(sync.type)) {
-        types.push(sync.type);
-      }
-    });
+    // Extract unique types from active syncs
+    const types = [...new Set(logs.map(log => log.type))];
     
+    // Return the results
     return new Response(
-      JSON.stringify({
-        success: true,
-        count: activeSyncs?.length || 0,
-        types: types,
-        logs: activeSyncs || []
+      JSON.stringify({ 
+        success: true, 
+        count: logs.length,
+        types,
+        logs
       }),
-      { 
-        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-      }
+      { status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
     );
     
   } catch (error) {
-    console.error('Unexpected error:', error);
+    console.error('Unexpected error in active syncs:', error);
     return new Response(
       JSON.stringify({ 
         success: false, 
-        message: 'Unexpected error', 
-        error: error instanceof Error ? error.message : String(error) 
+        message: 'An unexpected error occurred', 
+        error: error.message 
       }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-      }
+      { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
     );
   }
-});
+}

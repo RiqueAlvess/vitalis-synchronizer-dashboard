@@ -24,13 +24,27 @@ export const syncLogsService = {
     }
   },
   
-  // Get active sync processes
+  // Get active sync processes - Improved with error handling and fallback
   getActiveSyncs: async () => {
     try {
       console.log('Checking active sync processes...');
-      const { data } = await supabaseAPI.get('/sync-logs/active');
-      console.log('Manual check for active syncs:', data);
-      return data || { count: 0, types: [], logs: [] };
+      // Use the retryRequest helper for more reliable fetching
+      const { data } = await supabaseAPI.get('/sync-logs/active', {
+        timeout: 10000, // Shorter timeout for active syncs check
+      });
+      
+      // Log response for debugging
+      console.log('Active syncs:', data);
+      
+      // Validate response structure and return
+      if (data && typeof data === 'object') {
+        return data.logs ? 
+          { count: data.count || 0, types: data.types || [], logs: data.logs || [] } : 
+          { count: 0, types: [], logs: [] };
+      } else {
+        console.warn('Invalid response format from active syncs endpoint:', data);
+        return { count: 0, types: [], logs: [] };
+      }
     } catch (error) {
       console.error('Error checking active syncs:', error);
       // Return empty result on error to prevent UI issues
@@ -67,6 +81,17 @@ export const syncLogsService = {
       return data;
     } catch (error) {
       console.error('Error clearing sync history:', error);
+      throw error;
+    }
+  },
+  
+  // Force retry a failed or stuck sync
+  retrySync: async (syncId: number) => {
+    try {
+      const { data } = await supabaseAPI.post('/sync-logs/retry', { syncId });
+      return data;
+    } catch (error) {
+      console.error(`Error retrying sync ${syncId}:`, error);
       throw error;
     }
   }

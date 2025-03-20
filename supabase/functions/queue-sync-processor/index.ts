@@ -6,7 +6,10 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
 const SOC_API_URL = 'https://ws1.soc.com.br/WebSoc/exportadados';
 
-const BATCH_SIZE = 50; // Number of records to process at once
+// Smaller batch size to prevent timeouts and improve reliability
+const BATCH_SIZE = 30; 
+// Maximum time for a single batch operation in milliseconds
+const BATCH_TIMEOUT = 60000; // 1 minute
 
 interface SyncJob {
   id: string;
@@ -82,130 +85,244 @@ async function processQueue() {
       
       console.log(`Calling SOC API at: ${apiUrl}`);
       
-      // Make the API request
-      const response = await fetch(apiUrl);
+      // Make the API request with timeout protection
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 seconds timeout
       
-      if (!response.ok) {
-        throw new Error(`API request failed with status: ${response.status}`);
-      }
-      
-      // Get the text response and decode it from latin-1
-      const responseBuffer = await response.arrayBuffer();
-      const decoder = new TextDecoder('latin1');
-      const decodedContent = decoder.decode(responseBuffer);
-      
-      // Parse the JSON response
-      let jsonData;
       try {
-        jsonData = JSON.parse(decodedContent);
-      } catch (e) {
-        console.error('Error parsing JSON:', e);
-        throw new Error(`Invalid JSON response: ${e.message}`);
-      }
-      
-      if (!Array.isArray(jsonData)) {
-        throw new Error('API did not return an array of records');
-      }
-      
-      console.log(`Received ${jsonData.length} records from SOC API`);
-      
-      // Update job status with total count
-      jobStatus.set(job.id, { 
-        ...jobStatus.get(job.id)!, 
-        total: jsonData.length,
-        processed: 0
-      });
-      
-      // Process data in batches
-      let processed = 0;
-      const total = jsonData.length;
-      
-      for (let i = 0; i < total; i += BATCH_SIZE) {
-        const batch = jsonData.slice(i, Math.min(i + BATCH_SIZE, total));
+        const response = await fetch(apiUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
         
-        // Process batch based on type
-        let processResult;
-        
-        switch (job.type) {
-          case 'company':
-            processResult = await processCompanyBatch(supabase, batch, job.userId);
-            break;
-          case 'employee':
-            processResult = await processEmployeeBatch(supabase, batch, job.userId);
-            break;
-          case 'absenteeism':
-            processResult = await processAbsenteeismBatch(supabase, batch, job.userId);
-            break;
-          default:
-            throw new Error(`Unsupported data type: ${job.type}`);
+        if (!response.ok) {
+          throw new Error(`API request failed with status: ${response.status}`);
         }
         
-        processed += batch.length;
+        // Get the text response and decode it from latin-1
+        const responseBuffer = await response.arrayBuffer();
+        const decoder = new TextDecoder('latin1');
+        const decodedContent = decoder.decode(responseBuffer);
         
-        // Update progress
-        const progress = Math.round((processed / total) * 100);
+        // Parse the JSON response
+        let jsonData;
+        try {
+          jsonData = JSON.parse(decodedContent);
+        } catch (e) {
+          console.error('Error parsing JSON:', e);
+          throw new Error(`Invalid JSON response: ${e.message}`);
+        }
+        
+        if (!Array.isArray(jsonData)) {
+          throw new Error('API did not return an array of records');
+        }
+        
+        console.log(`Received ${jsonData.length} records from SOC API`);
+        
+        // Update job status with total count
         jobStatus.set(job.id, { 
           ...jobStatus.get(job.id)!, 
-          progress,
-          processed
+          total: jsonData.length,
+          processed: 0
         });
         
-        // Update sync log with progress
+        // Update sync log with total count
         if (job.syncLogId) {
           await supabase
             .from('sync_logs')
             .update({
-              message: `Processado ${processed} de ${total} registros (${progress}%)`,
+              total_records: jsonData.length,
+              message: `Iniciando processamento de ${jsonData.length} registros`,
+              batch: 0,
+              total_batches: Math.ceil(jsonData.length / BATCH_SIZE)
             })
             .eq('id', job.syncLogId);
         }
         
-        console.log(`Processed batch ${i}-${i + batch.length} of ${total} (${progress}%)`);
+        // Process data in batches with error recovery
+        let processed = 0;
+        const total = jsonData.length;
+        const totalBatches = Math.ceil(total / BATCH_SIZE);
         
-        // Simulate some delay to not overwhelm the database
-        // This would be handled by Bull's rate limiting in a real implementation
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Track success and error counts
+        let successCount = 0;
+        let errorCount = 0;
+        
+        for (let i = 0; i < total; i += BATCH_SIZE) {
+          const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+          const batch = jsonData.slice(i, Math.min(i + BATCH_SIZE, total));
+          console.log(`Processing batch ${batchNumber}/${totalBatches} (${batch.length} records)`);
+          
+          try {
+            // Update batch info in sync log
+            if (job.syncLogId) {
+              await supabase
+                .from('sync_logs')
+                .update({
+                  batch: batchNumber,
+                  message: `Processando lote ${batchNumber} de ${totalBatches} (${batch.length} registros)`,
+                  processed_records: processed,
+                })
+                .eq('id', job.syncLogId);
+            }
+            
+            // Process batch with timeout protection
+            let processResult;
+            const batchPromise = (async () => {
+              try {
+                switch (job.type) {
+                  case 'company':
+                    return await processCompanyBatch(supabase, batch, job.userId);
+                  case 'employee':
+                    return await processEmployeeBatch(supabase, batch, job.userId);
+                  case 'absenteeism':
+                    return await processAbsenteeismBatch(supabase, batch, job.userId);
+                  default:
+                    throw new Error(`Unsupported data type: ${job.type}`);
+                }
+              } catch (batchError) {
+                console.error(`Error processing batch ${batchNumber}:`, batchError);
+                throw batchError;
+              }
+            })();
+            
+            // Add timeout protection for batch processing
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error(`Batch ${batchNumber} processing timed out`)), BATCH_TIMEOUT);
+            });
+            
+            try {
+              processResult = await Promise.race([batchPromise, timeoutPromise]);
+              successCount += batch.length;
+            } catch (batchError) {
+              // Log but continue with next batch
+              console.error(`Error in batch ${batchNumber}:`, batchError);
+              errorCount += batch.length;
+              
+              // Update sync log with the error but don't fail the whole job
+              if (job.syncLogId) {
+                await supabase
+                  .from('sync_logs')
+                  .update({
+                    error_count: (errorCount || 0) + batch.length,
+                    error_details: `Erro no lote ${batchNumber}: ${batchError.message}\n${errorCount > 0 ? 'Erros anteriores existem. ' : ''}`,
+                    message: `Sincronização continua após erro no lote ${batchNumber}. Processando próximo lote.`,
+                    status: 'continues' // Special status to indicate recovery
+                  })
+                  .eq('id', job.syncLogId);
+              }
+            }
+            
+            processed += batch.length;
+            
+            // Update progress
+            const progress = Math.round((processed / total) * 100);
+            jobStatus.set(job.id, { 
+              ...jobStatus.get(job.id)!, 
+              progress,
+              processed
+            });
+            
+            // Update sync log with progress
+            if (job.syncLogId) {
+              await supabase
+                .from('sync_logs')
+                .update({
+                  message: `Progresso: ${processed} de ${total} registros (${progress}%)`,
+                  processed_records: processed,
+                  success_count: successCount,
+                  error_count: errorCount
+                })
+                .eq('id', job.syncLogId);
+            }
+            
+            console.log(`Processed batch ${batchNumber}/${totalBatches} (${progress}%)`);
+            
+            // Add a small delay between batches to prevent overwhelming the database
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+          } catch (batchError) {
+            console.error(`Fatal error in batch ${batchNumber}:`, batchError);
+            
+            // Update sync log with the error but continue
+            if (job.syncLogId) {
+              await supabase
+                .from('sync_logs')
+                .update({
+                  error_count: (errorCount || 0) + batch.length,
+                  error_details: `Erro fatal no lote ${batchNumber}: ${batchError.message}`,
+                  status: 'continues',
+                  message: `Erro no processamento do lote ${batchNumber}, tentando continuar com o próximo lote.`
+                })
+                .eq('id', job.syncLogId);
+            }
+            
+            // Continue with next batch
+            errorCount += batch.length;
+          }
+        }
+        
+        // Update job status to completed
+        jobStatus.set(job.id, { 
+          ...jobStatus.get(job.id)!, 
+          status: 'completed',
+          progress: 100
+        });
+        
+        // Update sync log with success (even if there were some errors)
+        const finalStatus = errorCount > 0 ? 
+          (successCount > 0 ? 'completed_with_errors' : 'error') : 
+          'completed';
+        
+        if (job.syncLogId) {
+          await supabase
+            .from('sync_logs')
+            .update({
+              status: finalStatus,
+              message: `Sincronização de ${job.type} concluída: ${processed} registros processados (${successCount} com sucesso, ${errorCount} com erros)`,
+              completed_at: new Date().toISOString(),
+              success_count: successCount,
+              error_count: errorCount
+            })
+            .eq('id', job.syncLogId);
+        }
+        
+        console.log(`Job ${job.id} completed with status: ${finalStatus}. Success: ${successCount}, Errors: ${errorCount}`);
+        
+      } catch (error) {
+        clearTimeout(timeoutId);
+        console.error(`Error processing job ${job.id}:`, error);
+        
+        // Update job status to failed
+        jobStatus.set(job.id, { 
+          ...jobStatus.get(job.id)!, 
+          status: 'failed',
+          error: error.message
+        });
+        
+        // Update sync log with error
+        if (job.syncLogId) {
+          await supabase
+            .from('sync_logs')
+            .update({
+              status: 'error',
+              message: `Falha na sincronização de ${job.type}: ${error.message}`,
+              error_details: error.stack || error.message,
+              completed_at: new Date().toISOString()
+            })
+            .eq('id', job.syncLogId);
+        }
       }
-      
-      // Update job status to completed
-      jobStatus.set(job.id, { 
-        ...jobStatus.get(job.id)!, 
-        status: 'completed',
-        progress: 100
-      });
-      
-      // Update sync log with success
-      if (job.syncLogId) {
-        await supabase
-          .from('sync_logs')
-          .update({
-            status: 'completed',
-            message: `Sincronização de ${job.type} concluída: ${processed} registros processados`,
-            completed_at: new Date().toISOString()
-          })
-          .eq('id', job.syncLogId);
-      }
-      
-      console.log(`Job ${job.id} completed successfully`);
       
     } catch (error) {
-      console.error(`Error processing job ${job.id}:`, error);
+      console.error(`Unhandled error in processQueue for job ${job.id}:`, error);
       
-      // Update job status to failed
-      jobStatus.set(job.id, { 
-        ...jobStatus.get(job.id)!, 
-        status: 'failed',
-        error: error.message
-      });
-      
-      // Update sync log with error
+      // In case of an unhandled error, update the sync log
       if (job.syncLogId) {
         await supabase
           .from('sync_logs')
           .update({
             status: 'error',
-            message: `Falha na sincronização de ${job.type}: ${error.message}`,
-            error_details: error.stack,
+            message: `Erro não tratado: ${error.message}`,
+            error_details: error.stack || error.message,
             completed_at: new Date().toISOString()
           })
           .eq('id', job.syncLogId);
@@ -222,7 +339,7 @@ async function processQueue() {
   }
 }
 
-// Function to process companies
+// Function to process companies (more resilient)
 async function processCompanyBatch(supabase, data, userId) {
   console.log(`Processing batch of ${data.length} companies`);
   
@@ -247,133 +364,187 @@ async function processCompanyBatch(supabase, data, userId) {
     user_id: userId
   }));
   
-  const { data: result, error } = await supabase
-    .from('companies')
-    .upsert(companyData, {
-      onConflict: 'soc_code, user_id', // Updated to match the new constraint
-      ignoreDuplicates: false
-    });
-  
-  if (error) {
-    console.error('Error upserting companies:', error);
+  try {
+    const { data: result, error } = await supabase
+      .from('companies')
+      .upsert(companyData, {
+        onConflict: 'soc_code, user_id',
+        ignoreDuplicates: false
+      });
+    
+    if (error) {
+      console.error('Error upserting companies:', error);
+      throw error;
+    }
+    
+    return { count: companyData.length };
+  } catch (error) {
+    console.error('Error in processCompanyBatch:', error);
     throw error;
   }
-  
-  return { count: companyData.length };
 }
 
-// Function to process employees
+// Function to process employees (more resilient)
 async function processEmployeeBatch(supabase, data, userId) {
   console.log(`Processing batch of ${data.length} employees`);
   
-  const employeeData = data.map(item => ({
-    soc_code: item.CODIGO,
-    company_soc_code: item.CODIGOEMPRESA,
-    company_name: item.NOMEEMPRESA,
-    full_name: item.NOME,
-    unit_code: item.CODIGOUNIDADE,
-    unit_name: item.NOMEUNIDADE,
-    sector_code: item.CODIGOSETOR,
-    sector_name: item.NOMESETOR,
-    position_code: item.CODIGOCARGO,
-    position_name: item.NOMECARGO,
-    position_cbo: item.CBOCARGO,
-    cost_center: item.CCUSTO,
-    cost_center_name: item.NOMECENTROCUSTO,
-    employee_registration: item.MATRICULAFUNCIONARIO,
-    cpf: item.CPF,
-    rg: item.RG,
-    rg_state: item.UFRG,
-    rg_issuer: item.ORGAOEMISSORRG,
-    status: item.SITUACAO,
-    gender: item.SEXO,
-    pis: item.PIS,
-    work_card: item.CTPS,
-    work_card_series: item.SERIECTPS,
-    marital_status: item.ESTADOCIVIL,
-    contract_type: item.TIPOCONTATACAO,
-    birth_date: item.DATA_NASCIMENTO ? new Date(item.DATA_NASCIMENTO) : null,
-    hire_date: item.DATA_ADMISSAO ? new Date(item.DATA_ADMISSAO) : null,
-    termination_date: item.DATA_DEMISSAO ? new Date(item.DATA_DEMISSAO) : null,
-    address: item.ENDERECO,
-    address_number: item.NUMERO_ENDERECO,
-    neighborhood: item.BAIRRO,
-    city: item.CIDADE,
-    state: item.UF,
-    zip_code: item.CEP,
-    home_phone: item.TELEFONERESIDENCIAL,
-    mobile_phone: item.TELEFONECELULAR,
-    email: item.EMAIL,
-    is_disabled: item.DEFICIENTE === 1,
-    disability_description: item.DEFICIENCIA,
-    mother_name: item.NM_MAE_FUNCIONARIO,
-    last_update_date: item.DATAULTERACAO ? new Date(item.DATAULTERACAO) : null,
-    hr_registration: item.MATRICULARH,
-    skin_color: item.COR,
-    education: item.ESCOLARIDADE,
-    birthplace: item.NATURALIDADE,
-    extension: item.RAMAL,
-    shift_regime: item.REGIMEREVEZAMENTO,
-    work_regime: item.REGIMETRABALHO,
-    commercial_phone: item.TELCOMERCIAL,
-    work_shift: item.TURNOTRABALHO,
-    hr_unit: item.RHUNIDADE,
-    hr_sector: item.RHSETOR,
-    hr_position: item.RHCARGO,
-    hr_cost_center_unit: item.RHCENTROCUSTOUNIDADE,
-    user_id: userId
-  }));
+  // Prepare data with null handling to prevent field type mismatches
+  const employeeData = data.map(item => {
+    // Helper function to safely convert to date or null
+    const safeDate = (dateStr) => {
+      if (!dateStr) return null;
+      try {
+        return new Date(dateStr);
+      } catch (e) {
+        console.warn(`Invalid date: ${dateStr}`);
+        return null;
+      }
+    };
+    
+    return {
+      soc_code: item.CODIGO,
+      company_soc_code: item.CODIGOEMPRESA,
+      company_name: item.NOMEEMPRESA,
+      full_name: item.NOME,
+      unit_code: item.CODIGOUNIDADE,
+      unit_name: item.NOMEUNIDADE,
+      sector_code: item.CODIGOSETOR,
+      sector_name: item.NOMESETOR,
+      position_code: item.CODIGOCARGO,
+      position_name: item.NOMECARGO,
+      position_cbo: item.CBOCARGO,
+      cost_center: item.CCUSTO,
+      cost_center_name: item.NOMECENTROCUSTO,
+      employee_registration: item.MATRICULAFUNCIONARIO,
+      cpf: item.CPF,
+      rg: item.RG,
+      rg_state: item.UFRG,
+      rg_issuer: item.ORGAOEMISSORRG,
+      status: item.SITUACAO,
+      gender: typeof item.SEXO === 'number' ? item.SEXO : null,
+      pis: item.PIS,
+      work_card: item.CTPS,
+      work_card_series: item.SERIECTPS,
+      marital_status: typeof item.ESTADOCIVIL === 'number' ? item.ESTADOCIVIL : null,
+      contract_type: typeof item.TIPOCONTATACAO === 'number' ? item.TIPOCONTATACAO : null,
+      birth_date: safeDate(item.DATA_NASCIMENTO),
+      hire_date: safeDate(item.DATA_ADMISSAO),
+      termination_date: safeDate(item.DATA_DEMISSAO),
+      address: item.ENDERECO,
+      address_number: item.NUMERO_ENDERECO,
+      neighborhood: item.BAIRRO,
+      city: item.CIDADE,
+      state: item.UF,
+      zip_code: item.CEP,
+      home_phone: item.TELEFONERESIDENCIAL,
+      mobile_phone: item.TELEFONECELULAR,
+      email: item.EMAIL,
+      is_disabled: item.DEFICIENTE === 1,
+      disability_description: item.DEFICIENCIA,
+      mother_name: item.NM_MAE_FUNCIONARIO,
+      last_update_date: safeDate(item.DATAULTERACAO),
+      hr_registration: item.MATRICULARH,
+      skin_color: typeof item.COR === 'number' ? item.COR : null,
+      education: typeof item.ESCOLARIDADE === 'number' ? item.ESCOLARIDADE : null,
+      birthplace: item.NATURALIDADE,
+      extension: item.RAMAL,
+      shift_regime: typeof item.REGIMEREVEZAMENTO === 'number' ? item.REGIMEREVEZAMENTO : null,
+      work_regime: item.REGIMETRABALHO,
+      commercial_phone: item.TELCOMERCIAL,
+      work_shift: typeof item.TURNOTRABALHO === 'number' ? item.TURNOTRABALHO : null,
+      hr_unit: item.RHUNIDADE,
+      hr_sector: item.RHSETOR,
+      hr_position: item.RHCARGO,
+      hr_cost_center_unit: item.RHCENTROCUSTOUNIDADE,
+      user_id: userId
+    };
+  });
   
-  const { data: result, error } = await supabase
-    .from('employees')
-    .upsert(employeeData, {
-      onConflict: 'soc_code, user_id', // Updated to match the new constraint
-      ignoreDuplicates: false
-    });
-  
-  if (error) {
-    console.error('Error upserting employees:', error);
+  try {
+    // Process in smaller sub-batches to prevent too large statements
+    const SUB_BATCH_SIZE = 10;
+    for (let i = 0; i < employeeData.length; i += SUB_BATCH_SIZE) {
+      const subBatch = employeeData.slice(i, i + SUB_BATCH_SIZE);
+      
+      const { error } = await supabase
+        .from('employees')
+        .upsert(subBatch, {
+          onConflict: 'soc_code, user_id',
+          ignoreDuplicates: false
+        });
+      
+      if (error) {
+        console.error(`Error upserting employees (sub-batch ${i}/${employeeData.length}):`, error);
+        throw error;
+      }
+    }
+    
+    return { count: employeeData.length };
+  } catch (error) {
+    console.error('Error in processEmployeeBatch:', error);
     throw error;
   }
-  
-  return { count: employeeData.length };
 }
 
-// Function to process absenteeism - Updated to use insert instead of upsert
+// Function to process absenteeism records (more resilient)
 async function processAbsenteeismBatch(supabase, data, userId) {
   console.log(`Processing batch of ${data.length} absenteeism records`);
   
-  const absenteeismData = data.map(item => ({
-    unit: item.UNIDADE,
-    sector: item.SETOR,
-    employee_registration: item.MATRICULA_FUNC,
-    birth_date: item.DT_NASCIMENTO ? new Date(item.DT_NASCIMENTO) : null,
-    gender: item.SEXO,
-    certificate_type: item.TIPO_ATESTADO,
-    start_date: item.DT_INICIO_ATESTADO ? new Date(item.DT_INICIO_ATESTADO) : new Date(),
-    end_date: item.DT_FIM_ATESTADO ? new Date(item.DT_FIM_ATESTADO) : new Date(),
-    start_time: item.HORA_INICIO_ATESTADO,
-    end_time: item.HORA_FIM_ATESTADO,
-    days_absent: item.DIAS_AFASTADOS,
-    hours_absent: item.HORAS_AFASTADO,
-    primary_icd: item.CID_PRINCIPAL,
-    icd_description: item.DESCRICAO_CID,
-    pathological_group: item.GRUPO_PATOLOGICO,
-    license_type: item.TIPO_LICENCA,
-    user_id: userId
-  }));
-  
-  // Use insert instead of upsert for absenteeism records
-  const { data: result, error } = await supabase
-    .from('absenteeism')
-    .insert(absenteeismData);
-  
-  if (error) {
-    console.error('Error inserting absenteeism records:', error);
+  try {
+    // Prepare data with null handling
+    const absenteeismData = data.map(item => {
+      // Helper function to safely convert to date or current date
+      const safeDate = (dateStr) => {
+        if (!dateStr) return new Date();
+        try {
+          return new Date(dateStr);
+        } catch (e) {
+          console.warn(`Invalid date: ${dateStr}, using current date`);
+          return new Date();
+        }
+      };
+      
+      return {
+        unit: item.UNIDADE,
+        sector: item.SETOR,
+        employee_registration: item.MATRICULA_FUNC,
+        birth_date: item.DT_NASCIMENTO ? safeDate(item.DT_NASCIMENTO) : null,
+        gender: typeof item.SEXO === 'number' ? item.SEXO : null,
+        certificate_type: typeof item.TIPO_ATESTADO === 'number' ? item.TIPO_ATESTADO : null,
+        start_date: safeDate(item.DT_INICIO_ATESTADO),
+        end_date: safeDate(item.DT_FIM_ATESTADO),
+        start_time: item.HORA_INICIO_ATESTADO,
+        end_time: item.HORA_FIM_ATESTADO,
+        days_absent: typeof item.DIAS_AFASTADOS === 'number' ? item.DIAS_AFASTADOS : null,
+        hours_absent: item.HORAS_AFASTADO,
+        primary_icd: item.CID_PRINCIPAL,
+        icd_description: item.DESCRICAO_CID,
+        pathological_group: item.GRUPO_PATOLOGICO,
+        license_type: item.TIPO_LICENCA,
+        user_id: userId
+      };
+    });
+    
+    // Process in smaller sub-batches to prevent too large statements
+    const SUB_BATCH_SIZE = 10;
+    for (let i = 0; i < absenteeismData.length; i += SUB_BATCH_SIZE) {
+      const subBatch = absenteeismData.slice(i, i + SUB_BATCH_SIZE);
+      
+      const { error } = await supabase
+        .from('absenteeism')
+        .insert(subBatch);
+      
+      if (error) {
+        console.error(`Error inserting absenteeism records (sub-batch ${i}/${absenteeismData.length}):`, error);
+        throw error;
+      }
+    }
+    
+    return { count: absenteeismData.length };
+  } catch (error) {
+    console.error('Error in processAbsenteeismBatch:', error);
     throw error;
   }
-  
-  return { count: absenteeismData.length };
 }
 
 Deno.serve(async (req) => {
