@@ -25,7 +25,8 @@ export interface DashboardData {
 // Define types for mock data
 export interface MockEmployeeData {
   id?: number;
-  employee_id?: string;  // Added this property to fix the error
+  employee_id?: string;
+  soc_code?: string;  // Added this property to fix the error
   name?: string;
   full_name?: string;
   position?: string;
