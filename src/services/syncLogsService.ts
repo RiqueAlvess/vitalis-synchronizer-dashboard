@@ -170,99 +170,99 @@ export const syncLogsService = {
   },
   
   // Force retry a failed or stuck sync
- retrySync: async (syncId: number) => {
-  try {
-    console.log(`Attempting to retry sync #${syncId}...`);
-    
-    // First, get the sync log details to know what we're retrying
-    const syncLog = await safeApiCall(
-      () => supabaseAPI.get(`/sync-logs?id=${syncId}`),
-      null,
-      `Get sync ${syncId} for retry`
-    ).then(data => data?.[0] || null);
-    
-    if (!syncLog) {
-      return { success: false, message: `Sync log #${syncId} not found` };
+  retrySync: async (syncId: number) => {
+    try {
+      console.log(`Attempting to retry sync #${syncId}...`);
+      
+      // First, get the sync log details to know what we're retrying
+      const syncLog = await safeApiCall(
+        () => supabaseAPI.get(`/sync-logs?id=${syncId}`),
+        null,
+        `Get sync ${syncId} for retry`
+      ).then(data => data?.[0] || null);
+      
+      if (!syncLog) {
+        return { success: false, message: `Sync log #${syncId} not found` };
+      }
+      
+      // Create a new sync log entry for retry
+      const { data: retryData } = await supabaseAPI.post('/sync-soc-data', {
+        type: syncLog.type,
+        resumeFromRecord: syncLog.processed_records || 0,
+        resumeFromBatch: syncLog.batch || 0,
+        parallel: true, // Enable parallel processing for faster sync
+        batchSize: 50,  // Use smaller batch size for more reliability
+        maxConcurrent: 3
+      });
+      
+      return {
+        success: true,
+        message: `Retry initiated for sync #${syncId}`,
+        newSyncId: retryData?.syncId,
+        originalSyncId: syncId
+      };
+    } catch (error) {
+      console.error(`Error retrying sync #${syncId}:`, error);
+      return { 
+        success: false, 
+        message: `Failed to retry sync: ${error.message || 'Unknown error'}`
+      };
     }
-    
-    // Create a new sync log entry for retry
-    const { data: retryData } = await supabaseAPI.post('/sync-soc-data', {
-      type: syncLog.type,
-      resumeFromRecord: syncLog.processed_records || 0,
-      resumeFromBatch: syncLog.batch || 0,
-      parallel: true, // Enable parallel processing for faster sync
-      batchSize: 50,  // Use smaller batch size for more reliability
-      maxConcurrent: 3
-    });
-    
-    return {
-      success: true,
-      message: `Retry initiated for sync #${syncId}`,
-      newSyncId: retryData?.syncId,
-      originalSyncId: syncId
-    };
-  } catch (error) {
-    console.error(`Error retrying sync #${syncId}:`, error);
-    return { 
-      success: false, 
-      message: `Failed to retry sync: ${error.message || 'Unknown error'}`
-    };
-  }
-}
+  },
   
   // Set up a timeout to automatically cancel hung syncs
- setupSyncWatchdog: async () => {
-  try {
-    const activeSyncs = await syncLogsService.getActiveSyncs();
-    
-    // Check each active sync to see if it's hung (no updates for over 10 minutes)
-    if (activeSyncs.logs && activeSyncs.logs.length > 0) {
-      const now = new Date();
+  setupSyncWatchdog: async () => {
+    try {
+      const activeSyncs = await syncLogsService.getActiveSyncs();
       
-      for (const sync of activeSyncs.logs) {
-        // Parse dates
-        const startedAt = new Date(sync.started_at);
-        const updatedAt = sync.updated_at ? new Date(sync.updated_at) : startedAt;
+      // Check each active sync to see if it's hung (no updates for over 10 minutes)
+      if (activeSyncs.logs && activeSyncs.logs.length > 0) {
+        const now = new Date();
         
-        // Calculate elapsed time in minutes
-        const elapsedMinutes = (now.getTime() - updatedAt.getTime()) / (1000 * 60);
-        
-        // If no update for more than 10 minutes, consider it hung
-        if (elapsedMinutes > 10) {
-          console.log(`Detected hung sync #${sync.id}, elapsed minutes: ${elapsedMinutes.toFixed(1)}`);
+        for (const sync of activeSyncs.logs) {
+          // Parse dates
+          const startedAt = new Date(sync.started_at);
+          const updatedAt = sync.updated_at ? new Date(sync.updated_at) : startedAt;
           
-          // Attempt to cancel it
-          await syncLogsService.cancelSync(sync.id);
+          // Calculate elapsed time in minutes
+          const elapsedMinutes = (now.getTime() - updatedAt.getTime()) / (1000 * 60);
           
-          // Update the sync record to mark it as hung/timed out
-          await supabaseAPI.post('/sync-logs/update-status', {
-            syncId: sync.id,
-            status: 'error',
-            message: `Sincronização cancelada automaticamente após ${elapsedMinutes.toFixed(0)} minutos sem atualizações.`,
-            errorDetails: 'Possível sincronização travada detectada pelo sistema e cancelada automaticamente.'
-          });
-          
-          // After a short delay, try to restart the sync
-          setTimeout(async () => {
-            // Create a new sync log entry for continuation
-            try {
-              const { data } = await supabaseAPI.post('/sync-logs/retry', { 
-                syncId: sync.id,
-                force: true  // Force retry even on error status
-              });
-              console.log(`Auto-restarted hung sync #${sync.id}, new sync ID: ${data?.newSyncId || 'unknown'}`);
-            } catch (retryError) {
-              console.error(`Failed to auto-restart hung sync #${sync.id}:`, retryError);
-            }
-          }, 5000);
+          // If no update for more than 10 minutes, consider it hung
+          if (elapsedMinutes > 10) {
+            console.log(`Detected hung sync #${sync.id}, elapsed minutes: ${elapsedMinutes.toFixed(1)}`);
+            
+            // Attempt to cancel it
+            await syncLogsService.cancelSync(sync.id);
+            
+            // Update the sync record to mark it as hung/timed out
+            await supabaseAPI.post('/sync-logs/update-status', {
+              syncId: sync.id,
+              status: 'error',
+              message: `Sincronização cancelada automaticamente após ${elapsedMinutes.toFixed(0)} minutos sem atualizações.`,
+              errorDetails: 'Possível sincronização travada detectada pelo sistema e cancelada automaticamente.'
+            });
+            
+            // After a short delay, try to restart the sync
+            setTimeout(async () => {
+              // Create a new sync log entry for continuation
+              try {
+                const { data } = await supabaseAPI.post('/sync-logs/retry', { 
+                  syncId: sync.id,
+                  force: true  // Force retry even on error status
+                });
+                console.log(`Auto-restarted hung sync #${sync.id}, new sync ID: ${data?.newSyncId || 'unknown'}`);
+              } catch (retryError) {
+                console.error(`Failed to auto-restart hung sync #${sync.id}:`, retryError);
+              }
+            }, 5000);
+          }
         }
       }
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error in sync watchdog:', error);
+      return { success: false, error };
     }
-    
-    return { success: true };
-  } catch (error) {
-    console.error('Error in sync watchdog:', error);
-    return { success: false, error };
   }
-}
 };
