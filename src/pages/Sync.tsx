@@ -20,35 +20,33 @@ const Sync = () => {
   const [syncResult, setSyncResult] = useState<{type: string; success: boolean; message: string} | null>(null);
   const checkIntervalRef = useRef<number | null>(null);
   
-  // Verificar se há sincronizações ativas - implementação com debounce
+  // Check for active syncs - implementation with debounce
   const checkActiveSyncs = useCallback(async () => {
     try {
       console.log('Checking active syncs...');
       const activeSyncs = await syncLogsService.getActiveSyncs();
       console.log('Active syncs:', activeSyncs);
       
-      if (activeSyncs.count > 0) {
-        setActiveSyncProcesses(activeSyncs);
-      } else {
-        setActiveSyncProcesses({ count: 0, types: [] });
-      }
+      setActiveSyncProcesses(activeSyncs);
     } catch (error) {
       console.error('Error checking active syncs:', error);
+      // Reset to no active syncs on error to prevent blocking
+      setActiveSyncProcesses({ count: 0, types: [] });
     }
   }, []);
   
-  // Verificar sincronizações ativas ao carregar a página e periodicamente
+  // Check for active syncs when page loads and periodically
   useEffect(() => {
     console.log('Sync component mounted');
-    // Verificação imediata
+    // Immediate check
     checkActiveSyncs();
     
-    // Usar intervalo apenas se não houver outro já definido
+    // Use interval only if there isn't one already defined
     if (!checkIntervalRef.current) {
       console.log('Setting up active sync check interval');
       checkIntervalRef.current = window.setInterval(() => {
         checkActiveSyncs();
-      }, 15000); // Verificar a cada 15 segundos
+      }, 15000); // Check every 15 seconds
     }
     
     return () => {
@@ -62,7 +60,7 @@ const Sync = () => {
   
   const handleSync = async (type: 'employee' | 'absenteeism') => {
     try {
-      // Verificar novamente se há sincronizações ativas
+      // Check again for active syncs
       await checkActiveSyncs();
       
       if (activeSyncProcesses.count > 0) {
@@ -89,13 +87,13 @@ const Sync = () => {
       
       console.log(`Starting ${type} sync...`);
       
-      // Usando explicitamente cada método para evitar erros de função
+      // Using explicitly each method to avoid function errors
       let result;
       if (type === 'employee') {
-        // Iniciar sincronização com processamento em paralelo
+        // Start sync with parallel processing
         result = await apiService.sync.employees();
       } else if (type === 'absenteeism') {
-        // Iniciar sincronização com processamento em paralelo
+        // Start sync with parallel processing
         result = await apiService.sync.absenteeism();
       } else {
         throw new Error(`Tipo de sincronização não suportado: ${type}`);
@@ -114,7 +112,7 @@ const Sync = () => {
         description: `A sincronização de ${typeLabels[type]} foi iniciada com sucesso.`,
       });
       
-      // Atualizar lista de sincronizações ativas após breve delay
+      // Update list of active syncs after short delay
       setTimeout(() => checkActiveSyncs(), 1000);
       
     } catch (error) {
@@ -137,15 +135,41 @@ const Sync = () => {
     }
   };
   
-  // Navegar para a página de funcionários após sincronização
+  // Reset all active syncs (emergency function)
+  const handleResetActiveSyncs = async () => {
+    try {
+      console.log('Attempting to reset all active syncs...');
+      await syncLogsService.resetActiveSyncs();
+      
+      toast({
+        title: 'Sincronizações resetadas',
+        description: 'Todas as sincronizações ativas foram canceladas com sucesso.',
+      });
+      
+      // Update state
+      setActiveSyncProcesses({ count: 0, types: [] });
+      
+      // Refresh the status immediately
+      checkActiveSyncs();
+    } catch (error) {
+      console.error('Error resetting active syncs:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao resetar sincronizações',
+        description: 'Não foi possível cancelar todas as sincronizações ativas.',
+      });
+    }
+  };
+  
+  // Navigate to employees page after sync
   const handleViewEmployees = () => {
     navigate('/employees');
   };
   
-  // Atualizar o histórico quando uma sincronização for concluída
+  // Update history when a sync is completed
   useEffect(() => {
     if (syncResult && syncResult.success) {
-      // Rolar para o histórico de forma suave
+      // Scroll to history smoothly
       const syncComponent = document.getElementById('sync-history');
       if (syncComponent) {
         syncComponent.scrollIntoView({ behavior: 'smooth' });
@@ -163,9 +187,20 @@ const Sync = () => {
           <Alert className="bg-amber-50 border-amber-200">
             <Ban className="h-4 w-4 text-amber-600" />
             <AlertTitle className="text-amber-700">Sincronização em andamento</AlertTitle>
-            <AlertDescription className="text-amber-600">
-              Já existe uma sincronização de {activeSyncProcesses.types.join(', ')} em andamento. 
-              Aguarde a conclusão ou cancele o processo atual para iniciar uma nova sincronização.
+            <AlertDescription className="flex flex-col space-y-2 text-amber-600">
+              <p>
+                Já existe uma sincronização de {activeSyncProcesses.types.join(', ')} em andamento. 
+                Aguarde a conclusão ou cancele o processo atual para iniciar uma nova sincronização.
+              </p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="self-end text-red-600 border-red-200 hover:bg-red-50 mt-2 w-auto"
+                onClick={handleResetActiveSyncs}
+              >
+                <Ban className="h-3.5 w-3.5 mr-1" />
+                Resetar todas sincronizações
+              </Button>
             </AlertDescription>
           </Alert>
         )}

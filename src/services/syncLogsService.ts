@@ -22,6 +22,29 @@ interface DbSyncLog {
   error_count?: number;
 }
 
+// Helper function to transform database response to SyncLog type
+const transformDbLogToSyncLog = (item: DbSyncLog): SyncLog => ({
+  id: item.id,
+  type: item.type as SyncLogType,
+  status: item.status as SyncLogStatus,
+  created_at: item.created_at,
+  started_at: item.started_at || item.created_at, // Use created_at as fallback if started_at is missing
+  completed_at: item.completed_at || undefined,
+  message: item.message || undefined,
+  error_details: item.error_details || undefined,
+  user_id: item.user_id || undefined,
+  parent_id: item.parent_id || undefined,
+  batch: item.batch || undefined,
+  total_batches: item.total_batches || undefined,
+  total_records: item.total_records || undefined,
+  processed_records: item.processed_records || undefined,
+  success_count: item.success_count || undefined,
+  error_count: item.error_count || undefined
+});
+
+// Active statuses - used in multiple functions for consistency
+const ACTIVE_STATUSES = ['processing', 'in_progress', 'queued', 'started', 'continues'];
+
 export const syncLogsService = {
   // Get all sync logs
   getLogs: async (): Promise<SyncLog[]> => {
@@ -32,7 +55,7 @@ export const syncLogsService = {
         .select('*')
         .order('id', { ascending: false })
         .order('created_at', { ascending: false })
-        .limit(50); // Limitar para evitar carregar muitos registros
+        .limit(50); // Limit to avoid loading too many records
 
       if (error) {
         console.error('Error fetching sync logs:', error);
@@ -40,24 +63,7 @@ export const syncLogsService = {
       }
 
       // Transform the database response to match SyncLog type
-      const transformedData: SyncLog[] = data ? data.map((item: DbSyncLog) => ({
-        id: item.id,
-        type: item.type as SyncLogType,
-        status: item.status as SyncLogStatus,
-        created_at: item.created_at,
-        started_at: item.started_at || item.created_at, // Use created_at as fallback if started_at is missing
-        completed_at: item.completed_at || undefined,
-        message: item.message || undefined,
-        error_details: item.error_details || undefined,
-        user_id: item.user_id || undefined,
-        parent_id: item.parent_id || undefined,
-        batch: item.batch || undefined,
-        total_batches: item.total_batches || undefined,
-        total_records: item.total_records || undefined,
-        processed_records: item.processed_records || undefined,
-        success_count: item.success_count || undefined,
-        error_count: item.error_count || undefined
-      })) : [];
+      const transformedData: SyncLog[] = data ? data.map(transformDbLogToSyncLog) : [];
 
       return transformedData;
     } catch (error) {
@@ -83,28 +89,7 @@ export const syncLogsService = {
       if (!data) return null;
 
       // Transform the data to match SyncLog type
-      const item = data as DbSyncLog;
-      
-      const transformedData: SyncLog = {
-        id: item.id,
-        type: item.type as SyncLogType,
-        status: item.status as SyncLogStatus,
-        created_at: item.created_at,
-        started_at: item.started_at || item.created_at, // Use created_at as fallback if started_at is missing
-        completed_at: item.completed_at || undefined,
-        message: item.message || undefined,
-        error_details: item.error_details || undefined,
-        user_id: item.user_id || undefined,
-        parent_id: item.parent_id || undefined,
-        batch: item.batch || undefined,
-        total_batches: item.total_batches || undefined,
-        total_records: item.total_records || undefined,
-        processed_records: item.processed_records || undefined,
-        success_count: item.success_count || undefined,
-        error_count: item.error_count || undefined
-      };
-
-      return transformedData;
+      return transformDbLogToSyncLog(data as DbSyncLog);
     } catch (error) {
       console.error('Error in getLogById service:', error);
       throw error;
@@ -126,24 +111,7 @@ export const syncLogsService = {
       }
 
       // Transform the database response to match SyncLog type
-      const transformedData: SyncLog[] = data ? data.map((item: DbSyncLog) => ({
-        id: item.id,
-        type: item.type as SyncLogType,
-        status: item.status as SyncLogStatus,
-        created_at: item.created_at,
-        started_at: item.started_at || item.created_at,
-        completed_at: item.completed_at || undefined,
-        message: item.message || undefined,
-        error_details: item.error_details || undefined,
-        user_id: item.user_id || undefined,
-        parent_id: item.parent_id || undefined,
-        batch: item.batch || undefined,
-        total_batches: item.total_batches || undefined,
-        total_records: item.total_records || undefined,
-        processed_records: item.processed_records || undefined,
-        success_count: item.success_count || undefined,
-        error_count: item.error_count || undefined
-      })) : [];
+      const transformedData: SyncLog[] = data ? data.map(transformDbLogToSyncLog) : [];
 
       return transformedData;
     } catch (error) {
@@ -166,24 +134,7 @@ export const syncLogsService = {
         }, (payload) => {
           // Transform payload data to SyncLog
           const updatedLog = payload.new as DbSyncLog;
-          const log: SyncLog = {
-            id: updatedLog.id,
-            type: updatedLog.type as SyncLogType,
-            status: updatedLog.status as SyncLogStatus,
-            created_at: updatedLog.created_at,
-            started_at: updatedLog.started_at || updatedLog.created_at,
-            completed_at: updatedLog.completed_at || undefined,
-            message: updatedLog.message || undefined,
-            error_details: updatedLog.error_details || undefined,
-            user_id: updatedLog.user_id || undefined,
-            parent_id: updatedLog.parent_id || undefined,
-            batch: updatedLog.batch || undefined,
-            total_batches: updatedLog.total_batches || undefined,
-            total_records: updatedLog.total_records || undefined,
-            processed_records: updatedLog.processed_records || undefined,
-            success_count: updatedLog.success_count || undefined,
-            error_count: updatedLog.error_count || undefined
-          };
+          const log = transformDbLogToSyncLog(updatedLog);
           
           callback(log);
         })
@@ -202,6 +153,8 @@ export const syncLogsService = {
   // Cancel a sync process
   cancelSync: async (logId: number): Promise<boolean> => {
     try {
+      console.log(`Attempting to cancel sync log ID ${logId}`);
+      
       // First update the main log entry
       const { error: updateError } = await supabase
         .from('sync_logs')
@@ -226,6 +179,8 @@ export const syncLogsService = {
       if (fetchError) {
         console.error(`Error fetching child logs for ${logId}:`, fetchError);
       } else if (childLogs && childLogs.length > 0) {
+        console.log(`Cancelling ${childLogs.length} child processes for log ID ${logId}`);
+        
         // Update all child processes to cancelled as well
         const { error: updateChildrenError } = await supabase
           .from('sync_logs')
@@ -241,6 +196,7 @@ export const syncLogsService = {
         }
       }
 
+      console.log(`Successfully cancelled sync log ID ${logId}`);
       return true;
     } catch (error) {
       console.error('Error in cancelSync service:', error);
@@ -253,22 +209,7 @@ export const syncLogsService = {
     try {
       console.log('Attempting to clear history');
       
-      // First fetch active process IDs to avoid deleting them
-      const { data: activeProcesses, error: fetchError } = await supabase
-        .from('sync_logs')
-        .select('id')
-        .in('status', ['processing', 'in_progress', 'queued', 'started', 'continues']);
-      
-      if (fetchError) {
-        console.error('Error fetching active processes:', fetchError);
-        throw fetchError;
-      }
-      
-      // Only proceed with deletion if we successfully fetched active processes
-      const activeIds = activeProcesses?.map(item => item.id) || [];
-      console.log('Active process IDs (will be preserved):', activeIds);
-      
-      // Delete logs that have completed statuses and are not in the active list
+      // Delete logs that have completed, error, or cancelled statuses
       const { error } = await supabase
         .from('sync_logs')
         .delete()
@@ -287,7 +228,7 @@ export const syncLogsService = {
     }
   },
   
-  // Get active sync processes
+  // Get active sync processes - improved to be more accurate
   getActiveSyncs: async (): Promise<{count: number, types: string[]}> => {
     try {
       console.log('Checking for active sync processes...');
@@ -295,7 +236,8 @@ export const syncLogsService = {
       const { data, error } = await supabase
         .from('sync_logs')
         .select('id, type, status')
-        .in('status', ['processing', 'in_progress', 'queued', 'started', 'continues']);
+        .in('status', ACTIVE_STATUSES)
+        .is('completed_at', null); // Only truly active processes don't have completed_at
 
       if (error) {
         console.error('Error fetching active syncs:', error);
@@ -306,7 +248,8 @@ export const syncLogsService = {
       console.log('Active sync processes data:', data);
       
       // Extract unique types
-      const types = [...new Set(data?.map(log => log.type) || [])];
+      const types = data && data.length > 0 ? 
+        [...new Set(data.map(log => log.type))] : [];
       const count = data?.length || 0;
       
       console.log(`Found ${count} active sync processes of types: ${types.join(', ')}`);
@@ -319,6 +262,33 @@ export const syncLogsService = {
       console.error('Error in getActiveSyncs service:', error);
       // Don't throw, just return empty result
       return { count: 0, types: [] };
+    }
+  },
+  
+  // Reset all active sync processes to cancelled (for admin or emergency use)
+  resetActiveSyncs: async (): Promise<boolean> => {
+    try {
+      console.log('Resetting all active sync processes...');
+      
+      const { error } = await supabase
+        .from('sync_logs')
+        .update({
+          status: 'cancelled',
+          message: 'Processo cancelado por reset do sistema',
+          completed_at: new Date().toISOString()
+        })
+        .in('status', ACTIVE_STATUSES);
+        
+      if (error) {
+        console.error('Error resetting active syncs:', error);
+        throw error;
+      }
+      
+      console.log('All active sync processes have been reset');
+      return true;
+    } catch (error) {
+      console.error('Error in resetActiveSyncs service:', error);
+      throw error;
     }
   }
 };

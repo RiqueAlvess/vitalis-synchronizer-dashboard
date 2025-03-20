@@ -60,7 +60,7 @@ const SyncHistory: React.FC = () => {
           description: 'O histórico de sincronização foi limpo com sucesso.'
         });
         
-        // Recarregar lista após limpar
+        // Refresh list after clearing
         await fetchLogs();
       } else {
         throw new Error('Falha ao limpar histórico');
@@ -78,32 +78,33 @@ const SyncHistory: React.FC = () => {
     }
   };
   
-  // Iniciar atualizações automáticas apenas quando há sincronizações ativas
+  // Start auto-refresh only when there are active syncs
   const startAutoRefresh = () => {
-    // Limpar intervalo existente se houver
+    // Clear existing interval if there is one
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
     
-    // Verificar se há sincronizações ativas
+    // Check if there are active syncs
     const hasActiveSync = logs.some(log => 
-      ['processing', 'in_progress', 'queued', 'started', 'continues'].includes(log.status)
+      ['processing', 'in_progress', 'queued', 'started', 'continues'].includes(log.status) && 
+      !log.completed_at // Make sure completed_at is null for truly active syncs
     );
     
     console.log('Has active sync processes:', hasActiveSync);
     
-    // Só configurar novo intervalo se houver sincronizações ativas
+    // Only set up new interval if there are active syncs
     if (hasActiveSync) {
       console.log('Setting up auto-refresh interval');
       intervalRef.current = window.setInterval(() => {
         console.log('Auto-refreshing sync logs...');
         fetchLogs();
-      }, 10000); // Atualizar a cada 10 segundos
+      }, 10000); // Update every 10 seconds
     }
   };
   
-  // Carregar logs iniciais e configurar atualizações
+  // Load initial logs and set up updates
   useEffect(() => {
     console.log('SyncHistory component mounted');
     fetchLogs();
@@ -118,12 +119,12 @@ const SyncHistory: React.FC = () => {
     };
   }, []);
   
-  // Monitorar alterações nos logs para iniciar/parar atualizações automáticas
+  // Monitor changes in logs to start/stop auto updates
   useEffect(() => {
     startAutoRefresh();
   }, [logs]);
   
-  // Verificar manualmente status de sincronizações ativas
+  // Manually check status of active syncs
   useEffect(() => {
     const checkActiveSyncs = async () => {
       try {
@@ -132,6 +133,7 @@ const SyncHistory: React.FC = () => {
         
         if (activeSyncs.count > 0 && !intervalRef.current) {
           console.log('Found active syncs, starting auto-refresh');
+          fetchLogs(); // Fetch logs immediately to reflect the active syncs
           startAutoRefresh();
         }
       } catch (error) {
@@ -139,10 +141,10 @@ const SyncHistory: React.FC = () => {
       }
     };
     
-    // Verificar a cada 30 segundos independentemente da condição anterior
+    // Check every 30 seconds regardless of previous condition
     const checkInterval = setInterval(checkActiveSyncs, 30000);
     
-    // Verificar imediatamente na montagem
+    // Check immediately on mount
     checkActiveSyncs();
     
     return () => {
