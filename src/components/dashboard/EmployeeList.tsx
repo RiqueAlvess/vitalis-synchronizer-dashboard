@@ -25,6 +25,7 @@ const EmployeeList = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [syncProgress, setSyncProgress] = useState<{current: number, total: number} | null>(null);
   const { toast } = useToast();
 
   // Function to load employees with retry logic
@@ -57,9 +58,11 @@ const EmployeeList = () => {
   const handleRefresh = async () => {
     try {
       setIsRefreshing(true);
+      setSyncProgress(null);
+      
       toast({
         title: 'Atualizando lista de funcionários',
-        description: 'Buscando dados mais recentes...',
+        description: 'Iniciando sincronização com o SOC...',
       });
       
       // Start sync process
@@ -69,17 +72,29 @@ const EmployeeList = () => {
       if (syncResult && syncResult.syncId) {
         toast({
           title: 'Sincronização iniciada',
-          description: 'A sincronização foi iniciada. Os dados aparecerão conforme forem processados.',
+          description: 'A sincronização foi iniciada. Isso pode levar alguns minutos para ser concluído.',
         });
         
-        // Check status initially after 5 seconds
-        setTimeout(() => checkSyncProgressAndReload(syncResult.syncId), 5000);
+        // Polling function to check status
+        const pollSyncStatus = async () => {
+          try {
+            // Check status initially after 5 seconds
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            checkSyncProgressAndReload(syncResult.syncId);
+          } catch (error) {
+            console.error('Error in polling sync status:', error);
+            setIsRefreshing(false);
+          }
+        };
+        
+        // Start polling
+        pollSyncStatus();
       }
     } catch (error) {
       console.error('Error refreshing employees:', error);
       toast({
         title: 'Erro ao atualizar',
-        description: 'Não foi possível atualizar a lista de funcionários. Tente novamente.',
+        description: 'Não foi possível iniciar a sincronização de funcionários. Tente novamente.',
         variant: 'destructive',
       });
       setIsRefreshing(false);
@@ -92,10 +107,36 @@ const EmployeeList = () => {
       const status = await apiService.sync.checkSyncStatus(syncId);
       console.log('Sync status:', status);
       
+      // Extract progress information from message if available
+      const progressMatch = status.message?.match(/Processed (\d+) of (\d+)/i);
+      if (progressMatch && progressMatch.length >= 3) {
+        const current = parseInt(progressMatch[1], 10);
+        const total = parseInt(progressMatch[2], 10);
+        if (!isNaN(current) && !isNaN(total)) {
+          setSyncProgress({ current, total });
+        }
+      }
+      
+      // Handle continuation status
+      if (status.status === 'continues') {
+        toast({
+          title: 'Sincronização em andamento',
+          description: status.message || 'O processo está dividido em múltiplas etapas para melhor desempenho.',
+        });
+        
+        // Load any available data
+        await loadEmployees();
+        
+        // Continue checking after a delay
+        setTimeout(() => checkSyncProgressAndReload(syncId), 5000);
+        return;
+      }
+      
       if (status.status === 'completed' || status.status === 'error') {
         // Sync is done, reload data
         await loadEmployees();
         setIsRefreshing(false);
+        setSyncProgress(null);
         
         toast({
           title: status.status === 'completed' ? 'Sincronização concluída' : 'Sincronização com erros',
@@ -111,6 +152,7 @@ const EmployeeList = () => {
       // Even on error, try to reload data
       await loadEmployees();
       setIsRefreshing(false);
+      setSyncProgress(null);
     }
   };
 
@@ -185,6 +227,22 @@ const EmployeeList = () => {
           </Button>
         </div>
       </div>
+      
+      {/* Sync progress indicator */}
+      {isRefreshing && syncProgress && (
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-2">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+            <span className="text-blue-800 font-medium">Sincronizando funcionários: {syncProgress.current} de {syncProgress.total} ({Math.round((syncProgress.current / syncProgress.total) * 100)}%)</span>
+          </div>
+          <div className="w-full bg-blue-200 rounded-full h-2.5 mt-2">
+            <div 
+              className="bg-blue-600 h-2.5 rounded-full" 
+              style={{width: `${Math.round((syncProgress.current / syncProgress.total) * 100)}%`}}
+            ></div>
+          </div>
+        </div>
+      )}
 
       {filteredEmployees.length === 0 ? (
         <div className="text-center py-12 bg-muted/20 rounded-md">

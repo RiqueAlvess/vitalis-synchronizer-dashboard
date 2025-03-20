@@ -6,10 +6,10 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const SOC_API_URL = 'https://ws1.soc.com.br/WebSoc/exportadados';
 
-// Smaller batch size for more reliable processing
-const BATCH_SIZE = 20;
+// Smaller batch size for more reliable processing with extensive logging
+const BATCH_SIZE = 15;
 // Maximum time to run before refreshing the function (in milliseconds)
-const MAX_EXECUTION_TIME = 20 * 60 * 1000; // 20 minutes
+const MAX_EXECUTION_TIME = 50 * 1000; // 50 seconds to be safe with edge function limits
 // Delay between processing batches to avoid overloading the DB
 const BATCH_DELAY_MS = 300;
 
@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
     let totalRecords = 0;
     let syncId;
     let records = [];
+    let batchNumber = 0;
 
     if (continuationData) {
       console.log("Continuing previous sync task");
@@ -80,8 +81,9 @@ Deno.serve(async (req) => {
       processedSoFar = continuationData.processedSoFar || 0;
       totalRecords = continuationData.totalRecords || records.length;
       syncId = continuationData.syncId;
+      batchNumber = continuationData.batchNumber || 0;
       
-      console.log(`Continuing from record ${processedSoFar}/${totalRecords}`);
+      console.log(`Continuing from record ${processedSoFar}/${totalRecords} (batch ${batchNumber})`);
     } else {
       if (!type || !params) {
         return new Response(
@@ -91,9 +93,9 @@ Deno.serve(async (req) => {
       }
 
       // Validate type - only allow employee and absenteeism
-      if (type !== 'employee' && type !== 'absenteeism') {
+      if (type !== 'employee' && type !== 'absenteeism' && type !== 'company') {
         return new Response(
-          JSON.stringify({ success: false, message: 'Invalid type. Only "employee" and "absenteeism" are supported.' }),
+          JSON.stringify({ success: false, message: 'Invalid type. Only "employee", "company" and "absenteeism" are supported.' }),
           { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
         );
       }
@@ -141,6 +143,13 @@ Deno.serve(async (req) => {
     // Start the background task
     const userId = user.id;
     
+    // Prepare response that will be sent immediately
+    const immediateResponse = {
+      success: true,
+      message: `Synchronization job for ${type} started successfully`,
+      syncId: syncId
+    };
+    
     // Run the heavy processing in the background with waitUntil
     EdgeRuntime.waitUntil((async () => {
       try {
@@ -155,61 +164,74 @@ Deno.serve(async (req) => {
           
           console.log('Calling SOC API at:', apiUrl);
           
-          // Make the API request
-          const response = await fetch(apiUrl, {
-            headers: {
-              'Accept': 'application/json',
-              'Accept-Encoding': 'identity' // Request uncompressed response
-            }
-          });
+          // Make the API request with extended timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 60000); // 1-minute timeout
           
-          if (!response.ok) {
-            throw new Error(`API request failed with status: ${response.status}`);
-          }
-          
-          console.log("API Response received, getting content...");
-          
-          // Get the text response and decode it from latin-1
-          const responseBuffer = await response.arrayBuffer();
-          const decoder = new TextDecoder('latin1');
-          const decodedContent = decoder.decode(responseBuffer);
-          
-          console.log(`API Response decoded, length: ${decodedContent.length} characters`);
-          
-          // Parse the JSON response
           try {
-            console.log("Attempting to parse JSON response...");
-            records = JSON.parse(decodedContent);
-            console.log(`JSON parsed successfully. Record count: ${records.length}`);
-          } catch (e) {
-            console.error('Error parsing JSON:', e);
-            // Try to clean the JSON string before parsing
+            // Make the API request with explicit timeout
+            const response = await fetch(apiUrl, {
+              headers: {
+                'Accept': 'application/json',
+                'Accept-Encoding': 'identity' // Request uncompressed response
+              },
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+              throw new Error(`API request failed with status: ${response.status}`);
+            }
+            
+            console.log("API Response received, getting content...");
+            
+            // Get the text response and decode it from latin-1
+            const responseBuffer = await response.arrayBuffer();
+            const decoder = new TextDecoder('latin1');
+            const decodedContent = decoder.decode(responseBuffer);
+            
+            console.log(`API Response decoded, length: ${decodedContent.length} characters`);
+            
+            // Parse the JSON response
             try {
-              console.log("Cleaning JSON and attempting to parse again...");
-              const cleanedJson = decodedContent.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
-              records = JSON.parse(cleanedJson);
-              console.log(`JSON parsed after cleaning. Record count: ${records.length}`);
-            } catch (cleanError) {
-              console.error('JSON cleaning failed:', cleanError);
-              // Try an even more aggressive approach to parse the response
+              console.log("Attempting to parse JSON response...");
+              records = JSON.parse(decodedContent);
+              console.log(`JSON parsed successfully. Record count: ${records.length}`);
+            } catch (e) {
+              console.error('Error parsing JSON:', e);
+              // Try to clean the JSON string before parsing
               try {
-                console.log("Attempting more aggressive JSON parsing...");
-                const jsonStr = decodedContent.trim();
-                // Ensure we have array brackets at the start and end
-                const hasStartBracket = jsonStr.startsWith('[');
-                const hasEndBracket = jsonStr.endsWith(']');
-                
-                let processedJson = jsonStr;
-                if (!hasStartBracket) processedJson = '[' + processedJson;
-                if (!hasEndBracket) processedJson = processedJson + ']';
-                
-                records = JSON.parse(processedJson);
-                console.log(`JSON parsed with manual fixes. Record count: ${records.length}`);
-              } catch (finalError) {
-                console.error('All JSON parsing attempts failed:', finalError);
-                throw new Error(`Invalid JSON response: ${e.message}`);
+                console.log("Cleaning JSON and attempting to parse again...");
+                const cleanedJson = decodedContent.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+                records = JSON.parse(cleanedJson);
+                console.log(`JSON parsed after cleaning. Record count: ${records.length}`);
+              } catch (cleanError) {
+                console.error('JSON cleaning failed:', cleanError);
+                // Try an even more aggressive approach to parse the response
+                try {
+                  console.log("Attempting more aggressive JSON parsing...");
+                  const jsonStr = decodedContent.trim();
+                  // Ensure we have array brackets at the start and end
+                  const hasStartBracket = jsonStr.startsWith('[');
+                  const hasEndBracket = jsonStr.endsWith(']');
+                  
+                  let processedJson = jsonStr;
+                  if (!hasStartBracket) processedJson = '[' + processedJson;
+                  if (!hasEndBracket) processedJson = processedJson + ']';
+                  
+                  records = JSON.parse(processedJson);
+                  console.log(`JSON parsed with manual fixes. Record count: ${records.length}`);
+                } catch (finalError) {
+                  console.error('All JSON parsing attempts failed:', finalError);
+                  throw new Error(`Invalid JSON response: ${e.message}`);
+                }
               }
             }
+          } catch (fetchError) {
+            clearTimeout(timeoutId);
+            console.error('Fetch error:', fetchError);
+            throw fetchError;
           }
           
           if (!Array.isArray(records)) {
@@ -239,10 +261,12 @@ Deno.serve(async (req) => {
         
         for (let i = processedSoFar; i < totalRecords; i += BATCH_SIZE) {
           const currentBatchStart = Date.now();
+          batchNumber++;
           
           // Check if we're approaching the max execution time
-          if (Date.now() - startTime > MAX_EXECUTION_TIME) {
-            console.log(`Approaching max execution time after processing ${processedCount - processedSoFar} records`);
+          const elapsedTime = Date.now() - startTime;
+          if (elapsedTime > MAX_EXECUTION_TIME) {
+            console.log(`Approaching max execution time after processing ${processedCount - processedSoFar} records (${elapsedTime}ms elapsed)`);
             
             // Create a new sync log entry for continuation
             const { data: continuationLog } = await supabaseAdmin
@@ -250,7 +274,7 @@ Deno.serve(async (req) => {
               .insert({
                 type,
                 status: 'processing',
-                message: `Continuing ${type} sync. ${processedCount} of ${totalRecords} processed. Creating new process.`,
+                message: `Continuing ${type} sync. ${processedCount} of ${totalRecords} processed (${Math.round((processedCount / totalRecords) * 100)}%). Creating new process.`,
                 user_id: userId,
                 started_at: new Date().toISOString()
               })
@@ -264,8 +288,8 @@ Deno.serve(async (req) => {
               await supabaseAdmin
                 .from('sync_logs')
                 .update({
-                  status: 'completed',
-                  message: `Partially completed: ${processedCount} of ${totalRecords} ${type} records processed. Continuing in new process.`,
+                  status: 'continues',
+                  message: `Partially completed: ${processedCount} of ${totalRecords} ${type} records processed (${Math.round((processedCount / totalRecords) * 100)}%). Continuing in new process.`,
                   completed_at: new Date().toISOString()
                 })
                 .eq('id', syncId);
@@ -289,7 +313,8 @@ Deno.serve(async (req) => {
                       records: remainingRecords,
                       processedSoFar: processedCount,
                       totalRecords,
-                      syncId: continuationLog.id
+                      syncId: continuationLog.id,
+                      batchNumber
                     }
                   })
                 });
@@ -298,6 +323,17 @@ Deno.serve(async (req) => {
                   console.error(`Continuation request failed with status: ${continuationResponse.status}`);
                   const responseText = await continuationResponse.text();
                   console.error(`Response: ${responseText}`);
+                  
+                  // Update the log with the failure
+                  await supabaseAdmin
+                    .from('sync_logs')
+                    .update({
+                      status: 'error',
+                      message: `Failed to create continuation process: ${continuationResponse.status} - ${responseText}`,
+                      completed_at: new Date().toISOString()
+                    })
+                    .eq('id', continuationLog.id);
+                  
                 } else {
                   console.log(`Continuation request sent successfully, ending current process`);
                 }
@@ -305,13 +341,23 @@ Deno.serve(async (req) => {
                 return; // End current process after sending continuation
               } catch (continuationError) {
                 console.error(`Error sending continuation request:`, continuationError);
+                
+                // Update the log with the error
+                await supabaseAdmin
+                  .from('sync_logs')
+                  .update({
+                    status: 'error',
+                    message: `Error creating continuation process: ${continuationError.message}`,
+                    completed_at: new Date().toISOString()
+                  })
+                  .eq('id', continuationLog.id);
+                
                 // Continue with current process if continuation fails
               }
             }
           }
           
           const batchData = records.slice(i, i + BATCH_SIZE);
-          const batchNumber = Math.floor((i - processedSoFar) / BATCH_SIZE) + 1;
           
           console.log(`Processing batch ${batchNumber}/${totalBatches} with ${batchData.length} records`);
           
@@ -325,6 +371,10 @@ Deno.serve(async (req) => {
               result = await processAbsenteeismBatch(supabaseAdmin, batchData, userId);
               successCount += result.success || 0;
               errorCount += result.error || 0;
+            } else if (type === 'company') {
+              result = await processCompanyBatch(supabaseAdmin, batchData, userId);
+              successCount += result.success || 0;
+              errorCount += result.error || 0;
             }
             
             processedCount += batchData.length;
@@ -333,7 +383,7 @@ Deno.serve(async (req) => {
             await supabaseAdmin
               .from('sync_logs')
               .update({
-                message: `Processed ${processedCount} of ${totalRecords} ${type} records (${Math.round((processedCount / totalRecords) * 100)}%). Success: ${successCount}, Errors: ${errorCount}`
+                message: `Batch ${batchNumber}: Processed ${processedCount} of ${totalRecords} ${type} records (${Math.round((processedCount / totalRecords) * 100)}%). Success: ${successCount}, Errors: ${errorCount}`
               })
               .eq('id', syncId);
               
@@ -386,11 +436,7 @@ Deno.serve(async (req) => {
 
     // Return immediate success response
     return new Response(
-      JSON.stringify({
-        success: true,
-        message: `Synchronization job for ${type} started successfully`,
-        syncId: syncId
-      }),
+      JSON.stringify(immediateResponse),
       { headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
     );
   } catch (error) {
@@ -408,6 +454,80 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+// Function to process company batches
+async function processCompanyBatch(supabase, data, userId) {
+  console.log(`Processing batch of ${data.length} company records`);
+  let success = 0;
+  let error = 0;
+
+  // Process each company record individually to better track errors
+  for (const item of data) {
+    try {
+      // Basic validation
+      if (!item.CODIGO) {
+        console.warn(`Skipping invalid company record without CODIGO`);
+        error++;
+        continue;
+      }
+
+      const companyData = {
+        soc_code: item.CODIGO.toString(),
+        short_name: item.NOMEABREVIADO,
+        corporate_name: item.RAZAOSOCIAL,
+        initial_corporate_name: item.RAZAOSOCIALINICIAL,
+        address: item.ENDERECO,
+        address_number: item.NUMEROENDERECO,
+        address_complement: item.COMPLEMENTOENDERECO,
+        neighborhood: item.BAIRRO,
+        city: item.CIDADE,
+        zip_code: item.CEP,
+        state: item.UF,
+        tax_id: item.CNPJ,
+        state_registration: item.INSCRICAOESTADUAL,
+        municipal_registration: item.INSCRICAOMUNICIPAL,
+        is_active: item.ATIVO === 1,
+        integration_client_code: item.CODIGOCLIENTEINTEGRACAO,
+        client_code: item['CÓD. CLIENTE'],
+        user_id: userId
+      };
+
+      // Try to find if this company already exists
+      const { data: existingCompany } = await supabase
+        .from('companies')
+        .select('id')
+        .eq('soc_code', item.CODIGO)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      let result;
+      if (existingCompany) {
+        // Update existing company
+        result = await supabase
+          .from('companies')
+          .update(companyData)
+          .eq('id', existingCompany.id);
+      } else {
+        // Insert new company
+        result = await supabase
+          .from('companies')
+          .insert(companyData);
+      }
+
+      if (result.error) {
+        console.error(`Error ${existingCompany ? 'updating' : 'creating'} company ${item.CODIGO}:`, result.error);
+        error++;
+      } else {
+        success++;
+      }
+    } catch (individualError) {
+      console.error(`Error processing individual company ${item?.CODIGO || 'unknown'}:`, individualError);
+      error++;
+    }
+  }
+
+  return { count: data.length, success, error };
+}
 
 // Function to process employee batches with improved error handling
 async function processEmployeeBatch(supabase, data, userId) {
@@ -451,7 +571,7 @@ async function processEmployeeBatch(supabase, data, userId) {
         const { data: newCompany, error: companyError } = await supabase
           .from('companies')
           .insert({
-            soc_code: item.CODIGOEMPRESA,
+            soc_code: item.CODIGOEMPRESA || 'unknown',
             short_name: item.NOMEEMPRESA || 'Empresa sem nome',
             corporate_name: item.NOMEEMPRESA || 'Empresa sem nome',
             user_id: userId
