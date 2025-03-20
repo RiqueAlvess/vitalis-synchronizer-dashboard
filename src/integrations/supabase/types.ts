@@ -538,39 +538,68 @@ export type Database = {
       }
       sync_logs: {
         Row: {
+          batch: number | null
           completed_at: string | null
           created_at: string
+          error_count: number | null
           error_details: string | null
           id: number
           message: string | null
+          parent_id: number | null
+          processed_records: number | null
           started_at: string
           status: string
+          success_count: number | null
+          total_batches: number | null
+          total_records: number | null
           type: string
           user_id: string | null
         }
         Insert: {
+          batch?: number | null
           completed_at?: string | null
           created_at?: string
+          error_count?: number | null
           error_details?: string | null
           id?: number
           message?: string | null
+          parent_id?: number | null
+          processed_records?: number | null
           started_at?: string
           status: string
+          success_count?: number | null
+          total_batches?: number | null
+          total_records?: number | null
           type: string
           user_id?: string | null
         }
         Update: {
+          batch?: number | null
           completed_at?: string | null
           created_at?: string
+          error_count?: number | null
           error_details?: string | null
           id?: number
           message?: string | null
+          parent_id?: number | null
+          processed_records?: number | null
           started_at?: string
           status?: string
+          success_count?: number | null
+          total_batches?: number | null
+          total_records?: number | null
           type?: string
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "sync_logs_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "sync_logs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
