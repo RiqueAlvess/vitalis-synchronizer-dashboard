@@ -6,10 +6,10 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
 const SOC_API_URL = 'https://ws1.soc.com.br/WebSoc/exportadados';
 
-// Smaller batch size to prevent timeouts and improve reliability
-const BATCH_SIZE = 30; 
-// Maximum time for a single batch operation in milliseconds
-const BATCH_TIMEOUT = 60000; // 1 minute
+// Configuration constants
+const BATCH_SIZE = 30; // Smaller batch size to prevent timeouts and improve reliability
+const BATCH_TIMEOUT = 60000; // 1 minute maximum time for a single batch operation in milliseconds
+const MAX_EXECUTION_TIME = 10 * 60 * 1000; // 10 minutes maximum execution time
 
 interface SyncJob {
   id: string;
@@ -17,6 +17,7 @@ interface SyncJob {
   params: Record<string, string>;
   userId: string;
   syncLogId?: number;
+  createdAt: number;
 }
 
 interface SyncResponse {
@@ -29,16 +30,84 @@ interface SyncResponse {
   total?: number;
 }
 
-// In-memory queue simulation (in a real implementation this would use Redis via Bull)
+// Global registry to track active syncs by user
+const activeSyncsByUser = new Map<string, Set<string>>();
+
+// Queue management
 const queue: SyncJob[] = [];
 const jobStatus = new Map<string, {
-  status: 'queued' | 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   total?: number;
   processed?: number;
   error?: string;
   result?: any;
+  lastUpdateTime: number;
 }>();
+
+// Check if sync can be started for a user
+function canStartSync(userId: string): boolean {
+  const userSyncs = activeSyncsByUser.get(userId);
+  if (!userSyncs || userSyncs.size === 0) {
+    return true;
+  }
+  return false;
+}
+
+// Register an active sync for a user
+function registerActiveSync(userId: string, jobId: string): void {
+  let userSyncs = activeSyncsByUser.get(userId);
+  if (!userSyncs) {
+    userSyncs = new Set();
+    activeSyncsByUser.set(userId, userSyncs);
+  }
+  userSyncs.add(jobId);
+}
+
+// Remove an active sync for a user
+function removeActiveSync(userId: string, jobId: string): void {
+  const userSyncs = activeSyncsByUser.get(userId);
+  if (userSyncs) {
+    userSyncs.delete(jobId);
+    if (userSyncs.size === 0) {
+      activeSyncsByUser.delete(userId);
+    }
+  }
+}
+
+// Check if a sync job is cancelled
+async function checkCancellation(supabase, syncId: number): Promise<boolean> {
+  try {
+    // Check the sync_cancellations table (dedicated for signaling cancellations)
+    const { data: cancelData, error: cancelError } = await supabase
+      .from('sync_cancellations')
+      .select('*')
+      .eq('sync_id', syncId)
+      .maybeSingle();
+    
+    if (!cancelError && cancelData) {
+      console.log(`Found cancellation signal for sync ${syncId}`);
+      return true;
+    }
+    
+    // Also check the status directly in sync_logs
+    const { data: syncData, error: syncError } = await supabase
+      .from('sync_logs')
+      .select('status')
+      .eq('id', syncId)
+      .single();
+    
+    if (syncError) {
+      console.error(`Error checking cancellation status for sync ${syncId}:`, syncError);
+      return false;
+    }
+    
+    return syncData.status === 'cancelled';
+  } catch (e) {
+    console.error(`Error checking cancellation for sync ${syncId}:`, e);
+    return false;
+  }
+}
 
 // Process jobs in background
 let isProcessing = false;
@@ -55,14 +124,20 @@ async function processQueue() {
       return;
     }
     
+    const executionStartTime = Date.now();
+    
     // Update job status
     jobStatus.set(job.id, { 
       status: 'processing', 
       progress: 0,
+      lastUpdateTime: Date.now()
     });
     
     // Initialize Supabase client
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    
+    // Register this job as active for the user
+    registerActiveSync(job.userId, job.id);
     
     // Update sync log if we have one
     if (job.syncLogId) {
@@ -71,6 +146,7 @@ async function processQueue() {
         .update({
           status: 'in_progress',
           message: `Processando sincronização de ${job.type}`,
+          updated_at: new Date().toISOString()
         })
         .eq('id', job.syncLogId);
     }
@@ -121,7 +197,8 @@ async function processQueue() {
         jobStatus.set(job.id, { 
           ...jobStatus.get(job.id)!, 
           total: jsonData.length,
-          processed: 0
+          processed: 0,
+          lastUpdateTime: Date.now()
         });
         
         // Update sync log with total count
@@ -132,9 +209,36 @@ async function processQueue() {
               total_records: jsonData.length,
               message: `Iniciando processamento de ${jsonData.length} registros`,
               batch: 0,
-              total_batches: Math.ceil(jsonData.length / BATCH_SIZE)
+              total_batches: Math.ceil(jsonData.length / BATCH_SIZE),
+              updated_at: new Date().toISOString()
             })
             .eq('id', job.syncLogId);
+        }
+        
+        // Check if the job was cancelled before processing
+        if (job.syncLogId && await checkCancellation(supabase, job.syncLogId)) {
+          console.log(`Job ${job.id} (sync ${job.syncLogId}) was cancelled before processing`);
+          jobStatus.set(job.id, {
+            ...jobStatus.get(job.id)!,
+            status: 'cancelled',
+            message: 'Cancelled by user before processing',
+            lastUpdateTime: Date.now()
+          });
+          
+          await supabase
+            .from('sync_logs')
+            .update({
+              status: 'cancelled',
+              message: 'Processo cancelado pelo usuário',
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', job.syncLogId);
+          
+          removeActiveSync(job.userId, job.id);
+          isProcessing = false;
+          setTimeout(processQueue, 100);
+          return;
         }
         
         // Process data in batches with error recovery
@@ -145,9 +249,48 @@ async function processQueue() {
         // Track success and error counts
         let successCount = 0;
         let errorCount = 0;
+        let needsContinuation = false;
+        let currentBatch = 0;
         
         for (let i = 0; i < total; i += BATCH_SIZE) {
+          // Check if we've been running too long and need to end the processing
+          const currentElapsedTime = Date.now() - executionStartTime;
+          if (currentElapsedTime > (MAX_EXECUTION_TIME - 60000)) { // 1 minute margin
+            console.log(`Job ${job.id} approaching max execution time (${currentElapsedTime/1000}s), will stop processing`);
+            needsContinuation = true;
+            break;
+          }
+          
+          // Check if the job was cancelled during processing
+          if (job.syncLogId && await checkCancellation(supabase, job.syncLogId)) {
+            console.log(`Job ${job.id} (sync ${job.syncLogId}) was cancelled during batch processing`);
+            jobStatus.set(job.id, {
+              ...jobStatus.get(job.id)!,
+              status: 'cancelled',
+              message: 'Cancelled by user during processing',
+              processed,
+              lastUpdateTime: Date.now()
+            });
+            
+            await supabase
+              .from('sync_logs')
+              .update({
+                status: 'cancelled',
+                message: `Processo cancelado pelo usuário após processar ${processed} de ${total} registros`,
+                completed_at: new Date().toISOString(),
+                processed_records: processed,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', job.syncLogId);
+            
+            removeActiveSync(job.userId, job.id);
+            isProcessing = false;
+            setTimeout(processQueue, 100);
+            return;
+          }
+          
           const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+          currentBatch = batchNumber;
           const batch = jsonData.slice(i, Math.min(i + BATCH_SIZE, total));
           console.log(`Processing batch ${batchNumber}/${totalBatches} (${batch.length} records)`);
           
@@ -160,6 +303,7 @@ async function processQueue() {
                   batch: batchNumber,
                   message: `Processando lote ${batchNumber} de ${totalBatches} (${batch.length} registros)`,
                   processed_records: processed,
+                  updated_at: new Date().toISOString()
                 })
                 .eq('id', job.syncLogId);
             }
@@ -205,7 +349,8 @@ async function processQueue() {
                     error_count: (errorCount || 0) + batch.length,
                     error_details: `Erro no lote ${batchNumber}: ${batchError.message}\n${errorCount > 0 ? 'Erros anteriores existem. ' : ''}`,
                     message: `Sincronização continua após erro no lote ${batchNumber}. Processando próximo lote.`,
-                    status: 'continues' // Special status to indicate recovery
+                    status: 'continues', // Special status to indicate recovery
+                    updated_at: new Date().toISOString()
                   })
                   .eq('id', job.syncLogId);
               }
@@ -218,7 +363,8 @@ async function processQueue() {
             jobStatus.set(job.id, { 
               ...jobStatus.get(job.id)!, 
               progress,
-              processed
+              processed,
+              lastUpdateTime: Date.now()
             });
             
             // Update sync log with progress
@@ -229,7 +375,8 @@ async function processQueue() {
                   message: `Progresso: ${processed} de ${total} registros (${progress}%)`,
                   processed_records: processed,
                   success_count: successCount,
-                  error_count: errorCount
+                  error_count: errorCount,
+                  updated_at: new Date().toISOString()
                 })
                 .eq('id', job.syncLogId);
             }
@@ -250,7 +397,8 @@ async function processQueue() {
                   error_count: (errorCount || 0) + batch.length,
                   error_details: `Erro fatal no lote ${batchNumber}: ${batchError.message}`,
                   status: 'continues',
-                  message: `Erro no processamento do lote ${batchNumber}, tentando continuar com o próximo lote.`
+                  message: `Erro no processamento do lote ${batchNumber}, tentando continuar com o próximo lote.`,
+                  updated_at: new Date().toISOString()
                 })
                 .eq('id', job.syncLogId);
             }
@@ -260,32 +408,62 @@ async function processQueue() {
           }
         }
         
-        // Update job status to completed
-        jobStatus.set(job.id, { 
-          ...jobStatus.get(job.id)!, 
-          status: 'completed',
-          progress: 100
-        });
-        
-        // Update sync log with success (even if there were some errors)
-        const finalStatus = errorCount > 0 ? 
-          (successCount > 0 ? 'completed_with_errors' : 'error') : 
-          'completed';
-        
-        if (job.syncLogId) {
-          await supabase
-            .from('sync_logs')
-            .update({
-              status: finalStatus,
-              message: `Sincronização de ${job.type} concluída: ${processed} registros processados (${successCount} com sucesso, ${errorCount} com erros)`,
-              completed_at: new Date().toISOString(),
-              success_count: successCount,
-              error_count: errorCount
-            })
-            .eq('id', job.syncLogId);
+        // If we need to continue later because of max execution time
+        if (needsContinuation) {
+          // Update job status 
+          jobStatus.set(job.id, { 
+            ...jobStatus.get(job.id)!, 
+            status: 'completed',
+            progress: Math.round((processed / total) * 100),
+            message: `Partial completion: ${processed}/${total} records processed. Continuation needed.`,
+            lastUpdateTime: Date.now()
+          });
+          
+          // Update sync log with continuation status
+          if (job.syncLogId) {
+            await supabase
+              .from('sync_logs')
+              .update({
+                status: 'needs_continuation',
+                message: `Sincronização de ${job.type} será continuada. Processados ${processed} de ${total} registros.`,
+                processed_records: processed,
+                batch: currentBatch,
+                success_count: successCount,
+                error_count: errorCount,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', job.syncLogId);
+          }
+        } else {
+          // Update job status to completed
+          jobStatus.set(job.id, { 
+            ...jobStatus.get(job.id)!, 
+            status: 'completed',
+            progress: 100,
+            lastUpdateTime: Date.now()
+          });
+          
+          // Update sync log with success (even if there were some errors)
+          const finalStatus = errorCount > 0 ? 
+            (successCount > 0 ? 'completed_with_errors' : 'error') : 
+            'completed';
+          
+          if (job.syncLogId) {
+            await supabase
+              .from('sync_logs')
+              .update({
+                status: finalStatus,
+                message: `Sincronização de ${job.type} concluída: ${processed} registros processados (${successCount} com sucesso, ${errorCount} com erros)`,
+                completed_at: new Date().toISOString(),
+                success_count: successCount,
+                error_count: errorCount,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', job.syncLogId);
+          }
         }
         
-        console.log(`Job ${job.id} completed with status: ${finalStatus}. Success: ${successCount}, Errors: ${errorCount}`);
+        console.log(`Job ${job.id} completed with status: ${needsContinuation ? 'needs_continuation' : 'completed'}. Success: ${successCount}, Errors: ${errorCount}`);
         
       } catch (error) {
         clearTimeout(timeoutId);
@@ -295,7 +473,8 @@ async function processQueue() {
         jobStatus.set(job.id, { 
           ...jobStatus.get(job.id)!, 
           status: 'failed',
-          error: error.message
+          error: error.message,
+          lastUpdateTime: Date.now()
         });
         
         // Update sync log with error
@@ -306,7 +485,8 @@ async function processQueue() {
               status: 'error',
               message: `Falha na sincronização de ${job.type}: ${error.message}`,
               error_details: error.stack || error.message,
-              completed_at: new Date().toISOString()
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
             })
             .eq('id', job.syncLogId);
         }
@@ -323,11 +503,15 @@ async function processQueue() {
             status: 'error',
             message: `Erro não tratado: ${error.message}`,
             error_details: error.stack || error.message,
-            completed_at: new Date().toISOString()
+            completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
           })
           .eq('id', job.syncLogId);
       }
     }
+    
+    // Remove from active syncs for this user
+    removeActiveSync(job.userId, job.id);
     
   } finally {
     isProcessing = false;
@@ -365,16 +549,22 @@ async function processCompanyBatch(supabase, data, userId) {
   }));
   
   try {
-    const { data: result, error } = await supabase
-      .from('companies')
-      .upsert(companyData, {
-        onConflict: 'soc_code, user_id',
-        ignoreDuplicates: false
-      });
-    
-    if (error) {
-      console.error('Error upserting companies:', error);
-      throw error;
+    // Process in smaller sub-batches to prevent too large statements
+    const SUB_BATCH_SIZE = 10;
+    for (let i = 0; i < companyData.length; i += SUB_BATCH_SIZE) {
+      const subBatch = companyData.slice(i, i + SUB_BATCH_SIZE);
+      
+      const { error } = await supabase
+        .from('companies')
+        .upsert(subBatch, {
+          onConflict: 'soc_code, user_id',
+          ignoreDuplicates: false
+        });
+      
+      if (error) {
+        console.error(`Error upserting companies (sub-batch ${i}/${companyData.length}):`, error);
+        throw error;
+      }
     }
     
     return { count: companyData.length };
@@ -442,7 +632,7 @@ async function processEmployeeBatch(supabase, data, userId) {
       is_disabled: item.DEFICIENTE === 1,
       disability_description: item.DEFICIENCIA,
       mother_name: item.NM_MAE_FUNCIONARIO,
-      last_update_date: safeDate(item.DATAULTERACAO),
+      last_update_date: safeDate(item.DATAULTALTERACAO),
       hr_registration: item.MATRICULARH,
       skin_color: typeof item.COR === 'number' ? item.COR : null,
       education: typeof item.ESCOLARIDADE === 'number' ? item.ESCOLARIDADE : null,
@@ -461,6 +651,43 @@ async function processEmployeeBatch(supabase, data, userId) {
   });
   
   try {
+    // Find/create company IDs first to establish relationships
+    for (const employee of employeeData) {
+      // Only process employees with a company code
+      if (employee.company_soc_code) {
+        // Try to find the existing company
+        const { data: existingCompany } = await supabase
+          .from('companies')
+          .select('id')
+          .eq('soc_code', employee.company_soc_code)
+          .eq('user_id', userId)
+          .maybeSingle();
+        
+        // If company doesn't exist, create a placeholder
+        if (!existingCompany) {
+          console.log(`Creating placeholder company: ${employee.company_soc_code} (${employee.company_name || 'No name'})`);
+          const { data: newCompany, error: companyError } = await supabase
+            .from('companies')
+            .insert({
+              soc_code: employee.company_soc_code,
+              short_name: employee.company_name || 'Unknown Company',
+              corporate_name: employee.company_name || 'Unknown Company',
+              user_id: userId
+            })
+            .select('id')
+            .single();
+          
+          if (companyError) {
+            console.error(`Error creating placeholder company:`, companyError);
+          } else if (newCompany) {
+            employee.company_id = newCompany.id;
+          }
+        } else {
+          employee.company_id = existingCompany.id;
+        }
+      }
+    }
+    
     // Process in smaller sub-batches to prevent too large statements
     const SUB_BATCH_SIZE = 10;
     for (let i = 0; i < employeeData.length; i += SUB_BATCH_SIZE) {
@@ -529,6 +756,38 @@ async function processAbsenteeismBatch(supabase, data, userId) {
     const SUB_BATCH_SIZE = 10;
     for (let i = 0; i < absenteeismData.length; i += SUB_BATCH_SIZE) {
       const subBatch = absenteeismData.slice(i, i + SUB_BATCH_SIZE);
+      
+      // For each absenteeism record, find the employee and company
+      for (const record of subBatch) {
+        // Try to find the employee by registration number
+        if (record.employee_registration) {
+          const { data: employee } = await supabase
+            .from('employees')
+            .select('id, company_id')
+            .eq('employee_registration', record.employee_registration)
+            .eq('user_id', userId)
+            .maybeSingle();
+          
+          if (employee) {
+            record.employee_id = employee.id;
+            record.company_id = employee.company_id;
+          }
+        }
+        
+        // If no employee found, get the first company for this user to establish a relationship
+        if (!record.company_id) {
+          const { data: company } = await supabase
+            .from('companies')
+            .select('id')
+            .eq('user_id', userId)
+            .limit(1)
+            .maybeSingle();
+          
+          if (company) {
+            record.company_id = company.id;
+          }
+        }
+      }
       
       const { error } = await supabase
         .from('absenteeism')
@@ -620,6 +879,21 @@ Deno.serve(async (req) => {
         );
       }
       
+      // Check if user already has an active sync
+      if (!canStartSync(userId)) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            message: 'Você já possui uma sincronização em andamento. Aguarde a conclusão antes de iniciar outra.',
+            code: 'ALREADY_SYNCING'
+          }),
+          { 
+            status: 409, // Conflict
+            headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+      
       // Create a new sync log entry
       const { data: logEntry, error: logError } = await supabase
         .from('sync_logs')
@@ -628,7 +902,8 @@ Deno.serve(async (req) => {
           status: 'queued',
           message: `Sincronização de ${type} adicionada à fila`,
           user_id: userId,
-          started_at: new Date().toISOString()
+          started_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         })
         .select()
         .single();
@@ -658,7 +933,8 @@ Deno.serve(async (req) => {
         type,
         params,
         userId,
-        syncLogId: logEntry.id
+        syncLogId: logEntry.id,
+        createdAt: Date.now()
       };
       
       // Add job to queue
@@ -667,7 +943,8 @@ Deno.serve(async (req) => {
       // Initialize job status
       jobStatus.set(jobId, {
         status: 'queued',
-        progress: 0
+        progress: 0,
+        lastUpdateTime: Date.now()
       });
       
       // Start processing the queue if not already processing
@@ -731,6 +1008,39 @@ Deno.serve(async (req) => {
         }
       );
     }
+    else if (req.method === 'POST' && path === 'clean-stalled') {
+      // Check for stalled processes (not updated in the last 10 minutes)
+      const STALL_THRESHOLD = 10 * 60 * 1000; // 10 minutes
+      const now = Date.now();
+      let cleaned = 0;
+      
+      jobStatus.forEach((status, id) => {
+        const timeSinceUpdate = now - status.lastUpdateTime;
+        if (timeSinceUpdate > STALL_THRESHOLD && 
+            (status.status === 'processing' || status.status === 'queued')) {
+          console.log(`Found stalled job ${id}, last updated ${timeSinceUpdate/1000}s ago`);
+          jobStatus.set(id, {
+            ...status,
+            status: 'failed',
+            error: `Job stalled and automatically terminated after ${Math.round(timeSinceUpdate/60000)} minutes of inactivity`,
+            lastUpdateTime: now
+          });
+          cleaned++;
+        }
+      });
+      
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: `Cleaned ${cleaned} stalled jobs`,
+          cleaned
+        }),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
     
     // Default response for invalid endpoints
     return new Response(
@@ -760,3 +1070,55 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+// Cleanup stalled jobs periodically (every 5 minutes)
+setInterval(() => {
+  const STALL_THRESHOLD = 15 * 60 * 1000; // 15 minutes
+  const now = Date.now();
+  let cleaned = 0;
+  
+  jobStatus.forEach((status, id) => {
+    const timeSinceUpdate = now - status.lastUpdateTime;
+    if (timeSinceUpdate > STALL_THRESHOLD && 
+        (status.status === 'processing' || status.status === 'queued')) {
+      console.log(`Auto-cleaning stalled job ${id}, last updated ${timeSinceUpdate/1000}s ago`);
+      jobStatus.set(id, {
+        ...status,
+        status: 'failed',
+        error: `Job stalled and automatically terminated after ${Math.round(timeSinceUpdate/60000)} minutes of inactivity`,
+        lastUpdateTime: now
+      });
+      cleaned++;
+      
+      // Remove from active syncs for user
+      const job = queue.find(j => j.id === id);
+      if (job) {
+        removeActiveSync(job.userId, job.id);
+      }
+    }
+  });
+  
+  if (cleaned > 0) {
+    console.log(`Cleaned ${cleaned} stalled jobs in periodic cleanup`);
+  }
+}, 5 * 60 * 1000);
+
+// Clean up completed/failed job statuses after 1 hour to prevent memory leaks
+setInterval(() => {
+  const RETENTION_PERIOD = 60 * 60 * 1000; // 1 hour
+  const now = Date.now();
+  let cleaned = 0;
+  
+  jobStatus.forEach((status, id) => {
+    const timeSinceUpdate = now - status.lastUpdateTime;
+    if (timeSinceUpdate > RETENTION_PERIOD && 
+        (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled')) {
+      jobStatus.delete(id);
+      cleaned++;
+    }
+  });
+  
+  if (cleaned > 0) {
+    console.log(`Removed ${cleaned} finished job status records from memory`);
+  }
+}, 15 * 60 * 1000);

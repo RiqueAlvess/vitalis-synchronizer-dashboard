@@ -41,6 +41,17 @@ Deno.serve(async (req) => {
       }
     });
     
+    // Parse request body (for additional parameters)
+    let body = {};
+    try {
+      if (req.method === 'POST' && req.headers.get('Content-Type')?.includes('application/json')) {
+        body = await req.json();
+      }
+    } catch (e) {
+      console.warn('Error parsing request body:', e);
+      // Continue with empty body - it's optional
+    }
+    
     // Get user data to verify the token
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     
@@ -57,14 +68,54 @@ Deno.serve(async (req) => {
     
     console.log(`User ${user.id} is clearing sync history`);
     
-    // Only delete completed, error or cancelled logs
-    const { data, error } = await supabase
+    // First check for active sync processes - don't delete if there are active syncs
+    const { data: activeSyncs, error: activeCheckError } = await supabase
+      .from('sync_logs')
+      .select('id, type, status')
+      .eq('user_id', user.id)
+      .in('status', ['pending', 'in_progress', 'processing', 'queued', 'started', 'continues'])
+      .is('completed_at', null);
+    
+    if (activeCheckError) {
+      console.error('Error checking for active syncs:', activeCheckError);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: 'Error checking for active sync processes', 
+          error: activeCheckError.message 
+        }),
+        { 
+          status: 500, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+    
+    if (activeSyncs?.length > 0 && !body.force) {
+      const activeTypes = activeSyncs.map(sync => sync.type).join(', ');
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: `Cannot clear history while sync processes are active. You have ${activeSyncs.length} active sync(s): ${activeTypes}`,
+          activeSyncs: activeSyncs.map(s => ({ id: s.id, type: s.type, status: s.status }))
+        }),
+        { 
+          status: 409, // Conflict
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+    
+    // Only delete completed, error or cancelled logs with completed_at set
+    const query = supabase
       .from('sync_logs')
       .delete()
       .eq('user_id', user.id)
-      .in('status', ['completed', 'error', 'cancelled'])
-      .not('completed_at', 'is', null)
-      .select('id');
+      .in('status', ['completed', 'error', 'cancelled', 'completed_with_errors'])
+      .not('completed_at', 'is', null);
+    
+    // Execute the delete query
+    const { data, error } = await query.select('id, status');
     
     if (error) {
       console.error('Error clearing sync history:', error);
@@ -77,11 +128,22 @@ Deno.serve(async (req) => {
       );
     }
     
+    // Check if any records couldn't be cleared
+    let uncleared = 0;
+    let unclearedTypes: string[] = [];
+    
+    if (activeSyncs?.length > 0) {
+      uncleared = activeSyncs.length;
+      unclearedTypes = [...new Set(activeSyncs.map(s => s.type))];
+    }
+    
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: `Cleared ${data?.length || 0} sync logs`, 
-        count: data?.length || 0 
+        message: `Cleared ${data?.length || 0} sync logs${uncleared > 0 ? `, ${uncleared} active logs were preserved` : ''}`, 
+        count: data?.length || 0,
+        uncleared,
+        unclearedTypes: unclearedTypes.length > 0 ? unclearedTypes : undefined
       }),
       { 
         status: 200, 
