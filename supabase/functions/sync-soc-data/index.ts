@@ -15,7 +15,7 @@ interface SyncOptions {
 }
 
 Deno.serve(async (req) => {
-  // Handle CORS for preflight requests
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders(req) });
   }
