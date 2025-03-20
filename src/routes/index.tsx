@@ -1,0 +1,56 @@
+
+import { createBrowserRouter, Navigate } from 'react-router-dom';
+import Dashboard from '@/pages/Dashboard';
+import Login from '@/pages/Login';
+import Register from '@/pages/Register';
+import NotFound from '@/pages/NotFound';
+import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import PublicRoute from '@/components/auth/PublicRoute';
+import Profile from '@/pages/Profile';
+import ApiConfig from '@/pages/ApiConfig';
+import Settings from '@/pages/Settings';
+import Sync from '@/pages/Sync';
+import Employees from '@/pages/Employees';
+
+export const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <Navigate to="/dashboard" replace />
+  },
+  {
+    path: '/dashboard',
+    element: <ProtectedRoute><Dashboard /></ProtectedRoute>
+  },
+  {
+    path: '/login',
+    element: <PublicRoute><Login /></PublicRoute>
+  },
+  {
+    path: '/register',
+    element: <PublicRoute><Register /></PublicRoute>
+  },
+  {
+    path: '/profile',
+    element: <ProtectedRoute><Profile /></ProtectedRoute>
+  },
+  {
+    path: '/api-config',
+    element: <ProtectedRoute><ApiConfig /></ProtectedRoute>
+  },
+  {
+    path: '/settings',
+    element: <ProtectedRoute><Settings /></ProtectedRoute>
+  },
+  {
+    path: '/sync',
+    element: <ProtectedRoute><Sync /></ProtectedRoute>
+  },
+  {
+    path: '/employees',
+    element: <ProtectedRoute><Employees /></ProtectedRoute>
+  },
+  {
+    path: '*',
+    element: <NotFound />
+  }
+]);
