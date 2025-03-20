@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +10,7 @@ import apiService from '@/services/api';
 import SyncHistory from '@/components/sync/SyncHistory';
 import { useNavigate } from 'react-router-dom';
 import { syncLogsService } from '@/services/syncLogsService';
+import { supabase } from '@/services/supabase';
 
 const Sync = () => {
   const { toast } = useToast();
@@ -22,7 +22,6 @@ const Sync = () => {
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
   const checkIntervalRef = useRef<number | null>(null);
   
-  // Check for active syncs - implementation with debounce
   const checkActiveSyncs = useCallback(async () => {
     try {
       console.log('Checking active syncs...');
@@ -32,23 +31,19 @@ const Sync = () => {
       setActiveSyncProcesses(activeSyncs);
     } catch (error) {
       console.error('Error checking active syncs:', error);
-      // Reset to no active syncs on error to prevent blocking
       setActiveSyncProcesses({ count: 0, types: [] });
     }
   }, []);
   
-  // Check for active syncs when page loads and periodically
   useEffect(() => {
     console.log('Sync component mounted');
-    // Immediate check
     checkActiveSyncs();
     
-    // Use interval only if there isn't one already defined
     if (!checkIntervalRef.current) {
       console.log('Setting up active sync check interval');
       checkIntervalRef.current = window.setInterval(() => {
         checkActiveSyncs();
-      }, 15000); // Check every 15 seconds
+      }, 15000);
     }
     
     return () => {
@@ -62,7 +57,6 @@ const Sync = () => {
   
   const handleSync = async (type: 'employee' | 'absenteeism') => {
     try {
-      // Check again for active syncs
       await checkActiveSyncs();
       
       if (activeSyncProcesses.count > 0) {
@@ -89,13 +83,10 @@ const Sync = () => {
       
       console.log(`Starting ${type} sync...`);
       
-      // Using explicitly each method to avoid function errors
       let result;
       if (type === 'employee') {
-        // Start sync with parallel processing
         result = await apiService.sync.employees();
       } else if (type === 'absenteeism') {
-        // Start sync with parallel processing
         result = await apiService.sync.absenteeism();
       } else {
         throw new Error(`Tipo de sincronização não suportado: ${type}`);
@@ -114,9 +105,7 @@ const Sync = () => {
         description: `A sincronização de ${typeLabels[type]} foi iniciada com sucesso.`,
       });
       
-      // Update list of active syncs after short delay
       setTimeout(() => checkActiveSyncs(), 1000);
-      
     } catch (error) {
       console.error(`Error syncing ${type}:`, error);
       
@@ -137,7 +126,6 @@ const Sync = () => {
     }
   };
   
-  // Reset all active syncs (emergency function)
   const handleResetActiveSyncs = async () => {
     try {
       console.log('Attempting to reset all active syncs...');
@@ -148,10 +136,8 @@ const Sync = () => {
         description: 'Todas as sincronizações ativas foram canceladas com sucesso.',
       });
       
-      // Update state
       setActiveSyncProcesses({ count: 0, types: [] });
       
-      // Refresh the status immediately
       checkActiveSyncs();
     } catch (error) {
       console.error('Error resetting active syncs:', error);
@@ -163,15 +149,12 @@ const Sync = () => {
     }
   };
   
-  // Navigate to employees page after sync
   const handleViewEmployees = () => {
     navigate('/employees');
   };
   
-  // Update history when a sync is completed
   useEffect(() => {
     if (syncResult && syncResult.success) {
-      // Scroll to history smoothly
       const syncComponent = document.getElementById('sync-history');
       if (syncComponent) {
         syncComponent.scrollIntoView({ behavior: 'smooth' });
@@ -179,15 +162,12 @@ const Sync = () => {
     }
   }, [syncResult]);
   
-  // New function to diagnose authentication issues
   const checkAuthStatus = async () => {
     try {
       setIsCheckingAuth(true);
       
-      // Import dynamically to avoid circular dependencies
       const { diagnoseAuthIssues } = await import('@/integrations/supabase/client');
       
-      // Run the diagnosis
       const result = await diagnoseAuthIssues();
       console.log('Auth diagnosis result:', result);
       
@@ -199,11 +179,32 @@ const Sync = () => {
           description: 'Seu token de autenticação está funcionando corretamente.',
         });
       } else {
-        toast({
-          variant: 'destructive',
-          title: 'Problema de autenticação',
-          description: 'Há problemas com sua autenticação. Verifique os detalhes no console.',
-        });
+        try {
+          console.log('Attempting to refresh authentication...');
+          const { error } = await supabase.auth.refreshSession();
+          if (error) {
+            console.error('Error refreshing session:', error);
+            toast({
+              variant: 'destructive',
+              title: 'Problema de autenticação',
+              description: 'Há problemas com sua autenticação que não puderam ser corrigidos automaticamente. Tente fazer login novamente.',
+            });
+          } else {
+            toast({
+              title: 'Autenticação renovada',
+              description: 'Tentamos renovar sua autenticação. Por favor, tente novamente a operação.',
+            });
+            const newResult = await diagnoseAuthIssues();
+            setAuthStatus(newResult);
+          }
+        } catch (refreshError) {
+          console.error('Error during authentication refresh:', refreshError);
+          toast({
+            variant: 'destructive',
+            title: 'Problema de autenticação',
+            description: 'Há problemas com sua autenticação. Verifique os detalhes no console e tente fazer login novamente.',
+          });
+        }
       }
     } catch (error) {
       console.error('Error checking auth status:', error);

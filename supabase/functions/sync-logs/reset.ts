@@ -4,20 +4,32 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders(req) });
   }
-  
+
   try {
+    // Debug request headers
+    const headers: Record<string, string> = {};
+    req.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    
+    console.log('Sync-Logs Reset - Request headers:', JSON.stringify(headers));
+    
     // Get the authorization header
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      console.log('Missing authorization header');
       return new Response(
-        JSON.stringify({ success: false, message: 'Missing authorization header' }),
+        JSON.stringify({ 
+          success: false, 
+          message: 'Missing authorization header',
+          headers
+        }),
         { 
           status: 401, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
@@ -28,26 +40,25 @@ Deno.serve(async (req) => {
     // Extract token (remove Bearer prefix if it exists)
     const token = authHeader.replace('Bearer ', '');
     
-    // Initialize Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    // Create admin client to verify the token
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: {
         autoRefreshToken: false,
         persistSession: false
-      },
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
       }
     });
     
-    // Get user data to verify the token
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    // Get user with service role to verify the token
+    const { data: { user }, error: userError } = await adminClient.auth.getUser(token);
     
     if (userError || !user) {
-      console.error('User verification error:', userError);
+      console.error('Error verifying token:', userError);
       return new Response(
-        JSON.stringify({ success: false, message: 'Invalid authentication token' }),
+        JSON.stringify({ 
+          success: false, 
+          message: 'Not authenticated',
+          error: userError ? userError.message : 'No user found for token'
+        }),
         { 
           status: 401, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
@@ -55,25 +66,37 @@ Deno.serve(async (req) => {
       );
     }
     
-    console.log(`User ${user.id} is resetting active syncs`);
+    console.log(`Authenticated as user: ${user.email} (${user.id})`);
     
-    // Reset only active sync processes
-    const { data, error } = await supabase
+    // Initialize with service role for admin operations
+    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+    
+    // Update all active sync processes to 'cancelled'
+    const { data: updatedSyncs, error: updateError } = await supabaseAdmin
       .from('sync_logs')
       .update({
         status: 'cancelled',
-        message: 'Processo cancelado manualmente pelo reset',
-        completed_at: new Date().toISOString()
+        message: 'Sincronização cancelada manualmente',
+        completed_at: new Date().toISOString(),
+        error_details: 'Reset solicitado pelo usuário'
       })
-      .eq('user_id', user.id)
+      .or('status.eq.pending,status.eq.in_progress,status.eq.processing')
       .is('completed_at', null)
-      .in('status', ['processing', 'in_progress', 'queued', 'started', 'continues', 'pending'])
-      .select('id');
+      .select();
     
-    if (error) {
-      console.error('Error resetting active syncs:', error);
+    if (updateError) {
+      console.error('Error resetting active syncs:', updateError);
       return new Response(
-        JSON.stringify({ success: false, message: 'Error resetting active syncs', error: error.message }),
+        JSON.stringify({ 
+          success: false, 
+          message: 'Error resetting active syncs',
+          error: updateError.message 
+        }),
         { 
           status: 500, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
@@ -82,24 +105,28 @@ Deno.serve(async (req) => {
     }
     
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        message: `Reset ${data?.length || 0} active sync processes`, 
-        count: data?.length || 0 
+      JSON.stringify({
+        success: true,
+        message: 'All active sync processes have been reset',
+        count: updatedSyncs?.length || 0
       }),
       { 
-        status: 200, 
         headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
       }
     );
+    
   } catch (error) {
     console.error('Unexpected error:', error);
     return new Response(
-      JSON.stringify({ success: false, message: 'Erro interno no servidor', error: error.message }),
+      JSON.stringify({ 
+        success: false, 
+        message: 'Unexpected error', 
+        error: error instanceof Error ? error.message : String(error) 
+      }),
       { 
         status: 500, 
         headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+      }
     );
   }
 });

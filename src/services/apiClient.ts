@@ -63,7 +63,7 @@ supabaseAPI.interceptors.request.use(
         }
       }
       
-      // Add custom headers for CORS and debugging
+      // Add custom headers for debugging
       config.headers['x-request-time'] = new Date().toISOString();
       
       return config;
@@ -107,9 +107,6 @@ supabaseAPI.interceptors.response.use(
           isRefreshing = true;
           console.log('Token expired, refreshing session...');
           
-          // Force clear any existing sessions to avoid contamination
-          await supabase.auth.signOut({ scope: 'local' });
-          
           // Now get a fresh session
           refreshPromise = supabase.auth.refreshSession();
         }
@@ -120,8 +117,8 @@ supabaseAPI.interceptors.response.use(
         
         if (refreshResult.error) {
           console.error('Session refresh failed:', refreshResult.error);
-          // If refresh fails, sign out and reject
-          await supabase.auth.signOut();
+          // If refresh fails, attempt to sign out and notify
+          await supabase.auth.signOut({ scope: 'local' });
           return Promise.reject(new Error('Sessão expirada. Por favor, faça login novamente.'));
         }
         
@@ -137,6 +134,9 @@ supabaseAPI.interceptors.response.use(
           return axios(originalRequest);
         } else {
           console.error('No new token received after refresh');
+          // If no new token, try re-authenticating
+          await supabase.auth.signOut({ scope: 'local' });
+          return Promise.reject(new Error('Falha na autenticação. Por favor, faça login novamente.'));
         }
       } catch (refreshError) {
         console.error('Error refreshing token:', refreshError);
@@ -144,7 +144,7 @@ supabaseAPI.interceptors.response.use(
         refreshPromise = null;
         isRefreshing = false;
         // Sign out on failure
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: 'local' });
         return Promise.reject(new Error('Autenticação falhou. Por favor, faça login novamente.'));
       }
     }

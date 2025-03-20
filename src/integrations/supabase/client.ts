@@ -19,24 +19,26 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
   global: {
     // Extended timeout for longer operations
     fetch: (url, options = {}) => {
-      // @ts-ignore
-      options.headers = options.headers || {};
+      // Ensure options and headers exist to fix TypeScript errors
+      const fetchOptions = { ...options };
+      fetchOptions.headers = fetchOptions.headers || {};
+      
       // Set longer timeout for large data operations
       const timeoutController = new AbortController();
       const timeoutId = setTimeout(() => timeoutController.abort(), 120000); // 2 minutes timeout
       
-      // @ts-ignore
-      options.signal = timeoutController.signal;
+      // Add signal to options
+      fetchOptions.signal = timeoutController.signal;
       
       // Log request details in development
       if (import.meta.env.DEV) {
         console.log(`Supabase request to: ${url}`, { 
-          headers: options.headers,
-          method: options.method || 'GET'
+          headers: fetchOptions.headers,
+          method: fetchOptions.method || 'GET'
         });
       }
       
-      return fetch(url, options).finally(() => clearTimeout(timeoutId));
+      return fetch(url, fetchOptions).finally(() => clearTimeout(timeoutId));
     }
   }
 });
@@ -132,7 +134,7 @@ export const testTokenValidity = async () => {
   } catch (error) {
     return { 
       valid: false, 
-      message: error.message || 'Error testing token validity',
+      message: error instanceof Error ? error.message : 'Error testing token validity',
       error
     };
   }
@@ -146,20 +148,35 @@ export const diagnoseAuthIssues = async () => {
       return { valid: false, message: 'No token available' };
     }
     
+    // Log details about the token
+    console.log(`Making auth validation request with token length: ${token.length}`);
+    console.log(`Token first 10 chars: ${token.substring(0, 10)}...`);
+    
+    // Make the request with the Authorization header
     const response = await fetch(`${SUPABASE_URL}/functions/v1/auth/validate`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        // Add additional header for debugging
+        'X-Request-Time': new Date().toISOString()
       }
     });
     
-    return await response.json();
+    // Log the response status
+    console.log(`Auth validation response status: ${response.status}`);
+    
+    // Parse the response
+    const result = await response.json();
+    console.log(`Auth validation result:`, result);
+    
+    return result;
   } catch (error) {
+    console.error('Error in auth diagnosis:', error);
     return { 
       success: false, 
-      message: error.message || 'Error diagnosing authentication',
-      error
+      message: error instanceof Error ? error.message : 'Error diagnosing authentication',
+      error: String(error)
     };
   }
 };

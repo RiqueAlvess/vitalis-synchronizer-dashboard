@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
 
   try {
     // Debug headers for diagnosis
-    const allHeaders = {};
+    const allHeaders: Record<string, string> = {};
     req.headers.forEach((value, key) => {
       allHeaders[key] = value;
     });
@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
         diagnostics.standardAuth.user = { id: user.id, email: user.email };
       }
     } catch (error) {
-      diagnostics.standardAuth.error = error.message;
+      diagnostics.standardAuth.error = error instanceof Error ? error.message : String(error);
     }
     
     // 2. Explicit token auth
@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
         diagnostics.explicitAuth.user = { id: user.id, email: user.email };
       }
     } catch (error) {
-      diagnostics.explicitAuth.error = error.message;
+      diagnostics.explicitAuth.error = error instanceof Error ? error.message : String(error);
     }
     
     // 3. Admin auth - verifying token with service role
@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
         diagnostics.adminAuth.user = { id: user.id, email: user.email };
       }
     } catch (error) {
-      diagnostics.adminAuth.error = error.message;
+      diagnostics.adminAuth.error = error instanceof Error ? error.message : String(error);
     }
     
     // Determine overall success
@@ -147,8 +147,8 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: false, 
-        message: error.message || 'An unexpected error occurred in auth validation',
-        stack: error.stack
+        message: error instanceof Error ? error.message : 'An unexpected error occurred in auth validation',
+        stack: error instanceof Error ? error.stack : null
       }),
       { 
         headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },

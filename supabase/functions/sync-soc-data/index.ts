@@ -4,6 +4,7 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const SOC_API_URL = 'https://ws1.soc.com.br/WebSoc/exportadados';
 
 interface SyncOptions {
@@ -21,21 +22,80 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Initialize Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Debug request headers
+    const headers: Record<string, string> = {};
+    req.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
     
-    // Get the session to verify authentication
-    const { data: { session } } = await supabase.auth.getSession();
+    console.log('Sync-SOC-Data - Request headers:', JSON.stringify(headers));
     
-    if (!session) {
+    // Get the authorization header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
       return new Response(
-        JSON.stringify({ success: false, message: 'Not authenticated' }),
+        JSON.stringify({ 
+          success: false, 
+          message: 'Missing authorization header',
+          headers
+        }),
         { 
           status: 401, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
     }
+    
+    // Extract token (remove Bearer prefix if it exists)
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Log token details (first and last few characters, for security)
+    const tokenLength = token.length;
+    const maskedToken = tokenLength > 10 ? 
+      `${token.substring(0, 5)}...${token.substring(tokenLength - 5)}` : 
+      'token too short';
+    console.log(`Token received (masked): ${maskedToken}, length: ${tokenLength}`);
+    
+    // Create admin client to verify the token
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+    
+    // Get user with service role to verify the token
+    const { data: { user }, error: userError } = await adminClient.auth.getUser(token);
+    
+    if (userError || !user) {
+      console.error('Error verifying token:', userError);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: 'Not authenticated',
+          error: userError ? userError.message : 'No user found for token'
+        }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+    
+    console.log(`Authenticated as user: ${user.email} (${user.id})`);
+    
+    // Initialize regular Supabase client for data operations
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
     
     // Parse the request body
     const options: SyncOptions = await req.json();
@@ -59,7 +119,7 @@ Deno.serve(async (req) => {
         type: options.type,
         status: 'pending',
         message: `Sincronização de ${options.type} iniciada`,
-        user_id: session.user.id
+        user_id: user.id
       })
       .select()
       .single();
@@ -91,7 +151,11 @@ Deno.serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         message: `Sincronização de ${options.type} iniciada com sucesso`, 
-        syncId: logEntry.id
+        syncId: logEntry.id,
+        user: {
+          id: user.id,
+          email: user.email
+        }
       }),
       { 
         status: 200, 
@@ -100,7 +164,7 @@ Deno.serve(async (req) => {
     );
     
     // Process the sync in background using EdgeRuntime.waitUntil
-    const processingPromise = processSyncInBackground(supabase, options, logEntry.id, session.user.id);
+    const processingPromise = processSyncInBackground(supabase, options, logEntry.id, user.id);
     //@ts-ignore - EdgeRuntime is available in Deno Deploy
     EdgeRuntime.waitUntil(processingPromise);
     
@@ -108,7 +172,12 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Unexpected error:', error);
     return new Response(
-      JSON.stringify({ success: false, message: 'Erro interno no servidor', error: error.message }),
+      JSON.stringify({ 
+        success: false, 
+        message: 'Erro interno no servidor', 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : null 
+      }),
       { 
         status: 500, 
         headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
