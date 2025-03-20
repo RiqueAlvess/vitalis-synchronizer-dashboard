@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ const Sync = () => {
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [activeSyncProcesses, setActiveSyncProcesses] = useState<{count: number, types: string[]}>({ count: 0, types: [] });
   const [syncResult, setSyncResult] = useState<{type: string; success: boolean; message: string} | null>(null);
+  const checkIntervalRef = useRef<number | null>(null);
   
   // Verificar se há sincronizações ativas
   const checkActiveSyncs = async () => {
@@ -33,15 +34,23 @@ const Sync = () => {
     }
   };
   
-  // Verificar sincronizações ativas ao carregar a página e a cada 5 segundos
+  // Verificar sincronizações ativas ao carregar a página e a cada 10 segundos (aumentado de 5)
   useEffect(() => {
     checkActiveSyncs();
     
-    const interval = setInterval(() => {
-      checkActiveSyncs();
-    }, 5000);
+    // Usar intervalo apenas se não houver outro já definido
+    if (!checkIntervalRef.current) {
+      checkIntervalRef.current = window.setInterval(() => {
+        checkActiveSyncs();
+      }, 10000); // Aumentado de 5000 para 10000ms
+    }
     
-    return () => clearInterval(interval);
+    return () => {
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
+      }
+    };
   }, []);
   
   const handleSync = async (type: 'employee' | 'absenteeism') => {
@@ -125,7 +134,7 @@ const Sync = () => {
   // Atualizar o histórico quando uma sincronização for concluída
   useEffect(() => {
     if (syncResult && syncResult.success) {
-      // Aqui podemos implementar polling para verificar o status da sincronização se necessário
+      // Rolar para o histórico de forma suave
       const syncComponent = document.getElementById('sync-history');
       if (syncComponent) {
         syncComponent.scrollIntoView({ behavior: 'smooth' });

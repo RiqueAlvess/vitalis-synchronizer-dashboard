@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, Trash2 } from 'lucide-react';
@@ -25,6 +25,7 @@ const SyncHistory: React.FC = () => {
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isClearing, setIsClearing] = useState(false);
+  const intervalRef = useRef<number | null>(null);
   
   const fetchLogs = async () => {
     try {
@@ -64,22 +65,40 @@ const SyncHistory: React.FC = () => {
     }
   };
   
+  // Iniciar atualizações automáticas apenas quando há sincronizações ativas
+  const startAutoRefresh = () => {
+    // Limpar intervalo existente se houver
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    
+    // Verificar se há sincronizações ativas
+    const hasActiveSync = logs.some(log => 
+      ['processing', 'in_progress', 'queued', 'started', 'continues'].includes(log.status)
+    );
+    
+    // Só configurar novo intervalo se houver sincronizações ativas
+    if (hasActiveSync) {
+      intervalRef.current = window.setInterval(() => {
+        fetchLogs();
+      }, 10000); // Atualizar a cada 10 segundos, em vez de 5
+    }
+  };
+  
+  // Carregar logs iniciais e configurar atualizações
   useEffect(() => {
     fetchLogs();
-    
-    // Atualização automática a cada 10 segundos para mostrar progresso
-    const interval = setInterval(() => {
-      // Somente recarregar automaticamente se houver sincronizações ativas
-      const hasActiveSync = logs.some(log => 
-        ['processing', 'in_progress', 'queued', 'started', 'continues'].includes(log.status)
-      );
-      
-      if (hasActiveSync) {
-        fetchLogs();
+    return () => {
+      // Limpar intervalo quando o componente for desmontado
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
       }
-    }, 5000);
-    
-    return () => clearInterval(interval);
+    };
+  }, []);
+  
+  // Monitorar alterações nos logs para iniciar/parar atualizações automáticas
+  useEffect(() => {
+    startAutoRefresh();
   }, [logs]);
   
   return (

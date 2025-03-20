@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Table,
   TableBody,
@@ -24,6 +25,7 @@ const SyncLogsTable: React.FC<SyncLogsTableProps> = ({ onSync }) => {
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState<{ [key: string]: boolean }>({});
+  const refreshIntervalRef = useRef<number | null>(null);
 
   const fetchLogs = async () => {
     try {
@@ -39,7 +41,31 @@ const SyncLogsTable: React.FC<SyncLogsTableProps> = ({ onSync }) => {
 
   useEffect(() => {
     fetchLogs();
-  }, []);
+    
+    // Limpar o intervalo atual se existir
+    if (refreshIntervalRef.current) {
+      clearInterval(refreshIntervalRef.current);
+      refreshIntervalRef.current = null;
+    }
+    
+    // Verificar se há sincronizações ativas
+    const hasActiveSync = logs.some(log => 
+      ['processing', 'in_progress', 'queued', 'started', 'continues'].includes(log.status)
+    );
+    
+    // Configurar intervalo apenas se houver sincronizações ativas
+    if (hasActiveSync) {
+      refreshIntervalRef.current = window.setInterval(() => {
+        fetchLogs();
+      }, 15000); // Atualizar a cada 15 segundos
+    }
+    
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [logs]);
 
   const handleSync = async (type: 'employee' | 'absenteeism') => {
     try {
