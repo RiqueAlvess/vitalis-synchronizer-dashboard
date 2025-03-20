@@ -58,5 +58,16 @@ export const syncLogsService = {
       console.error(`Error cancelling sync ${syncId}:`, error);
       throw error;
     }
+  },
+  
+  // Clear sync history
+  clearHistory: async () => {
+    try {
+      const { data } = await supabaseAPI.post('/sync-logs/clear');
+      return data;
+    } catch (error) {
+      console.error('Error clearing sync history:', error);
+      throw error;
+    }
   }
 };

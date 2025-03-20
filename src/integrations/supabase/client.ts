@@ -18,9 +18,9 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
   },
   global: {
     // Extended timeout for longer operations
-    fetch: (url, options = {}) => {
+    fetch: (url, options: RequestInit = {}) => {
       // Ensure options and headers exist to fix TypeScript errors
-      const fetchOptions = { ...options };
+      const fetchOptions: RequestInit = { ...options };
       fetchOptions.headers = fetchOptions.headers || {};
       
       // Set longer timeout for large data operations
