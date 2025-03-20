@@ -1,6 +1,6 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
-import { corsHeaders } from '../_shared/cors.ts';
+import { corsHeaders, syncErrorResponse } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
@@ -27,12 +27,12 @@ Deno.serve(async (req) => {
     
     if (!session) {
       console.error("Unauthorized attempt to cancel sync - no session found");
-      return new Response(
-        JSON.stringify({ success: false, message: 'Not authenticated' }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+      return syncErrorResponse(
+        req,
+        'Não autenticado. Por favor, faça login novamente.',
+        401,
+        null,
+        'auth/unauthorized'
       );
     }
     
@@ -43,12 +43,12 @@ Deno.serve(async (req) => {
     
     if (!syncId) {
       console.error("Missing required syncId parameter");
-      return new Response(
-        JSON.stringify({ success: false, message: 'Missing required parameter: syncId' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+      return syncErrorResponse(
+        req,
+        'Parâmetro obrigatório ausente: syncId',
+        400,
+        null,
+        'request/invalid'
       );
     }
     
@@ -63,35 +63,35 @@ Deno.serve(async (req) => {
     
     if (fetchError) {
       console.error(`Error fetching sync log ${syncId}:`, fetchError);
-      return new Response(
-        JSON.stringify({ success: false, message: `Error fetching sync log ${syncId}`, error: fetchError.message }),
-        { 
-          status: 500, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+      return syncErrorResponse(
+        req,
+        `Erro ao buscar registro de sincronização ${syncId}`,
+        500,
+        fetchError,
+        'database/error'
       );
     }
     
     if (!syncLog) {
       console.error(`Sync log ${syncId} not found`);
-      return new Response(
-        JSON.stringify({ success: false, message: `Sync log ${syncId} not found` }),
-        { 
-          status: 404, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+      return syncErrorResponse(
+        req,
+        `Registro de sincronização ${syncId} não encontrado`,
+        404,
+        null,
+        'database/error'
       );
     }
     
     // Verify the sync log belongs to the user
-    if (syncLog.user_id !== session.user.id) {
+    if (syncLog.user_id !== session.user.id && !force) {
       console.error(`User ${session.user.id} attempted to cancel sync ${syncId} belonging to user ${syncLog.user_id}`);
-      return new Response(
-        JSON.stringify({ success: false, message: `You don't have permission to cancel this sync` }),
-        { 
-          status: 403, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+      return syncErrorResponse(
+        req,
+        'Você não tem permissão para cancelar esta sincronização',
+        403,
+        null,
+        'auth/unauthorized'
       );
     }
     
@@ -101,13 +101,12 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: true, 
-          message: `Sync process ${syncId} already ${syncLog.status}, no need to cancel`,
+          message: `Sincronização ${syncId} já está ${syncLog.status}, não é necessário cancelar`,
           syncId,
           type: syncLog.type,
           status: syncLog.status
         }),
         { 
-          status: 200, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
@@ -128,12 +127,12 @@ Deno.serve(async (req) => {
     
     if (updateError) {
       console.error(`Error updating sync log ${syncId}:`, updateError);
-      return new Response(
-        JSON.stringify({ success: false, message: `Error updating sync log ${syncId}`, error: updateError.message }),
-        { 
-          status: 500, 
-          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-        }
+      return syncErrorResponse(
+        req,
+        `Erro ao atualizar registro de sincronização ${syncId}`,
+        500,
+        updateError,
+        'database/error'
       );
     }
     
@@ -180,18 +179,17 @@ Deno.serve(async (req) => {
         type: syncLog.type
       }),
       { 
-        status: 200, 
         headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
       }
     );
   } catch (error) {
     console.error('Unexpected error in cancel function:', error);
-    return new Response(
-      JSON.stringify({ success: false, message: 'Erro interno no servidor', error: error.message }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-      }
+    return syncErrorResponse(
+      req,
+      'Erro interno no servidor',
+      500,
+      error,
+      'unknown/error'
     );
   }
 });

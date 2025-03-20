@@ -157,9 +157,7 @@ export const diagnoseAuthIssues = async () => {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        // Add additional header for debugging
-        'X-Request-Time': new Date().toISOString()
+        'Content-Type': 'application/json'
       }
     });
     

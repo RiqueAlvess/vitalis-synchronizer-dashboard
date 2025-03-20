@@ -13,22 +13,13 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Debug headers for diagnosis
-    const allHeaders: Record<string, string> = {};
-    req.headers.forEach((value, key) => {
-      allHeaders[key] = value;
-    });
-    
-    console.log('Auth Validate - Request headers:', JSON.stringify(allHeaders));
-
     // Get the authorization header
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(
         JSON.stringify({
           success: false,
-          message: 'Missing authorization header',
-          headers: allHeaders
+          message: 'Missing authorization header'
         }),
         { headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }, status: 401 }
       );
@@ -51,50 +42,7 @@ Deno.serve(async (req) => {
       adminAuth: { tried: false, success: false, error: null, user: null },
     };
     
-    // 1. Standard auth - use token from client headers
-    try {
-      diagnostics.standardAuth.tried = true;
-      const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-      const { data: { user }, error } = await supabase.auth.getUser();
-      
-      if (error) {
-        diagnostics.standardAuth.error = error.message;
-      } else if (user) {
-        diagnostics.standardAuth.success = true;
-        diagnostics.standardAuth.user = { id: user.id, email: user.email };
-      }
-    } catch (error) {
-      diagnostics.standardAuth.error = error instanceof Error ? error.message : String(error);
-    }
-    
-    // 2. Explicit token auth
-    try {
-      diagnostics.explicitAuth.tried = true;
-      const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        },
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      });
-      
-      const { data: { user }, error } = await supabase.auth.getUser(token);
-      
-      if (error) {
-        diagnostics.explicitAuth.error = error.message;
-      } else if (user) {
-        diagnostics.explicitAuth.success = true;
-        diagnostics.explicitAuth.user = { id: user.id, email: user.email };
-      }
-    } catch (error) {
-      diagnostics.explicitAuth.error = error instanceof Error ? error.message : String(error);
-    }
-    
-    // 3. Admin auth - verifying token with service role
+    // 1. Admin auth - verifying token with service role
     try {
       diagnostics.adminAuth.tried = true;
       const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -117,15 +65,8 @@ Deno.serve(async (req) => {
     }
     
     // Determine overall success
-    const anySuccess = 
-      diagnostics.standardAuth.success || 
-      diagnostics.explicitAuth.success || 
-      diagnostics.adminAuth.success;
-    
-    const user = 
-      diagnostics.standardAuth.user || 
-      diagnostics.explicitAuth.user || 
-      diagnostics.adminAuth.user;
+    const anySuccess = diagnostics.adminAuth.success;
+    const user = diagnostics.adminAuth.user;
     
     return new Response(
       JSON.stringify({

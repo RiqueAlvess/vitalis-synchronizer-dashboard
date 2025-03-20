@@ -3,12 +3,10 @@ import React, { useEffect, useState } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import DashboardOverview from '@/components/dashboard/DashboardOverview';
 import { useAuth } from '@/context/AuthContext';
-import { Button } from '@/components/ui/button';
-import { toast } from '@/components/ui/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const Dashboard = () => {
-  const { user, isAuthenticated, saveSettings, getSettings } = useAuth();
+  const { user, isAuthenticated, getSettings } = useAuth();
   const [userSettings, setUserSettings] = useState<any>({});
   const [isLoading, setIsLoading] = useState(true);
 
