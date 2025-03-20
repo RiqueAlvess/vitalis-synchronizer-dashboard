@@ -10,7 +10,8 @@ export const supabaseAPI = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 180000 // Increased to 3 minutes for sync operations
+  // Significantly increased timeout for large sync operations
+  timeout: 300000 // 5 minutes for large data processing
 });
 
 // Track if we're currently refreshing the token
@@ -125,7 +126,7 @@ supabaseAPI.interceptors.response.use(
 );
 
 // Enhanced retry mechanism for API calls with exponential backoff
-export const retryRequest = async (fn: () => Promise<any>, maxRetries = 3, initialDelay = 1000) => {
+export const retryRequest = async (fn: () => Promise<any>, maxRetries = 5, initialDelay = 1000) => {
   let lastError;
   
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -137,7 +138,7 @@ export const retryRequest = async (fn: () => Promise<any>, maxRetries = 3, initi
       
       if (attempt < maxRetries) {
         // Calculate delay with exponential backoff and jitter
-        const delay = initialDelay * Math.pow(1.5, attempt) + Math.random() * 500;
+        const delay = initialDelay * Math.pow(2, attempt) + Math.random() * 1000;
         console.log(`Retrying in ${Math.round(delay)}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }

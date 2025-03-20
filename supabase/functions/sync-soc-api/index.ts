@@ -1,15 +1,17 @@
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
 import { corsHeaders } from '../_shared/cors.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const SOC_API_URL = 'https://ws1.soc.com.br/WebSoc/exportadados';
 
-// Increased batch size for efficiency but still manageable
-const BATCH_SIZE = 50;
+// Smaller batch size for more reliable processing
+const BATCH_SIZE = 20;
 // Maximum time to run before refreshing the function (in milliseconds)
-const MAX_EXECUTION_TIME = 25 * 60 * 1000; // 25 minutes
+const MAX_EXECUTION_TIME = 20 * 60 * 1000; // 20 minutes
+// Delay between processing batches to avoid overloading the DB
+const BATCH_DELAY_MS = 300;
 
 Deno.serve(async (req) => {
   // Handle CORS preflight request
@@ -24,6 +26,8 @@ Deno.serve(async (req) => {
         { status: 405, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
+
+    console.log("Synchronization request received");
 
     // Get authorization header
     const authHeader = req.headers.get('Authorization');
@@ -60,65 +64,81 @@ Deno.serve(async (req) => {
 
     // Get request body
     const requestData = await req.json();
-    const { type, params } = requestData;
+    let { type, params, continuationData } = requestData;
 
-    if (!type || !params) {
-      return new Response(
-        JSON.stringify({ success: false, message: 'Missing required parameters: type and params' }),
-        { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-      );
+    // Check if this is a continuation of a previous sync
+    let continuationMode = false;
+    let processedSoFar = 0;
+    let totalRecords = 0;
+    let syncId;
+    let records = [];
+
+    if (continuationData) {
+      console.log("Continuing previous sync task");
+      continuationMode = true;
+      records = continuationData.records || [];
+      processedSoFar = continuationData.processedSoFar || 0;
+      totalRecords = continuationData.totalRecords || records.length;
+      syncId = continuationData.syncId;
+      
+      console.log(`Continuing from record ${processedSoFar}/${totalRecords}`);
+    } else {
+      if (!type || !params) {
+        return new Response(
+          JSON.stringify({ success: false, message: 'Missing required parameters: type and params' }),
+          { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Validate type - only allow employee and absenteeism
+      if (type !== 'employee' && type !== 'absenteeism') {
+        return new Response(
+          JSON.stringify({ success: false, message: 'Invalid type. Only "employee" and "absenteeism" are supported.' }),
+          { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log(`New sync request for type ${type} with params:`, params);
     }
 
-    // Validate type - only allow employee and absenteeism
-    if (type !== 'employee' && type !== 'absenteeism') {
-      return new Response(
-        JSON.stringify({ success: false, message: 'Invalid type. Only "employee" and "absenteeism" are supported.' }),
-        { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-      );
+    // If this is not a continuation, create a new sync log entry
+    if (!continuationMode) {
+      const { data: syncLog, error: syncLogError } = await supabaseAdmin
+        .from('sync_logs')
+        .insert({
+          type,
+          status: 'started',
+          message: `Synchronizing ${type} data`,
+          user_id: user.id,
+          started_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (syncLogError) {
+        console.error('Error creating sync log entry:', syncLogError);
+        return new Response(
+          JSON.stringify({ success: false, message: 'Failed to create sync log entry' }),
+          { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log('Created sync log entry:', syncLog.id);
+      syncId = syncLog.id;
     }
 
-    console.log(`Sync request for type ${type} with params:`, params);
-
-    // Create a sync log entry
-    const { data: syncLog, error: syncLogError } = await supabaseAdmin
-      .from('sync_logs')
-      .insert({
-        type,
-        status: 'started',
-        message: `Synchronizing ${type} data`,
-        user_id: user.id,
-        started_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
-    if (syncLogError) {
-      console.error('Error creating sync log entry:', syncLogError);
-      return new Response(
-        JSON.stringify({ success: false, message: 'Failed to create sync log entry' }),
-        { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-      );
+    // Update sync log status to processing (if not a continuation)
+    if (!continuationMode) {
+      await supabaseAdmin
+        .from('sync_logs')
+        .update({
+          status: 'processing',
+          message: `Processing ${type} data from SOC API`
+        })
+        .eq('id', syncId);
     }
 
-    console.log('Created sync log entry:', syncLog.id);
-
-    // Format parameters for the SOC API
-    const formattedParams = JSON.stringify(params);
-    const apiUrl = `${SOC_API_URL}?parametro=${encodeURIComponent(formattedParams)}`;
-
-    console.log('Calling SOC API at:', apiUrl);
-
-    // Update sync log status to processing
-    await supabaseAdmin
-      .from('sync_logs')
-      .update({
-        status: 'processing',
-        message: `Processing ${type} data from SOC API`
-      })
-      .eq('id', syncLog.id);
-
-    // Start the background task to call the API and process data
-    const syncId = syncLog.id;
+    // Start the background task
     const userId = user.id;
     
     // Run the heavy processing in the background with waitUntil
@@ -127,64 +147,102 @@ Deno.serve(async (req) => {
         console.log(`Processing ${type} data in background for sync ID ${syncId}`);
         const startTime = Date.now();
         
-        // Make the API request
-        const response = await fetch(apiUrl);
-        
-        if (!response.ok) {
-          throw new Error(`API request failed with status: ${response.status}`);
-        }
-        
-        // Get the text response and decode it from latin-1
-        const responseBuffer = await response.arrayBuffer();
-        const decoder = new TextDecoder('latin1');
-        const decodedContent = decoder.decode(responseBuffer);
-        
-        console.log("API Response received, length:", decodedContent.length);
-        
-        // Parse the JSON response
-        let jsonData;
-        try {
-          jsonData = JSON.parse(decodedContent);
-          console.log("JSON parsed successfully. Record count:", jsonData.length);
-        } catch (e) {
-          console.error('Error parsing JSON:', e);
-          // Try to clean the JSON string before parsing
-          try {
-            const cleanedJson = decodedContent.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
-            jsonData = JSON.parse(cleanedJson);
-            console.log("JSON parsed after cleaning. Record count:", jsonData.length);
-          } catch (cleanError) {
-            throw new Error(`Invalid JSON response: ${e.message}`);
+        if (!continuationMode) {
+          // Only fetch from API if this is a new sync, not a continuation
+          console.log("Formatting parameters for SOC API");
+          const formattedParams = JSON.stringify(params);
+          const apiUrl = `${SOC_API_URL}?parametro=${encodeURIComponent(formattedParams)}`;
+          
+          console.log('Calling SOC API at:', apiUrl);
+          
+          // Make the API request
+          const response = await fetch(apiUrl, {
+            headers: {
+              'Accept': 'application/json',
+              'Accept-Encoding': 'identity' // Request uncompressed response
+            }
+          });
+          
+          if (!response.ok) {
+            throw new Error(`API request failed with status: ${response.status}`);
           }
+          
+          console.log("API Response received, getting content...");
+          
+          // Get the text response and decode it from latin-1
+          const responseBuffer = await response.arrayBuffer();
+          const decoder = new TextDecoder('latin1');
+          const decodedContent = decoder.decode(responseBuffer);
+          
+          console.log(`API Response decoded, length: ${decodedContent.length} characters`);
+          
+          // Parse the JSON response
+          try {
+            console.log("Attempting to parse JSON response...");
+            records = JSON.parse(decodedContent);
+            console.log(`JSON parsed successfully. Record count: ${records.length}`);
+          } catch (e) {
+            console.error('Error parsing JSON:', e);
+            // Try to clean the JSON string before parsing
+            try {
+              console.log("Cleaning JSON and attempting to parse again...");
+              const cleanedJson = decodedContent.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+              records = JSON.parse(cleanedJson);
+              console.log(`JSON parsed after cleaning. Record count: ${records.length}`);
+            } catch (cleanError) {
+              console.error('JSON cleaning failed:', cleanError);
+              // Try an even more aggressive approach to parse the response
+              try {
+                console.log("Attempting more aggressive JSON parsing...");
+                const jsonStr = decodedContent.trim();
+                // Ensure we have array brackets at the start and end
+                const hasStartBracket = jsonStr.startsWith('[');
+                const hasEndBracket = jsonStr.endsWith(']');
+                
+                let processedJson = jsonStr;
+                if (!hasStartBracket) processedJson = '[' + processedJson;
+                if (!hasEndBracket) processedJson = processedJson + ']';
+                
+                records = JSON.parse(processedJson);
+                console.log(`JSON parsed with manual fixes. Record count: ${records.length}`);
+              } catch (finalError) {
+                console.error('All JSON parsing attempts failed:', finalError);
+                throw new Error(`Invalid JSON response: ${e.message}`);
+              }
+            }
+          }
+          
+          if (!Array.isArray(records)) {
+            console.error('API response is not an array:', typeof records);
+            throw new Error('API did not return an array of records');
+          }
+          
+          console.log(`Received ${records.length} records from SOC API for ${type}`);
+          totalRecords = records.length;
+          
+          // Update sync log with total count
+          await supabaseAdmin
+            .from('sync_logs')
+            .update({
+              message: `Processing ${records.length} ${type} records`
+            })
+            .eq('id', syncId);
         }
-        
-        if (!Array.isArray(jsonData)) {
-          throw new Error('API did not return an array of records');
-        }
-        
-        console.log(`Received ${jsonData.length} records from SOC API for ${type}`);
-        
-        // Update sync log with total count
-        await supabaseAdmin
-          .from('sync_logs')
-          .update({
-            message: `Processing ${jsonData.length} ${type} records`
-          })
-          .eq('id', syncId);
         
         // Process in batches
-        const totalRecords = jsonData.length;
-        let processedCount = 0;
+        let processedCount = processedSoFar;
         let successCount = 0;
         let errorCount = 0;
-        let totalBatches = Math.ceil(totalRecords / BATCH_SIZE);
+        let totalBatches = Math.ceil((totalRecords - processedSoFar) / BATCH_SIZE);
         
-        console.log(`Processing ${totalRecords} records in ${totalBatches} batches of ${BATCH_SIZE}`);
+        console.log(`Processing ${totalRecords - processedSoFar} remaining records in ${totalBatches} batches of ${BATCH_SIZE}`);
         
-        for (let i = 0; i < totalRecords; i += BATCH_SIZE) {
+        for (let i = processedSoFar; i < totalRecords; i += BATCH_SIZE) {
+          const currentBatchStart = Date.now();
+          
           // Check if we're approaching the max execution time
           if (Date.now() - startTime > MAX_EXECUTION_TIME) {
-            console.log(`Approaching max execution time, creating continuation log`);
+            console.log(`Approaching max execution time after processing ${processedCount - processedSoFar} records`);
             
             // Create a new sync log entry for continuation
             const { data: continuationLog } = await supabaseAdmin
@@ -200,6 +258,8 @@ Deno.serve(async (req) => {
               .single();
               
             if (continuationLog) {
+              console.log(`Created continuation log with ID ${continuationLog.id}`);
+              
               // Update current log with partial completion
               await supabaseAdmin
                 .from('sync_logs')
@@ -211,11 +271,12 @@ Deno.serve(async (req) => {
                 .eq('id', syncId);
                 
               // Remaining records to process
-              const remainingRecords = jsonData.slice(i);
+              const remainingRecords = records.slice(i);
               
               // Call the same endpoint to continue processing
               try {
-                await fetch(`${SUPABASE_URL}/functions/v1/sync-soc-api`, {
+                console.log(`Sending continuation request with ${remainingRecords.length} remaining records`);
+                const continuationResponse = await fetch(`${SUPABASE_URL}/functions/v1/sync-soc-api`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -233,7 +294,14 @@ Deno.serve(async (req) => {
                   })
                 });
                 
-                console.log(`Continuation request sent, ending current process`);
+                if (!continuationResponse.ok) {
+                  console.error(`Continuation request failed with status: ${continuationResponse.status}`);
+                  const responseText = await continuationResponse.text();
+                  console.error(`Response: ${responseText}`);
+                } else {
+                  console.log(`Continuation request sent successfully, ending current process`);
+                }
+                
                 return; // End current process after sending continuation
               } catch (continuationError) {
                 console.error(`Error sending continuation request:`, continuationError);
@@ -242,8 +310,8 @@ Deno.serve(async (req) => {
             }
           }
           
-          const batchData = jsonData.slice(i, i + BATCH_SIZE);
-          const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+          const batchData = records.slice(i, i + BATCH_SIZE);
+          const batchNumber = Math.floor((i - processedSoFar) / BATCH_SIZE) + 1;
           
           console.log(`Processing batch ${batchNumber}/${totalBatches} with ${batchData.length} records`);
           
@@ -269,7 +337,11 @@ Deno.serve(async (req) => {
               })
               .eq('id', syncId);
               
-            console.log(`Batch ${batchNumber} processed. Success: ${result.success || 0}, Errors: ${result.error || 0}. Total progress: ${processedCount}/${totalRecords}`);
+            console.log(`Batch ${batchNumber} processed in ${Date.now() - currentBatchStart}ms. Success: ${result.success || 0}, Errors: ${result.error || 0}`);
+            console.log(`Total progress: ${processedCount}/${totalRecords} (${Math.round((processedCount / totalRecords) * 100)}%)`);
+            
+            // Add delay between batches to avoid overloading the DB
+            await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
             
           } catch (batchError) {
             console.error(`Error processing batch ${batchNumber}:`, batchError);
@@ -283,9 +355,6 @@ Deno.serve(async (req) => {
               })
               .eq('id', syncId);
           }
-          
-          // Small delay between batches to avoid overload
-          await new Promise(resolve => setTimeout(resolve, 200));
         }
         
         // Update sync log with completion status
@@ -320,7 +389,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         message: `Synchronization job for ${type} started successfully`,
-        syncId: syncLog.id
+        syncId: syncId
       }),
       { headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
     );
@@ -346,147 +415,159 @@ async function processEmployeeBatch(supabase, data, userId) {
   let success = 0;
   let error = 0;
   
-  // Process employees in smaller chunks to avoid timeout
-  const employeeChunks = chunkArray(data, 10);
-  
-  for (const chunk of employeeChunks) {
-    // Process each employee individually to better track errors
-    for (const item of chunk) {
-      try {
-        // Basic validation
-        if (!item.CODIGO || !item.NOME) {
-          console.error(`Skipping invalid employee record:`, item);
-          error++;
-          continue;
-        }
-        
-        // First check if this employee already exists by soc_code and user_id
-        const { data: existingEmployee } = await supabase
-          .from('employees')
+  // Process each employee individually to better track errors
+  for (const item of data) {
+    try {
+      // Basic validation
+      if (!item.CODIGO || !item.NOME) {
+        console.warn(`Skipping invalid employee record without CODIGO or NOME:`, 
+          JSON.stringify({codigo: item.CODIGO, nome: item.NOME || 'undefined'}));
+        error++;
+        continue;
+      }
+      
+      console.log(`Processing employee: ${item.CODIGO} - ${item.NOME}`);
+      
+      // Find company by SOC code
+      let companyId = null;
+      if (item.CODIGOEMPRESA) {
+        const { data: company } = await supabase
+          .from('companies')
           .select('id')
-          .eq('soc_code', item.CODIGO)
+          .eq('soc_code', item.CODIGOEMPRESA)
           .eq('user_id', userId)
           .maybeSingle();
-
-        const employeeData = {
-          soc_code: item.CODIGO,
-          company_soc_code: item.CODIGOEMPRESA,
-          company_name: item.NOMEEMPRESA,
-          full_name: item.NOME,
-          unit_code: item.CODIGOUNIDADE,
-          unit_name: item.NOMEUNIDADE,
-          sector_code: item.CODIGOSETOR,
-          sector_name: item.NOMESETOR,
-          position_code: item.CODIGOCARGO,
-          position_name: item.NOMECARGO,
-          position_cbo: item.CBOCARGO,
-          cost_center: item.CCUSTO,
-          cost_center_name: item.NOMECENTROCUSTO,
-          employee_registration: item.MATRICULAFUNCIONARIO,
-          cpf: item.CPF,
-          rg: item.RG,
-          rg_state: item.UFRG,
-          rg_issuer: item.ORGAOEMISSORRG,
-          status: item.SITUACAO,
-          gender: typeof item.SEXO === 'number' && item.SEXO <= 32767 ? item.SEXO : null,
-          pis: item.PIS,
-          work_card: item.CTPS,
-          work_card_series: item.SERIECTPS,
-          marital_status: typeof item.ESTADOCIVIL === 'number' && item.ESTADOCIVIL <= 32767 ? item.ESTADOCIVIL : null,
-          contract_type: typeof item.TIPOCONTATACAO === 'number' && item.TIPOCONTATACAO <= 32767 ? item.TIPOCONTATACAO : null,
-          birth_date: item.DATA_NASCIMENTO ? new Date(item.DATA_NASCIMENTO) : null,
-          hire_date: item.DATA_ADMISSAO ? new Date(item.DATA_ADMISSAO) : null,
-          termination_date: item.DATA_DEMISSAO ? new Date(item.DATA_DEMISSAO) : null,
-          address: item.ENDERECO,
-          address_number: item.NUMERO_ENDERECO,
-          neighborhood: item.BAIRRO,
-          city: item.CIDADE,
-          state: item.UF,
-          zip_code: item.CEP,
-          home_phone: item.TELEFONERESIDENCIAL,
-          mobile_phone: item.TELEFONECELULAR,
-          email: item.EMAIL,
-          is_disabled: item.DEFICIENTE === 1,
-          disability_description: item.DEFICIENCIA,
-          mother_name: item.NM_MAE_FUNCIONARIO,
-          last_update_date: item.DATAULTALTERACAO ? new Date(item.DATAULTALTERACAO) : null,
-          hr_registration: item.MATRICULARH,
-          skin_color: typeof item.COR === 'number' && item.COR <= 32767 ? item.COR : null,
-          education: typeof item.ESCOLARIDADE === 'number' && item.ESCOLARIDADE <= 32767 ? item.ESCOLARIDADE : null,
-          birthplace: item.NATURALIDADE,
-          extension: item.RAMAL,
-          shift_regime: typeof item.REGIMEREVEZAMENTO === 'number' && item.REGIMEREVEZAMENTO <= 32767 ? item.REGIMEREVEZAMENTO : null,
-          work_regime: item.REGIMETRABALHO,
-          commercial_phone: item.TELCOMERCIAL,
-          work_shift: typeof item.TURNOTRABALHO === 'number' && item.TURNOTRABALHO <= 32767 ? item.TURNOTRABALHO : null,
-          hr_unit: item.RHUNIDADE,
-          hr_sector: item.RHSETOR,
-          hr_position: item.RHCARGO,
-          hr_cost_center_unit: item.RHCENTROCUSTOUNIDADE,
-          user_id: userId
-        };
-
-        // Check for and handle company relationship
-        try {
-          // Look for existing company or create one if needed
-          const { data: existingCompany } = await supabase
-            .from('companies')
-            .select('id')
-            .eq('soc_code', item.CODIGOEMPRESA)
-            .eq('user_id', userId)
-            .maybeSingle();
-            
-          if (!existingCompany) {
-            // Create a placeholder company if needed
-            const { data: newCompany, error: companyError } = await supabase
-              .from('companies')
-              .insert({
-                soc_code: item.CODIGOEMPRESA,
-                short_name: item.NOMEEMPRESA || 'Empresa sem nome',
-                corporate_name: item.NOMEEMPRESA || 'Empresa sem nome',
-                user_id: userId
-              })
-              .select('id')
-              .single();
-              
-            if (!companyError && newCompany) {
-              employeeData.company_id = newCompany.id;
-            }
-          } else {
-            employeeData.company_id = existingCompany.id;
-          }
-        } catch (companyError) {
-          console.error(`Error handling company for employee ${item.CODIGO}:`, companyError);
+          
+        if (company) {
+          companyId = company.id;
         }
-        
-        let result;
-        if (existingEmployee) {
-          // Update existing employee
-          result = await supabase
-            .from('employees')
-            .update(employeeData)
-            .eq('id', existingEmployee.id);
-        } else {
-          // Insert new employee
-          result = await supabase
-            .from('employees')
-            .insert(employeeData);
-        }
-        
-        if (result.error) {
-          console.error(`Error processing employee ${item.CODIGO}:`, result.error);
-          error++;
-        } else {
-          success++;
-        }
-      } catch (individualError) {
-        console.error(`Error processing individual employee ${item?.CODIGO || 'unknown'}:`, individualError);
-        error++;
       }
+      
+      // If company not found, let's create a placeholder one
+      if (!companyId) {
+        console.log(`Company with SOC code ${item.CODIGOEMPRESA} not found, creating placeholder...`);
+        
+        // Create a placeholder company
+        const { data: newCompany, error: companyError } = await supabase
+          .from('companies')
+          .insert({
+            soc_code: item.CODIGOEMPRESA,
+            short_name: item.NOMEEMPRESA || 'Empresa sem nome',
+            corporate_name: item.NOMEEMPRESA || 'Empresa sem nome',
+            user_id: userId
+          })
+          .select('id')
+          .single();
+          
+        if (companyError) {
+          console.error(`Error creating placeholder company for ${item.CODIGOEMPRESA}:`, companyError);
+          // Continue without company reference
+        } else if (newCompany) {
+          companyId = newCompany.id;
+        }
+      }
+
+      // For numeric fields, ensure they don't exceed smallint range (for DB compatibility)
+      const gender = typeof item.SEXO === 'number' && item.SEXO <= 32767 ? item.SEXO : null;
+      const maritalStatus = typeof item.ESTADOCIVIL === 'number' && item.ESTADOCIVIL <= 32767 ? item.ESTADOCIVIL : null;
+      const contractType = typeof item.TIPOCONTATACAO === 'number' && item.TIPOCONTATACAO <= 32767 ? item.TIPOCONTATACAO : null;
+      const skinColor = typeof item.COR === 'number' && item.COR <= 32767 ? item.COR : null;
+      const education = typeof item.ESCOLARIDADE === 'number' && item.ESCOLARIDADE <= 32767 ? item.ESCOLARIDADE : null;
+      const shiftRegime = typeof item.REGIMEREVEZAMENTO === 'number' && item.REGIMEREVEZAMENTO <= 32767 ? item.REGIMEREVEZAMENTO : null;
+      const workShift = typeof item.TURNOTRABALHO === 'number' && item.TURNOTRABALHO <= 32767 ? item.TURNOTRABALHO : null;
+
+      const employeeData = {
+        soc_code: item.CODIGO.toString(),  // Ensure string format
+        company_id: companyId,
+        company_soc_code: item.CODIGOEMPRESA ? item.CODIGOEMPRESA.toString() : null,
+        company_name: item.NOMEEMPRESA,
+        full_name: item.NOME,
+        unit_code: item.CODIGOUNIDADE,
+        unit_name: item.NOMEUNIDADE,
+        sector_code: item.CODIGOSETOR,
+        sector_name: item.NOMESETOR,
+        position_code: item.CODIGOCARGO,
+        position_name: item.NOMECARGO,
+        position_cbo: item.CBOCARGO,
+        cost_center: item.CCUSTO,
+        cost_center_name: item.NOMECENTROCUSTO,
+        employee_registration: item.MATRICULAFUNCIONARIO,
+        cpf: item.CPF,
+        rg: item.RG,
+        rg_state: item.UFRG,
+        rg_issuer: item.ORGAOEMISSORRG,
+        status: item.SITUACAO,
+        gender: gender,
+        pis: item.PIS,
+        work_card: item.CTPS,
+        work_card_series: item.SERIECTPS,
+        marital_status: maritalStatus,
+        contract_type: contractType,
+        birth_date: item.DATA_NASCIMENTO ? new Date(item.DATA_NASCIMENTO) : null,
+        hire_date: item.DATA_ADMISSAO ? new Date(item.DATA_ADMISSAO) : null,
+        termination_date: item.DATA_DEMISSAO ? new Date(item.DATA_DEMISSAO) : null,
+        address: item.ENDERECO,
+        address_number: item.NUMERO_ENDERECO,
+        neighborhood: item.BAIRRO,
+        city: item.CIDADE,
+        state: item.UF,
+        zip_code: item.CEP,
+        home_phone: item.TELEFONERESIDENCIAL,
+        mobile_phone: item.TELEFONECELULAR,
+        email: item.EMAIL,
+        is_disabled: item.DEFICIENTE === 1,
+        disability_description: item.DEFICIENCIA,
+        mother_name: item.NM_MAE_FUNCIONARIO,
+        last_update_date: item.DATAULTALTERACAO ? new Date(item.DATAULTALTERACAO) : null,
+        hr_registration: item.MATRICULARH,
+        skin_color: skinColor,
+        education: education,
+        birthplace: item.NATURALIDADE,
+        extension: item.RAMAL,
+        shift_regime: shiftRegime,
+        work_regime: item.REGIMETRABALHO,
+        commercial_phone: item.TELCOMERCIAL,
+        work_shift: workShift,
+        hr_unit: item.RHUNIDADE,
+        hr_sector: item.RHSETOR,
+        hr_position: item.RHCARGO,
+        hr_cost_center_unit: item.RHCENTROCUSTOUNIDADE,
+        user_id: userId
+      };
+
+      // Try to find if this employee already exists
+      const { data: existingEmployee } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('soc_code', item.CODIGO)
+        .eq('user_id', userId)
+        .maybeSingle();
+        
+      let result;
+      if (existingEmployee) {
+        // Update existing employee
+        result = await supabase
+          .from('employees')
+          .update(employeeData)
+          .eq('id', existingEmployee.id);
+      } else {
+        // Insert new employee
+        result = await supabase
+          .from('employees')
+          .insert(employeeData);
+      }
+      
+      if (result.error) {
+        console.error(`Error ${existingEmployee ? 'updating' : 'creating'} employee ${item.CODIGO}:`, result.error);
+        error++;
+      } else {
+        success++;
+        console.log(`Successfully ${existingEmployee ? 'updated' : 'created'} employee ${item.CODIGO}`);
+      }
+    } catch (individualError) {
+      console.error(`Error processing individual employee ${item?.CODIGO || 'unknown'}:`, individualError);
+      error++;
     }
-    
-    // Small delay between chunks
-    await new Promise(resolve => setTimeout(resolve, 100));
   }
   
   return { count: data.length, success, error };
@@ -498,83 +579,75 @@ async function processAbsenteeismBatch(supabase, data, userId) {
   let success = 0;
   let error = 0;
   
-  // Process absenteeism in smaller chunks
-  const absenteeismChunks = chunkArray(data, 10);
-  
-  for (const chunk of absenteeismChunks) {
-    // Process each absenteeism record individually
-    for (const item of chunk) {
-      try {
-        let employeeId = null;
-        
-        // Try to find the employee by registration number
-        if (item.MATRICULA_FUNC) {
-          const { data: employee } = await supabase
-            .from('employees')
-            .select('id')
-            .eq('employee_registration', item.MATRICULA_FUNC)
-            .eq('user_id', userId)
-            .maybeSingle();
+  // Process each absenteeism record individually
+  for (const item of data) {
+    try {
+      let employeeId = null;
+      
+      // Try to find the employee by registration number
+      if (item.MATRICULA_FUNC) {
+        const { data: employee } = await supabase
+          .from('employees')
+          .select('id')
+          .eq('employee_registration', item.MATRICULA_FUNC)
+          .eq('user_id', userId)
+          .maybeSingle();
             
-          if (employee) {
-            employeeId = employee.id;
-          }
+        if (employee) {
+          employeeId = employee.id;
         }
-        
-        // Ensure numeric fields don't exceed smallint range
-        const gender = typeof item.SEXO === 'number' && item.SEXO <= 32767 ? item.SEXO : null;
-        const certificateType = typeof item.TIPO_ATESTADO === 'number' && item.TIPO_ATESTADO <= 32767 ? item.TIPO_ATESTADO : null;
-        
-        const absenteeismData = {
-          unit: item.UNIDADE,
-          sector: item.SETOR,
-          employee_registration: item.MATRICULA_FUNC,
-          employee_id: employeeId,
-          birth_date: item.DT_NASCIMENTO ? new Date(item.DT_NASCIMENTO) : null,
-          gender: gender,
-          certificate_type: certificateType,
-          start_date: item.DT_INICIO_ATESTADO ? new Date(item.DT_INICIO_ATESTADO) : new Date(),
-          end_date: item.DT_FIM_ATESTADO ? new Date(item.DT_FIM_ATESTADO) : new Date(),
-          start_time: item.HORA_INICIO_ATESTADO,
-          end_time: item.HORA_FIM_ATESTADO,
-          days_absent: typeof item.DIAS_AFASTADOS === 'number' ? item.DIAS_AFASTADOS : null,
-          hours_absent: item.HORAS_AFASTADO,
-          primary_icd: item.CID_PRINCIPAL,
-          icd_description: item.DESCRICAO_CID,
-          pathological_group: item.GRUPO_PATOLOGICO,
-          license_type: item.TIPO_LICENCA,
-          user_id: userId
-        };
-        
-        // Always use insert for absenteeism records
-        const { error: insertError } = await supabase
-          .from('absenteeism')
-          .insert(absenteeismData);
-          
-        if (insertError) {
-          console.error(`Error inserting absenteeism record:`, insertError);
-          error++;
-        } else {
-          success++;
-        }
-      } catch (individualError) {
-        console.error(`Error processing individual absenteeism record:`, individualError);
-        error++;
       }
+      
+      // Ensure numeric fields don't exceed smallint range
+      const gender = typeof item.SEXO === 'number' && item.SEXO <= 32767 ? item.SEXO : null;
+      const certificateType = typeof item.TIPO_ATESTADO === 'number' && item.TIPO_ATESTADO <= 32767 ? item.TIPO_ATESTADO : null;
+      
+      // Find a company for this record (first one available)
+      const { data: company } = await supabase
+        .from('companies')
+        .select('id')
+        .eq('user_id', userId)
+        .limit(1)
+        .maybeSingle();
+      
+      const absenteeismData = {
+        unit: item.UNIDADE,
+        sector: item.SETOR,
+        employee_registration: item.MATRICULA_FUNC,
+        employee_id: employeeId,
+        birth_date: item.DT_NASCIMENTO ? new Date(item.DT_NASCIMENTO) : null,
+        gender: gender,
+        certificate_type: certificateType,
+        start_date: item.DT_INICIO_ATESTADO ? new Date(item.DT_INICIO_ATESTADO) : new Date(),
+        end_date: item.DT_FIM_ATESTADO ? new Date(item.DT_FIM_ATESTADO) : new Date(),
+        start_time: item.HORA_INICIO_ATESTADO,
+        end_time: item.HORA_FIM_ATESTADO,
+        days_absent: typeof item.DIAS_AFASTADOS === 'number' ? item.DIAS_AFASTADOS : null,
+        hours_absent: item.HORAS_AFASTADO,
+        primary_icd: item.CID_PRINCIPAL,
+        icd_description: item.DESCRICAO_CID,
+        pathological_group: item.GRUPO_PATOLOGICO,
+        license_type: item.TIPO_LICENCA,
+        company_id: company?.id || null,
+        user_id: userId
+      };
+      
+      // Always use insert for absenteeism records
+      const { error: insertError } = await supabase
+        .from('absenteeism')
+        .insert(absenteeismData);
+          
+      if (insertError) {
+        console.error(`Error inserting absenteeism record:`, insertError);
+        error++;
+      } else {
+        success++;
+      }
+    } catch (individualError) {
+      console.error(`Error processing individual absenteeism record:`, individualError);
+      error++;
     }
-    
-    // Small delay between chunks
-    await new Promise(resolve => setTimeout(resolve, 100));
   }
   
   return { count: data.length, success, error };
-}
-
-// Helper function to chunk array into smaller pieces
-function chunkArray(array, chunkSize) {
-  const chunks = [];
-  for (let i = 0; i < array.length; i += chunkSize) {
-    chunks.push(array.slice(i, i + chunkSize));
-  }
-  return chunks;
 }

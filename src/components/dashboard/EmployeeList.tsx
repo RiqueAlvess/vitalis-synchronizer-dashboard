@@ -26,11 +26,17 @@ const EmployeeList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
 
-  // Function to load employees
+  // Function to load employees with retry logic
   const loadEmployees = async () => {
     try {
       setIsLoading(true);
-      const data = await apiService.employees.getAll();
+      // Use the retryRequest helper for better reliability
+      const data = await apiService.retryRequest(
+        () => apiService.employees.getAll(),
+        3,  // 3 retries
+        1000 // 1s initial delay
+      );
+      
       console.log('Loaded employees:', data);
       setEmployees(data);
       setFilteredEmployees(data);
@@ -46,7 +52,7 @@ const EmployeeList = () => {
     }
   };
 
-  // Function to refresh employee data
+  // Function to refresh employee data with periodic status check
   const handleRefresh = async () => {
     try {
       setIsRefreshing(true);
@@ -55,12 +61,19 @@ const EmployeeList = () => {
         description: 'Buscando dados mais recentes...',
       });
       
-      await loadEmployees();
+      // Start sync process
+      const syncResult = await apiService.sync.employees();
+      console.log('Sync initiated:', syncResult);
       
-      toast({
-        title: 'Lista atualizada',
-        description: 'Os dados dos funcionários foram atualizados com sucesso.',
-      });
+      if (syncResult && syncResult.syncId) {
+        toast({
+          title: 'Sincronização iniciada',
+          description: 'A sincronização foi iniciada. Os dados aparecerão conforme forem processados.',
+        });
+        
+        // Check status initially after 5 seconds
+        setTimeout(() => checkSyncProgressAndReload(syncResult.syncId), 5000);
+      }
     } catch (error) {
       console.error('Error refreshing employees:', error);
       toast({
@@ -68,7 +81,34 @@ const EmployeeList = () => {
         description: 'Não foi possível atualizar a lista de funcionários. Tente novamente.',
         variant: 'destructive',
       });
-    } finally {
+      setIsRefreshing(false);
+    }
+  };
+  
+  // Check sync progress and reload data when finished
+  const checkSyncProgressAndReload = async (syncId: number) => {
+    try {
+      const status = await apiService.sync.checkSyncStatus(syncId);
+      console.log('Sync status:', status);
+      
+      if (status.status === 'completed' || status.status === 'error') {
+        // Sync is done, reload data
+        await loadEmployees();
+        setIsRefreshing(false);
+        
+        toast({
+          title: status.status === 'completed' ? 'Sincronização concluída' : 'Sincronização com erros',
+          description: status.message || 'Os dados foram atualizados.',
+          variant: status.status === 'completed' ? 'default' : 'destructive',
+        });
+      } else {
+        // Still processing, check again after a delay
+        setTimeout(() => checkSyncProgressAndReload(syncId), 5000);
+      }
+    } catch (error) {
+      console.error('Error checking sync status:', error);
+      // Even on error, try to reload data
+      await loadEmployees();
       setIsRefreshing(false);
     }
   };
@@ -76,15 +116,6 @@ const EmployeeList = () => {
   // Load employees on component mount
   useEffect(() => {
     loadEmployees();
-    
-    // Auto refresh every 30 seconds if a sync is in progress
-    const interval = setInterval(() => {
-      if (!isRefreshing && !isLoading) {
-        loadEmployees();
-      }
-    }, 30000);
-    
-    return () => clearInterval(interval);
   }, []);
 
   // Filter employees when search term changes
@@ -149,7 +180,7 @@ const EmployeeList = () => {
             ) : (
               <RefreshCw className="h-4 w-4" />
             )}
-            Atualizar Lista
+            {isRefreshing ? 'Sincronizando...' : 'Atualizar Lista'}
           </Button>
         </div>
       </div>
@@ -165,7 +196,7 @@ const EmployeeList = () => {
           </p>
           {employees.length === 0 && (
             <Button onClick={handleRefresh} className="mt-4" disabled={isRefreshing}>
-              {isRefreshing ? 'Atualizando...' : 'Atualizar Agora'}
+              {isRefreshing ? 'Sincronizando...' : 'Sincronizar Agora'}
             </Button>
           )}
         </div>
