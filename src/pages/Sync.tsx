@@ -33,7 +33,7 @@ const Sync = () => {
       // Corrigindo o erro de chamada de método
       let result;
       if (type === 'employee') {
-        result = await apiService.sync.employee();
+        result = await apiService.sync.employees();
       } else if (type === 'absenteeism') {
         result = await apiService.sync.absenteeism();
       } else {
