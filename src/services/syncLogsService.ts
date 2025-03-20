@@ -170,13 +170,45 @@ export const syncLogsService = {
   },
   
   // Force retry a failed or stuck sync
-  retrySync: async (syncId: number) => {
-    return safeApiCall(
-      () => supabaseAPI.post('/sync-logs/retry', { syncId }),
-      { success: false, message: 'Falha ao reiniciar sincronização' },
-      `Retry sync ${syncId}`
-    );
-  },
+ retrySync: async (syncId: number) => {
+  try {
+    console.log(`Attempting to retry sync #${syncId}...`);
+    
+    // First, get the sync log details to know what we're retrying
+    const syncLog = await safeApiCall(
+      () => supabaseAPI.get(`/sync-logs?id=${syncId}`),
+      null,
+      `Get sync ${syncId} for retry`
+    ).then(data => data?.[0] || null);
+    
+    if (!syncLog) {
+      return { success: false, message: `Sync log #${syncId} not found` };
+    }
+    
+    // Create a new sync log entry for retry
+    const { data: retryData } = await supabaseAPI.post('/sync-soc-data', {
+      type: syncLog.type,
+      resumeFromRecord: syncLog.processed_records || 0,
+      resumeFromBatch: syncLog.batch || 0,
+      parallel: true, // Enable parallel processing for faster sync
+      batchSize: 50,  // Use smaller batch size for more reliability
+      maxConcurrent: 3
+    });
+    
+    return {
+      success: true,
+      message: `Retry initiated for sync #${syncId}`,
+      newSyncId: retryData?.syncId,
+      originalSyncId: syncId
+    };
+  } catch (error) {
+    console.error(`Error retrying sync #${syncId}:`, error);
+    return { 
+      success: false, 
+      message: `Failed to retry sync: ${error.message || 'Unknown error'}`
+    };
+  }
+}
   
   // Set up a timeout to automatically cancel hung syncs
  setupSyncWatchdog: async () => {
