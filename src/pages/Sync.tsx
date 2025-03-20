@@ -1,3 +1,4 @@
+// src/pages/Sync.tsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,65 +6,120 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, RefreshCw, AlertCircle, CheckCircle2, Ban, InfoIcon } from 'lucide-react';
+import { 
+  Loader2, 
+  RefreshCw, 
+  AlertCircle, 
+  CheckCircle2, 
+  Ban, 
+  InfoIcon,
+  Clock 
+} from 'lucide-react';
 import apiService from '@/services/api';
 import SyncHistory from '@/components/sync/SyncHistory';
 import { useNavigate } from 'react-router-dom';
 import { syncLogsService } from '@/services/syncLogsService';
-import { supabase } from '@/services/supabase';
+import { supabase } from '@/integrations/supabase/client';
 
 const Sync = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [syncInProgress, setSyncInProgress] = useState(false);
-  const [activeSyncProcesses, setActiveSyncProcesses] = useState<{count: number, types: string[]}>({ count: 0, types: [] });
+  const [activeSyncProcesses, setActiveSyncProcesses] = useState<{count: number, types: string[], logs: any[]}>({ count: 0, types: [], logs: [] });
   const [syncResult, setSyncResult] = useState<{type: string; success: boolean; message: string} | null>(null);
   const [authStatus, setAuthStatus] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
+  const [isResettingSyncs, setIsResettingSyncs] = useState(false);
+  const [shouldRefreshHistory, setShouldRefreshHistory] = useState(false);
   const checkIntervalRef = useRef<number | null>(null);
+  const watchdogIntervalRef = useRef<number | null>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
   
+  // More robust activity check
   const checkActiveSyncs = useCallback(async () => {
     try {
       console.log('Checking active syncs...');
       const activeSyncs = await syncLogsService.getActiveSyncs();
-      console.log('Active syncs:', activeSyncs);
+      console.log('Active syncs result:', activeSyncs);
       
-      setActiveSyncProcesses(activeSyncs);
+      // Only update state if there's a change to prevent unnecessary renders
+      if (activeSyncProcesses.count !== activeSyncs.count || 
+          JSON.stringify(activeSyncProcesses.types) !== JSON.stringify(activeSyncs.types)) {
+        setActiveSyncProcesses(activeSyncs);
+      }
+      
+      return activeSyncs;
     } catch (error) {
       console.error('Error checking active syncs:', error);
-      setActiveSyncProcesses({ count: 0, types: [] });
+      setActiveSyncProcesses({ count: 0, types: [], logs: [] });
+      return { count: 0, types: [], logs: [] };
     }
+  }, [activeSyncProcesses.count, activeSyncProcesses.types]);
+  
+  // Set up watchdog to check for hung synchronizations
+  const setupWatchdog = useCallback(() => {
+    if (watchdogIntervalRef.current) {
+      clearInterval(watchdogIntervalRef.current);
+    }
+    
+    watchdogIntervalRef.current = window.setInterval(async () => {
+      try {
+        await syncLogsService.setupSyncWatchdog();
+      } catch (error) {
+        console.error('Error in sync watchdog:', error);
+      }
+    }, 5 * 60 * 1000); // Check every 5 minutes
   }, []);
   
   useEffect(() => {
     console.log('Sync component mounted');
+    
+    // Initial check for active syncs
     checkActiveSyncs();
     
+    // Set up regular polling for active syncs
     if (!checkIntervalRef.current) {
       console.log('Setting up active sync check interval');
       checkIntervalRef.current = window.setInterval(() => {
         checkActiveSyncs();
-      }, 15000);
+      }, 10000); // Check every 10 seconds
     }
     
+    // Setup the watchdog
+    setupWatchdog();
+    
+    // Cleanup intervals on unmount
     return () => {
-      console.log('Sync component unmounting, clearing interval');
+      console.log('Sync component unmounting, clearing intervals');
       if (checkIntervalRef.current) {
         clearInterval(checkIntervalRef.current);
         checkIntervalRef.current = null;
       }
+      
+      if (watchdogIntervalRef.current) {
+        clearInterval(watchdogIntervalRef.current);
+        watchdogIntervalRef.current = null;
+      }
     };
-  }, [checkActiveSyncs]);
+  }, [checkActiveSyncs, setupWatchdog]);
+  
+  // When shouldRefreshHistory changes, notify SyncHistory to refresh
+  useEffect(() => {
+    if (shouldRefreshHistory) {
+      setShouldRefreshHistory(false);
+    }
+  }, [shouldRefreshHistory]);
   
   const handleSync = async (type: 'employee' | 'absenteeism') => {
     try {
-      await checkActiveSyncs();
+      // First check for active syncs before starting a new one
+      const activeSyncs = await checkActiveSyncs();
       
-      if (activeSyncProcesses.count > 0) {
+      if (activeSyncs.count > 0) {
         toast({
           variant: 'destructive',
           title: 'Sincronização já em andamento',
-          description: `Já existe uma sincronização de ${activeSyncProcesses.types.join(', ')} em andamento. Aguarde a conclusão para iniciar uma nova.`,
+          description: `Já existe uma sincronização de ${activeSyncs.types.join(', ')} em andamento. Aguarde a conclusão para iniciar uma nova.`,
         });
         return;
       }
@@ -105,7 +161,18 @@ const Sync = () => {
         description: `A sincronização de ${typeLabels[type]} foi iniciada com sucesso.`,
       });
       
+      // Scroll to history section
+      if (historyRef.current) {
+        setTimeout(() => {
+          historyRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 500);
+      }
+      
+      // Update active syncs after starting
       setTimeout(() => checkActiveSyncs(), 1000);
+      
+      // Set flag to refresh history
+      setShouldRefreshHistory(true);
     } catch (error) {
       console.error(`Error syncing ${type}:`, error);
       
@@ -128,39 +195,42 @@ const Sync = () => {
   
   const handleResetActiveSyncs = async () => {
     try {
+      setIsResettingSyncs(true);
+      
       console.log('Attempting to reset all active syncs...');
-      await syncLogsService.resetActiveSyncs();
+      const result = await syncLogsService.resetActiveSyncs();
       
-      toast({
-        title: 'Sincronizações resetadas',
-        description: 'Todas as sincronizações ativas foram canceladas com sucesso.',
-      });
+      console.log('Reset result:', result);
       
-      setActiveSyncProcesses({ count: 0, types: [] });
-      
-      checkActiveSyncs();
+      if (result && result.success) {
+        toast({
+          title: 'Sincronizações resetadas',
+          description: result.message || 'Todas as sincronizações ativas foram canceladas com sucesso.',
+        });
+        
+        // Immediately check for active syncs
+        await checkActiveSyncs();
+        
+        // Trigger history refresh
+        setShouldRefreshHistory(true);
+      } else {
+        throw new Error(result?.message || 'Erro desconhecido ao resetar sincronizações');
+      }
     } catch (error) {
       console.error('Error resetting active syncs:', error);
       toast({
         variant: 'destructive',
         title: 'Erro ao resetar sincronizações',
-        description: 'Não foi possível cancelar todas as sincronizações ativas.',
+        description: error instanceof Error ? error.message : 'Não foi possível cancelar todas as sincronizações ativas.',
       });
+    } finally {
+      setIsResettingSyncs(false);
     }
   };
   
   const handleViewEmployees = () => {
     navigate('/employees');
   };
-  
-  useEffect(() => {
-    if (syncResult && syncResult.success) {
-      const syncComponent = document.getElementById('sync-history');
-      if (syncComponent) {
-        syncComponent.scrollIntoView({ behavior: 'smooth' });
-      }
-    }
-  }, [syncResult]);
   
   const checkAuthStatus = async () => {
     try {
@@ -231,11 +301,11 @@ const Sync = () => {
       <div className="space-y-6">
         {activeSyncProcesses.count > 0 && (
           <Alert className="bg-amber-50 border-amber-200">
-            <Ban className="h-4 w-4 text-amber-600" />
+            <Clock className="h-4 w-4 text-amber-600" />
             <AlertTitle className="text-amber-700">Sincronização em andamento</AlertTitle>
             <AlertDescription className="flex flex-col space-y-2 text-amber-600">
               <p>
-                Já existe uma sincronização de {activeSyncProcesses.types.join(', ')} em andamento. 
+                Existe {activeSyncProcesses.count > 1 ? 'existem' : 'existe'} {activeSyncProcesses.count} sincronização(ões) de {activeSyncProcesses.types.join(', ')} em andamento. 
                 Aguarde a conclusão ou cancele o processo atual para iniciar uma nova sincronização.
               </p>
               <Button 
@@ -243,9 +313,19 @@ const Sync = () => {
                 size="sm" 
                 className="self-end text-red-600 border-red-200 hover:bg-red-50 mt-2 w-auto"
                 onClick={handleResetActiveSyncs}
+                disabled={isResettingSyncs}
               >
-                <Ban className="h-3.5 w-3.5 mr-1" />
-                Resetar todas sincronizações
+                {isResettingSyncs ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                    Processando...
+                  </>
+                ) : (
+                  <>
+                    <Ban className="h-3.5 w-3.5 mr-1" />
+                    Cancelar todas sincronizações
+                  </>
+                )}
               </Button>
             </AlertDescription>
           </Alert>
@@ -293,7 +373,7 @@ const Sync = () => {
                   <InfoIcon className="h-4 w-4 text-blue-600" />
                   <AlertTitle className="text-blue-700">Processamento em paralelo</AlertTitle>
                   <AlertDescription className="text-blue-600">
-                    A sincronização de funcionários agora é processada em lotes paralelos para maior eficiência, 
+                    A sincronização de funcionários é processada em lotes paralelos para maior eficiência, 
                     especialmente com grandes volumes de dados.
                   </AlertDescription>
                 </Alert>
@@ -324,7 +404,7 @@ const Sync = () => {
                   <InfoIcon className="h-4 w-4 text-blue-600" />
                   <AlertTitle className="text-blue-700">Processamento em paralelo</AlertTitle>
                   <AlertDescription className="text-blue-600">
-                    A sincronização de absenteísmo agora é processada em lotes paralelos para maior eficiência, 
+                    A sincronização de absenteísmo é processada em lotes paralelos para maior eficiência, 
                     permitindo sincronização mais rápida de grandes volumes de dados.
                   </AlertDescription>
                 </Alert>
@@ -407,8 +487,11 @@ const Sync = () => {
           )}
         </Card>
         
-        <div id="sync-history">
-          <SyncHistory />
+        <div id="sync-history" ref={historyRef}>
+          <SyncHistory 
+            forceRefresh={shouldRefreshHistory}
+            onResetActiveSyncs={handleResetActiveSyncs}
+          />
         </div>
       </div>
     </DashboardLayout>
