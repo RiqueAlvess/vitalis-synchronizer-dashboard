@@ -39,7 +39,7 @@ const Employees = () => {
     <DashboardLayout 
       title="Funcionários" 
       subtitle="Informações e absenteísmo por funcionário"
-      actionComponent={
+      actions={
         <Button 
           onClick={handleSync}
           variant="outline"

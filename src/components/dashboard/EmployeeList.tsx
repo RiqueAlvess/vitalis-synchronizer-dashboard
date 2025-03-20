@@ -183,7 +183,7 @@ const EmployeeList = () => {
             </TableHeader>
             <TableBody>
               {filteredEmployees.map((employee) => (
-                <TableRow key={employee.id || employee.soc_code}>
+                <TableRow key={employee.id || employee.employee_id}>
                   <TableCell className="font-medium">{employee.full_name || employee.name || '-'}</TableCell>
                   <TableCell>{employee.position_name || employee.position || '-'}</TableCell>
                   <TableCell>{employee.sector_name || employee.sector || '-'}</TableCell>

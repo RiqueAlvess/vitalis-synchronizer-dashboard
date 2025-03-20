@@ -117,7 +117,6 @@ Deno.serve(async (req) => {
     const userId = user.id;
     
     // Run the heavy processing in the background with waitUntil
-    // Esta é a parte importante que garante que todo processamento seja feito em segundo plano
     EdgeRuntime.waitUntil((async () => {
       try {
         console.log(`Processing ${type} data in background for sync ID ${syncId}`);
@@ -157,17 +156,45 @@ Deno.serve(async (req) => {
           })
           .eq('id', syncId);
         
-        // Processando todos os dados de uma vez, sem usar batch
-        let result;
-        switch (type) {
-          case 'employee':
-            result = await processEmployeeData(supabaseAdmin, jsonData, userId);
-            break;
-          case 'absenteeism':
-            result = await processAbsenteeismData(supabaseAdmin, jsonData, userId);
-            break;
-          default:
-            throw new Error(`Unsupported data type: ${type}`);
+        // Processar em lotes menores para evitar problemas de tamanho de request
+        const BATCH_SIZE = 50;
+        let processedCount = 0;
+        let totalBatches = Math.ceil(jsonData.length / BATCH_SIZE);
+        
+        console.log(`Processing ${jsonData.length} records in ${totalBatches} batches of ${BATCH_SIZE}`);
+        
+        for (let i = 0; i < jsonData.length; i += BATCH_SIZE) {
+          const batchData = jsonData.slice(i, i + BATCH_SIZE);
+          const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+          
+          console.log(`Processing batch ${batchNumber}/${totalBatches} with ${batchData.length} records`);
+          
+          try {
+            if (type === 'employee') {
+              await processEmployeeBatch(supabaseAdmin, batchData, userId);
+            } else if (type === 'absenteeism') {
+              await processAbsenteeismBatch(supabaseAdmin, batchData, userId);
+            }
+            
+            processedCount += batchData.length;
+            
+            // Update sync log with progress
+            await supabaseAdmin
+              .from('sync_logs')
+              .update({
+                message: `Processed ${processedCount} of ${jsonData.length} ${type} records (${Math.round((processedCount / jsonData.length) * 100)}%)`
+              })
+              .eq('id', syncId);
+              
+            console.log(`Batch ${batchNumber} processed successfully. Total progress: ${processedCount}/${jsonData.length}`);
+            
+          } catch (batchError) {
+            console.error(`Error processing batch ${batchNumber}:`, batchError);
+            // Continue with next batch even if one fails
+          }
+          
+          // Pequeno intervalo entre lotes para evitar sobrecarga
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
         
         // Update sync log with completion status
@@ -175,7 +202,7 @@ Deno.serve(async (req) => {
           .from('sync_logs')
           .update({
             status: 'completed',
-            message: `Synchronization completed: ${jsonData.length} ${type} records processed`,
+            message: `Synchronization completed: ${processedCount} of ${jsonData.length} ${type} records processed`,
             completed_at: new Date().toISOString()
           })
           .eq('id', syncId);
@@ -222,9 +249,9 @@ Deno.serve(async (req) => {
   }
 });
 
-// Function to process all employee data
-async function processEmployeeData(supabase, data, userId) {
-  console.log(`Processing ${data.length} employee records at once`);
+// Function to process employee batches
+async function processEmployeeBatch(supabase, data, userId) {
+  console.log(`Processing batch of ${data.length} employee records`);
   
   const employeeData = data.map(item => ({
     soc_code: item.CODIGO,
@@ -299,9 +326,9 @@ async function processEmployeeData(supabase, data, userId) {
   return { count: employeeData.length };
 }
 
-// Function to process all absenteeism data
-async function processAbsenteeismData(supabase, data, userId) {
-  console.log(`Processing ${data.length} absenteeism records at once`);
+// Function to process absenteeism batches
+async function processAbsenteeismBatch(supabase, data, userId) {
+  console.log(`Processing batch of ${data.length} absenteeism records`);
   
   const absenteeismData = data.map(item => ({
     unit: item.UNIDADE,
