@@ -168,7 +168,7 @@ const Sync = () => {
                 <div className="text-sm text-muted-foreground">
                   Sincroniza os dados de todos os funcionários cadastrados no SOC, incluindo informações pessoais, cargos, setores e departamentos.
                 </div>
-                <Alert variant="outline" className="bg-blue-50 border-blue-100">
+                <Alert className="bg-blue-50 border-blue-100">
                   <InfoIcon className="h-4 w-4 text-blue-600" />
                   <AlertTitle className="text-blue-700">Processamento em paralelo</AlertTitle>
                   <AlertDescription className="text-blue-600">
@@ -199,7 +199,7 @@ const Sync = () => {
                 <div className="text-sm text-muted-foreground">
                   Sincroniza os dados de absenteísmo (faltas, atestados, afastamentos) registrados no sistema SOC.
                 </div>
-                <Alert variant="outline" className="bg-blue-50 border-blue-100">
+                <Alert className="bg-blue-50 border-blue-100">
                   <InfoIcon className="h-4 w-4 text-blue-600" />
                   <AlertTitle className="text-blue-700">Processamento em paralelo</AlertTitle>
                   <AlertDescription className="text-blue-600">
