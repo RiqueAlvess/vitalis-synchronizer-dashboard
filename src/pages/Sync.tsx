@@ -1,4 +1,4 @@
-// src/pages/Sync.tsx
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -141,39 +141,72 @@ const Sync = () => {
       console.log(`Starting ${type} sync...`);
       
       let result;
-      if (type === 'employee') {
-        result = await apiService.sync.employees();
-      } else if (type === 'absenteeism') {
-        result = await apiService.sync.absenteeism();
-      } else {
-        throw new Error(`Tipo de sincronização não suportado: ${type}`);
+      try {
+        if (type === 'employee') {
+          result = await apiService.sync.employees();
+        } else if (type === 'absenteeism') {
+          result = await apiService.sync.absenteeism();
+        } else {
+          throw new Error(`Tipo de sincronização não suportado: ${type}`);
+        }
+        
+        console.log(`Sync result:`, result);
+        
+        setSyncResult({
+          type,
+          success: true,
+          message: `Sincronização de ${typeLabels[type]} iniciada com sucesso. Acompanhe o progresso no histórico abaixo.`
+        });
+        
+        toast({
+          title: 'Sincronização iniciada',
+          description: `A sincronização de ${typeLabels[type]} foi iniciada com sucesso.`,
+        });
+        
+        // Scroll to history section
+        if (historyRef.current) {
+          setTimeout(() => {
+            historyRef.current?.scrollIntoView({ behavior: 'smooth' });
+          }, 500);
+        }
+        
+        // Update active syncs after starting
+        setTimeout(() => checkActiveSyncs(), 1000);
+        
+        // Set flag to refresh history
+        setShouldRefreshHistory(true);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Erro desconhecido';
+        
+        // For 409 conflict errors, provide a more helpful message
+        if (errorMsg.includes('409') || errorMsg.includes('já existe uma sincronização')) {
+          toast({
+            variant: 'destructive',
+            title: 'Sincronização já em andamento',
+            description: 'Já existe uma sincronização em andamento. Aguarde a conclusão ou cancele a sincronização atual.',
+            action: (
+              <ToastAction altText="Visualizar" onClick={() => historyRef.current?.scrollIntoView({ behavior: 'smooth' })}>
+                Visualizar
+              </ToastAction>
+            ),
+          });
+          
+          // Force refresh active syncs to show the running sync
+          await checkActiveSyncs();
+        } else {
+          setSyncResult({
+            type,
+            success: false,
+            message: `Falha ao iniciar sincronização: ${errorMsg}`
+          });
+          
+          toast({
+            variant: 'destructive',
+            title: 'Erro na sincronização',
+            description: `Não foi possível iniciar a sincronização. ${errorMsg}`,
+          });
+        }
       }
-      
-      console.log(`Sync result:`, result);
-      
-      setSyncResult({
-        type,
-        success: true,
-        message: `Sincronização de ${typeLabels[type]} iniciada com sucesso. Acompanhe o progresso no histórico abaixo.`
-      });
-      
-      toast({
-        title: 'Sincronização iniciada',
-        description: `A sincronização de ${typeLabels[type]} foi iniciada com sucesso.`,
-      });
-      
-      // Scroll to history section
-      if (historyRef.current) {
-        setTimeout(() => {
-          historyRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 500);
-      }
-      
-      // Update active syncs after starting
-      setTimeout(() => checkActiveSyncs(), 1000);
-      
-      // Set flag to refresh history
-      setShouldRefreshHistory(true);
     } catch (error) {
       console.error(`Error syncing ${type}:`, error);
       

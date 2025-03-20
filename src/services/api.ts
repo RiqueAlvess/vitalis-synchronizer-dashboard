@@ -216,6 +216,15 @@ const apiService = {
         return data;
       } catch (error) {
         console.error('Error syncing employees:', error);
+        
+        // Improved error handling for conflict errors
+        if (error.response && error.response.status === 409) {
+          const errorMessage = error.response.data?.message || 
+            'Já existe uma sincronização em andamento. Aguarde a conclusão antes de iniciar uma nova.';
+          
+          throw new Error(errorMessage);
+        }
+        
         throw error;
       }
     },
@@ -249,6 +258,15 @@ const apiService = {
         return data;
       } catch (error) {
         console.error('Error syncing absenteeism data:', error);
+        
+        // Improved error handling for conflict errors
+        if (error.response && error.response.status === 409) {
+          const errorMessage = error.response.data?.message || 
+            'Já existe uma sincronização em andamento. Aguarde a conclusão antes de iniciar uma nova.';
+          
+          throw new Error(errorMessage);
+        }
+        
         throw error;
       }
     },
