@@ -1,21 +1,6 @@
 
 import { supabase } from "@/integrations/supabase/client";
-
-export interface SyncLog {
-  id: number;
-  user_id: string;
-  type: string;
-  status: string;
-  message: string;
-  created_at: string;
-  updated_at: string;
-  completed_at: string | null;
-  total_records?: number;
-  processed_records?: number;
-  success_count?: number;
-  error_count?: number;
-  parent_id?: number | null;
-}
+import { SyncLog, SyncLogStatus, SyncLogType } from "@/types/sync";
 
 export const syncLogsService = {
   // Get all sync logs
@@ -33,7 +18,27 @@ export const syncLogsService = {
         throw error;
       }
 
-      return data || [];
+      // Transform the database response to match SyncLog type
+      const transformedData: SyncLog[] = data ? data.map(item => ({
+        id: item.id,
+        type: item.type as SyncLogType,
+        status: item.status as SyncLogStatus,
+        created_at: item.created_at,
+        started_at: item.started_at || item.created_at, // Use created_at as fallback if started_at is missing
+        completed_at: item.completed_at || undefined,
+        message: item.message || undefined,
+        error_details: item.error_details || undefined,
+        user_id: item.user_id || undefined,
+        parent_id: item.parent_id || undefined,
+        batch: item.batch || undefined,
+        total_batches: item.total_batches || undefined,
+        total_records: item.total_records || undefined,
+        processed_records: item.processed_records || undefined,
+        success_count: item.success_count || undefined,
+        error_count: item.error_count || undefined
+      })) : [];
+
+      return transformedData;
     } catch (error) {
       console.error('Error in getLogs service:', error);
       throw error;
@@ -54,7 +59,29 @@ export const syncLogsService = {
         throw error;
       }
 
-      return data;
+      if (!data) return null;
+
+      // Transform the data to match SyncLog type
+      const transformedData: SyncLog = {
+        id: data.id,
+        type: data.type as SyncLogType,
+        status: data.status as SyncLogStatus,
+        created_at: data.created_at,
+        started_at: data.started_at || data.created_at, // Use created_at as fallback if started_at is missing
+        completed_at: data.completed_at || undefined,
+        message: data.message || undefined,
+        error_details: data.error_details || undefined,
+        user_id: data.user_id || undefined,
+        parent_id: data.parent_id || undefined,
+        batch: data.batch || undefined,
+        total_batches: data.total_batches || undefined,
+        total_records: data.total_records || undefined,
+        processed_records: data.processed_records || undefined,
+        success_count: data.success_count || undefined,
+        error_count: data.error_count || undefined
+      };
+
+      return transformedData;
     } catch (error) {
       console.error('Error in getLogById service:', error);
       throw error;
@@ -75,7 +102,27 @@ export const syncLogsService = {
         throw error;
       }
 
-      return data || [];
+      // Transform the database response to match SyncLog type
+      const transformedData: SyncLog[] = data ? data.map(item => ({
+        id: item.id,
+        type: item.type as SyncLogType,
+        status: item.status as SyncLogStatus,
+        created_at: item.created_at,
+        started_at: item.started_at || item.created_at, // Use created_at as fallback if started_at is missing
+        completed_at: item.completed_at || undefined,
+        message: item.message || undefined,
+        error_details: item.error_details || undefined,
+        user_id: item.user_id || undefined,
+        parent_id: item.parent_id || undefined,
+        batch: item.batch || undefined,
+        total_batches: item.total_batches || undefined,
+        total_records: item.total_records || undefined,
+        processed_records: item.processed_records || undefined,
+        success_count: item.success_count || undefined,
+        error_count: item.error_count || undefined
+      })) : [];
+
+      return transformedData;
     } catch (error) {
       console.error('Error in getLogsByParentId service:', error);
       throw error;

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import {
   Table,
@@ -10,10 +9,8 @@ import {
 } from "@/components/ui/table";
 import { Button } from '@/components/ui/button';
 import { RefreshCw, CalendarDays, Users, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
-import apiService from '@/services/api';
 import { SyncLog } from '@/types/sync';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
