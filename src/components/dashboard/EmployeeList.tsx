@@ -17,7 +17,7 @@ import {
   Search, 
   UserRound,
   AlertCircle, 
-  SyncIcon,
+  RotateCw,
   Loader2
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -53,7 +53,6 @@ const EmployeeList = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [activeSyncs, setActiveSyncs] = useState<{count: number, types: string[]}>({ count: 0, types: [] });
 
-  // Function to check for active syncs
   const checkForActiveSyncs = async () => {
     try {
       const activeSyncs = await syncLogsService.getActiveSyncs();
@@ -65,7 +64,6 @@ const EmployeeList = () => {
     }
   };
 
-  // Function to load employees with retry logic and better error handling
   const loadEmployees = async () => {
     try {
       setIsLoading(true);
@@ -74,19 +72,16 @@ const EmployeeList = () => {
       let data: MockEmployeeData[] = [];
       
       try {
-        // Use the imported retryRequest helper for better reliability
         data = await retryRequest(
           () => apiService.employees.getAll(),
-          3,  // 3 retries
-          1000 // 1s initial delay
+          3,
+          1000
         );
       } catch (error) {
         console.error('Error loading employees with retry:', error);
-        // Throw so we can handle in the outer catch
         throw error;
       }
       
-      // Ensure we have an array of employees
       if (!Array.isArray(data)) {
         console.error('Received non-array data:', data);
         throw new Error('Formato de dados inválido');
@@ -104,7 +99,6 @@ const EmployeeList = () => {
         variant: 'destructive',
       });
       
-      // Set default empty array to prevent mapping errors
       setEmployees([]);
       setFilteredEmployees([]);
     } finally {
@@ -113,25 +107,20 @@ const EmployeeList = () => {
     }
   };
 
-  // Function to refresh employee data WITHOUT starting a new sync
   const handleRefresh = async () => {
     try {
       setIsRefreshing(true);
 
-      // Check if there's already a sync in progress
       const hasSyncInProgress = await checkForActiveSyncs();
       
       if (hasSyncInProgress) {
-        // If sync is already in progress, just inform the user
         toast({
           title: 'Sincronização em andamento',
           description: 'Uma sincronização já está em andamento. Os dados serão atualizados automaticamente quando concluído.',
         });
         
-        // Still try to fetch latest data
         await loadEmployees();
       } else {
-        // No sync in progress, just refresh the data
         toast({
           title: 'Atualizando lista',
           description: 'Carregando dados mais recentes do banco de dados...',
@@ -156,10 +145,8 @@ const EmployeeList = () => {
     }
   };
 
-  // Function to start sync - SEPARATE from refresh
   const handleStartSync = async () => {
     try {
-      // First check for active syncs
       const hasSyncInProgress = await checkForActiveSyncs();
       
       if (hasSyncInProgress) {
@@ -179,7 +166,6 @@ const EmployeeList = () => {
         description: 'Iniciando a sincronização de funcionários com o SOC...',
       });
       
-      // Start sync process
       const syncResult = await apiService.sync.employees();
       console.log('Sync initiated:', syncResult);
       
@@ -189,10 +175,8 @@ const EmployeeList = () => {
           description: 'A sincronização foi iniciada. Isso pode levar alguns minutos para ser concluído.',
         });
         
-        // Polling function to check status
         const pollSyncStatus = async () => {
           try {
-            // Check status initially after 5 seconds
             await new Promise(resolve => setTimeout(resolve, 5000));
             checkSyncProgressAndReload(syncResult.syncId);
           } catch (error) {
@@ -201,7 +185,6 @@ const EmployeeList = () => {
           }
         };
         
-        // Start polling
         pollSyncStatus();
       }
     } catch (error) {
@@ -214,14 +197,12 @@ const EmployeeList = () => {
       setIsRefreshing(false);
     }
   };
-  
-  // Check sync progress and reload data when finished
+
   const checkSyncProgressAndReload = async (syncId: number) => {
     try {
       const status = await apiService.sync.checkSyncStatus(syncId);
       console.log('Sync status:', status);
       
-      // Extract progress information from message if available
       const progressMatch = status.message?.match(/Processed (\d+) of (\d+)/i);
       if (progressMatch && progressMatch.length >= 3) {
         const current = parseInt(progressMatch[1], 10);
@@ -231,23 +212,19 @@ const EmployeeList = () => {
         }
       }
       
-      // Handle continuation status
       if (status.status === 'continues') {
         toast({
           title: 'Sincronização em andamento',
           description: status.message || 'O processo está dividido em múltiplas etapas para melhor desempenho.',
         });
         
-        // Load any available data
         await loadEmployees();
         
-        // Continue checking after a delay
         setTimeout(() => checkSyncProgressAndReload(syncId), 5000);
         return;
       }
       
       if (status.status === 'completed' || status.status === 'error') {
-        // Sync is done, reload data
         await loadEmployees();
         setIsRefreshing(false);
         setSyncProgress(null);
@@ -258,19 +235,16 @@ const EmployeeList = () => {
           variant: status.status === 'completed' ? 'default' : 'destructive',
         });
       } else {
-        // Still processing, check again after a delay
         setTimeout(() => checkSyncProgressAndReload(syncId), 5000);
       }
     } catch (error) {
       console.error('Error checking sync status:', error);
-      // Even on error, try to reload data
       await loadEmployees();
       setIsRefreshing(false);
       setSyncProgress(null);
     }
   };
 
-  // Load employees on component mount and check for active syncs
   useEffect(() => {
     const initialize = async () => {
       await checkForActiveSyncs();
@@ -279,21 +253,17 @@ const EmployeeList = () => {
     
     initialize();
     
-    // Set up interval to check for active syncs
     const intervalId = setInterval(async () => {
       const hasSyncInProgress = await checkForActiveSyncs();
       if (!hasSyncInProgress && activeSyncs.count > 0) {
-        // If a sync just completed, reload the data
         loadEmployees();
       }
-    }, 10000); // Check every 10 seconds
+    }, 10000);
     
     return () => clearInterval(intervalId);
   }, []);
 
-  // Filter employees when search term changes
   useEffect(() => {
-    // Ensure employees is an array before filtering
     if (!Array.isArray(employees)) {
       console.error('employees is not an array:', employees);
       setFilteredEmployees([]);
@@ -305,11 +275,9 @@ const EmployeeList = () => {
     if (!searchTerm.trim()) {
       setFilteredEmployees(employees);
       
-      // Calculate total pages based on all employees
       const pages = Math.max(1, Math.ceil(employees.length / ITEMS_PER_PAGE));
       setTotalPages(pages);
       
-      // Reset to first page when clearing search
       if (currentPage > pages) {
         setCurrentPage(1);
       }
@@ -326,15 +294,12 @@ const EmployeeList = () => {
     );
     setFilteredEmployees(filtered);
     
-    // Calculate total pages based on filtered results
     const pages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
     setTotalPages(pages);
     
-    // Reset to first page when search changes
     setCurrentPage(1);
   }, [searchTerm, employees]);
-  
-  // Update displayed employees when page or filtered list changes
+
   useEffect(() => {
     if (!Array.isArray(filteredEmployees)) {
       console.error('filteredEmployees is not an array:', filteredEmployees);
@@ -347,14 +312,12 @@ const EmployeeList = () => {
     setDisplayedEmployees(filteredEmployees.slice(startIndex, endIndex));
   }, [filteredEmployees, currentPage]);
 
-  // Change page handler
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
       setCurrentPage(page);
     }
   };
 
-  // Helper function to get status badge color
   const getStatusBadge = (status: string) => {
     const lowerStatus = status?.toLowerCase() || '';
     if (lowerStatus.includes('ativo')) return 'bg-green-100 text-green-800';
@@ -363,14 +326,12 @@ const EmployeeList = () => {
     if (lowerStatus.includes('férias')) return 'bg-blue-100 text-blue-800';
     return 'bg-gray-100 text-gray-800';
   };
-  
-  // Generate pagination items
+
   const renderPaginationItems = () => {
     const items = [];
     const maxVisiblePages = 5;
     
     if (totalPages <= maxVisiblePages) {
-      // Show all pages if there are 5 or fewer
       for (let i = 1; i <= totalPages; i++) {
         items.push(
           <PaginationItem key={i}>
@@ -384,7 +345,6 @@ const EmployeeList = () => {
         );
       }
     } else {
-      // Show first page
       items.push(
         <PaginationItem key={1}>
           <PaginationLink 
@@ -396,7 +356,6 @@ const EmployeeList = () => {
         </PaginationItem>
       );
       
-      // Show ellipsis if current page is far from start
       if (currentPage > 3) {
         items.push(
           <PaginationItem key="ellipsis-start">
@@ -405,7 +364,6 @@ const EmployeeList = () => {
         );
       }
       
-      // Show nearby pages
       const startNearby = Math.max(2, currentPage - 1);
       const endNearby = Math.min(totalPages - 1, currentPage + 1);
       
@@ -422,7 +380,6 @@ const EmployeeList = () => {
         );
       }
       
-      // Show ellipsis if current page is far from end
       if (currentPage < totalPages - 2) {
         items.push(
           <PaginationItem key="ellipsis-end">
@@ -431,7 +388,6 @@ const EmployeeList = () => {
         );
       }
       
-      // Show last page
       items.push(
         <PaginationItem key={totalPages}>
           <PaginationLink 
@@ -500,7 +456,6 @@ const EmployeeList = () => {
           />
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
-          {/* Separate refresh button from sync button */}
           <Button
             variant="outline"
             size="sm"
@@ -516,7 +471,6 @@ const EmployeeList = () => {
             Atualizar Lista
           </Button>
           
-          {/* New separate button for starting a sync */}
           <Button
             variant="outline"
             size="sm"
@@ -527,14 +481,13 @@ const EmployeeList = () => {
             {isRefreshing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <SyncIcon className="h-4 w-4" />
+              <RotateCw className="h-4 w-4" />
             )}
             Sincronizar
           </Button>
         </div>
       </div>
       
-      {/* Sync progress indicator */}
       {(isRefreshing && syncProgress) && (
         <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-2">
           <div className="flex items-center gap-2">
@@ -598,7 +551,6 @@ const EmployeeList = () => {
             </Table>
           </div>
           
-          {/* Pagination */}
           {totalPages > 1 && (
             <Pagination className="mt-4">
               <PaginationContent>
