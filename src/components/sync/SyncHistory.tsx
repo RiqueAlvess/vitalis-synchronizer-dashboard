@@ -9,18 +9,64 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from '@/components/ui/button';
-import { RefreshCw, CalendarDays, Users, AlertCircle, CheckCircle2, Clock, Loader2 } from 'lucide-react';
+import { 
+  RefreshCw, 
+  CalendarDays, 
+  Users, 
+  AlertCircle, 
+  CheckCircle2, 
+  Clock, 
+  Loader2,
+  ChevronDown,
+  ChevronRight
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 import { SyncLog } from '@/types/sync';
 import { Skeleton } from '@/components/ui/skeleton';
 import { syncLogsService } from '@/services/syncLogsService';
 import { Progress } from '@/components/ui/progress';
+import { 
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Badge } from '@/components/ui/badge';
 
 const SyncHistory = () => {
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
+  
+  // Organizar logs por grupos de sincronização
+  const organizeLogsByGroup = (logs: SyncLog[]): Record<string, SyncLog[]> => {
+    const groups: Record<string, SyncLog[]> = {};
+    
+    logs.forEach(log => {
+      // Usar parent_id para agrupar, ou o próprio ID se for pai
+      const groupId = log.parent_id?.toString() || log.id.toString();
+      
+      if (!groups[groupId]) {
+        groups[groupId] = [];
+      }
+      
+      groups[groupId].push(log);
+    });
+    
+    return groups;
+  };
+  
+  // Obter os logs principais (aqueles sem parent_id)
+  const getParentLogs = (logs: SyncLog[]): SyncLog[] => {
+    return logs.filter(log => !log.parent_id);
+  };
+  
+  // Obter logs filhos de um log específico
+  const getChildLogs = (logs: SyncLog[], parentId: number): SyncLog[] => {
+    return logs.filter(log => log.parent_id === parentId);
+  };
   
   const fetchLogs = async () => {
     try {
@@ -60,6 +106,7 @@ const SyncHistory = () => {
   const getProgressValue = (log: SyncLog) => {
     if (log.status === 'completed') return 100;
     if (log.status === 'queued' || log.status === 'started') return 10;
+    if (log.status === 'error') return 0;
     
     // Try to extract progress from message
     if (log.message) {
@@ -88,36 +135,43 @@ const SyncHistory = () => {
     switch (status) {
       case 'completed':
         return (
-          <span className="flex items-center text-green-700 bg-green-50 rounded-full px-2.5 py-0.5 text-xs font-medium">
-            <CheckCircle2 className="w-3 h-3 mr-1" />
+          <Badge variant="outline" className="flex items-center bg-green-50 text-green-700 border-green-200 gap-1">
+            <CheckCircle2 className="w-3 h-3" />
             Concluído
-          </span>
+          </Badge>
         );
       case 'queued':
       case 'started':
       case 'processing':
       case 'in_progress':
         return (
-          <span className="flex items-center text-amber-700 bg-amber-50 rounded-full px-2.5 py-0.5 text-xs font-medium">
+          <Badge variant="outline" className="flex items-center bg-amber-50 text-amber-700 border-amber-200 gap-1">
             {log.message && log.message.includes('%') ? (
               <span>{log.message.match(/(\d+)%/)?.[0] || 'Em Progresso'}</span>
             ) : (
               <>
-                <Clock className="w-3 h-3 mr-1" />
+                <Clock className="w-3 h-3" />
                 {status === 'queued' || status === 'started' ? 'Pendente' : 'Em Progresso'}
               </>
             )}
-          </span>
+          </Badge>
+        );
+      case 'continues':
+        return (
+          <Badge variant="outline" className="flex items-center bg-blue-50 text-blue-700 border-blue-200 gap-1">
+            <RefreshCw className="w-3 h-3" />
+            Continuando
+          </Badge>
         );
       case 'error':
         return (
-          <span className="flex items-center text-red-700 bg-red-50 rounded-full px-2.5 py-0.5 text-xs font-medium">
-            <AlertCircle className="w-3 h-3 mr-1" />
+          <Badge variant="outline" className="flex items-center bg-red-50 text-red-700 border-red-200 gap-1">
+            <AlertCircle className="w-3 h-3" />
             Erro
-          </span>
+          </Badge>
         );
       default:
-        return <span className="text-xs">{status}</span>;
+        return <Badge variant="outline" className="text-xs">{status}</Badge>;
     }
   };
 
@@ -146,6 +200,9 @@ const SyncHistory = () => {
   const hasPendingSync = logs.some(log => 
     ['processing', 'in_progress', 'queued', 'started'].includes(log.status)
   );
+  
+  // Organiza logs em grupos
+  const parentLogs = getParentLogs(logs);
 
   return (
     <div className="space-y-6">
@@ -192,10 +249,11 @@ const SyncHistory = () => {
           <p className="text-muted-foreground">Nenhum registro de sincronização encontrado</p>
         </div>
       ) : (
-        <div className="rounded-md border overflow-hidden">
+        <div className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-6"></TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-full">Mensagem</TableHead>
@@ -205,27 +263,74 @@ const SyncHistory = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {logs.map((log) => (
-                <TableRow key={log.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      {getTypeIcon(log.type)}
-                      <span>{getTypeName(log.type)}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>{getStatusBadge(log)}</TableCell>
-                  <TableCell>
-                    <div className="max-w-md text-sm truncate" title={log.message}>
-                      {log.message || '-'}
-                    </div>
-                  </TableCell>
-                  <TableCell className="w-24">
-                    <Progress value={getProgressValue(log)} className="h-2 w-full" />
-                  </TableCell>
-                  <TableCell>{formatDateTime(log.started_at)}</TableCell>
-                  <TableCell>{log.completed_at ? formatDateTime(log.completed_at) : '-'}</TableCell>
-                </TableRow>
-              ))}
+              {parentLogs.map((log) => {
+                const childLogs = getChildLogs(logs, log.id);
+                const hasChildren = childLogs.length > 0;
+                const isExpanded = expandedLogs[log.id] || false;
+
+                return (
+                  <React.Fragment key={log.id}>
+                    <TableRow className={hasChildren ? "border-b-0" : ""}>
+                      <TableCell>
+                        {hasChildren ? (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-6 w-6 p-0"
+                            onClick={() => setExpandedLogs({...expandedLogs, [log.id]: !isExpanded})}
+                          >
+                            {isExpanded ? 
+                              <ChevronDown className="h-4 w-4" /> : 
+                              <ChevronRight className="h-4 w-4" />
+                            }
+                          </Button>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {getTypeIcon(log.type)}
+                          <span>{getTypeName(log.type)}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>{getStatusBadge(log)}</TableCell>
+                      <TableCell>
+                        <div className="max-w-md text-sm truncate" title={log.message}>
+                          {log.message || '-'}
+                        </div>
+                      </TableCell>
+                      <TableCell className="w-24">
+                        <Progress value={getProgressValue(log)} className="h-2 w-full" />
+                      </TableCell>
+                      <TableCell>{formatDateTime(log.started_at)}</TableCell>
+                      <TableCell>{log.completed_at ? formatDateTime(log.completed_at) : '-'}</TableCell>
+                    </TableRow>
+                    
+                    {/* Exibir logs filhos quando expandido */}
+                    {isExpanded && hasChildren && childLogs.map(childLog => (
+                      <TableRow key={childLog.id} className="bg-muted/30">
+                        <TableCell></TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2 pl-4">
+                            <div className="h-4 w-0.5 bg-muted-foreground/20 mr-2"></div>
+                            <span className="text-xs">Continuação</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{getStatusBadge(childLog)}</TableCell>
+                        <TableCell>
+                          <div className="max-w-md text-sm truncate" title={childLog.message}>
+                            {childLog.message || '-'}
+                          </div>
+                        </TableCell>
+                        <TableCell className="w-24">
+                          <Progress value={getProgressValue(childLog)} className="h-2 w-full" />
+                        </TableCell>
+                        <TableCell>{formatDateTime(childLog.started_at)}</TableCell>
+                        <TableCell>{childLog.completed_at ? formatDateTime(childLog.completed_at) : '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
