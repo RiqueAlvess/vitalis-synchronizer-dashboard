@@ -28,6 +28,14 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
       // @ts-ignore
       options.signal = timeoutController.signal;
       
+      // Log request details in development
+      if (import.meta.env.DEV) {
+        console.log(`Supabase request to: ${url}`, { 
+          headers: options.headers,
+          method: options.method || 'GET'
+        });
+      }
+      
       return fetch(url, options).finally(() => clearTimeout(timeoutId));
     }
   }
@@ -62,18 +70,96 @@ export const getCurrentToken = async () => {
       const now = Math.floor(Date.now() / 1000);
       // Add a 5-minute buffer to be safe
       const bufferTime = 5 * 60;
+      
       if (session.expires_at && (session.expires_at - bufferTime) > now) {
+        // Log the token for debugging (masked for security)
+        const tokenLength = session.access_token.length;
+        const maskedToken = tokenLength > 10 ? 
+          `${session.access_token.substring(0, 5)}...${session.access_token.substring(tokenLength - 5)}` : 
+          'token too short';
+        console.log(`Current token (masked): ${maskedToken}, length: ${tokenLength}, expires: ${new Date(session.expires_at * 1000).toISOString()}`);
+        
         return session.access_token;
       }
       
       // Token expired or close to expiring, try to refresh
       console.log('Token expired or close to expiring, refreshing...');
       const { data } = await supabase.auth.refreshSession();
+      
+      if (data.session?.access_token) {
+        const newTokenLength = data.session.access_token.length;
+        const newMaskedToken = newTokenLength > 10 ? 
+          `${data.session.access_token.substring(0, 5)}...${data.session.access_token.substring(newTokenLength - 5)}` : 
+          'token too short';
+        console.log(`Refreshed token (masked): ${newMaskedToken}, length: ${newTokenLength}, expires: ${new Date(data.session.expires_at * 1000).toISOString()}`);
+      } else {
+        console.warn('Failed to get refreshed token');
+      }
+      
       return data.session?.access_token;
     }
+    
+    console.warn('No session token available');
     return null;
   } catch (error) {
     console.error('Error getting current token:', error);
     return null;
+  }
+};
+
+// Function to test token validity with the test-connection function
+export const testTokenValidity = async () => {
+  try {
+    const token = await getCurrentToken();
+    if (!token) {
+      return { valid: false, message: 'No token available' };
+    }
+    
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/test-connection`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    const result = await response.json();
+    return { 
+      valid: result.success,
+      message: result.message,
+      details: result
+    };
+  } catch (error) {
+    return { 
+      valid: false, 
+      message: error.message || 'Error testing token validity',
+      error
+    };
+  }
+};
+
+// Function to test edge functions auth with the validation function
+export const diagnoseAuthIssues = async () => {
+  try {
+    const token = await getCurrentToken();
+    if (!token) {
+      return { valid: false, message: 'No token available' };
+    }
+    
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/auth/validate`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    return await response.json();
+  } catch (error) {
+    return { 
+      success: false, 
+      message: error.message || 'Error diagnosing authentication',
+      error
+    };
   }
 };

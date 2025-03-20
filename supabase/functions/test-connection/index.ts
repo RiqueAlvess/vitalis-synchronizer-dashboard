@@ -4,6 +4,7 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
 Deno.serve(async (req) => {
   // Handle CORS preflight request
@@ -12,7 +13,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Get all headers for debugging
+    // Get all headers for detailed debugging
     const allHeaders = {};
     req.headers.forEach((value, key) => {
       allHeaders[key] = value;
@@ -44,30 +45,81 @@ Deno.serve(async (req) => {
       'token too short';
     console.log(`Token received (masked): ${maskedToken}, length: ${tokenLength}`);
     
-    // Initialize Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      },
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
+    // Try both methods of authentication for diagnostics
     
-    // Get user data to verify the token
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-
-    // Check if user exists
-    if (userError || !user) {
-      console.error('User auth error:', userError);
+    // 1. First, try with explicitly passed token
+    console.log('Attempting authentication with explicit token...');
+    let userData = null;
+    
+    try {
+      // Initialize Supabase client with the explicit token
+      const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        },
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      });
+      
+      // Get user data to verify the token
+      const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+      
+      if (user) {
+        console.log('Authentication successful with explicit token');
+        userData = user;
+      } else {
+        console.log('Authentication failed with explicit token:', userError?.message);
+      }
+    } catch (tokenError) {
+      console.error('Error using explicit token:', tokenError);
+    }
+    
+    // 2. If first method failed, try with admin client
+    if (!userData) {
+      console.log('Attempting authentication with admin client...');
+      try {
+        const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false
+          }
+        });
+        
+        const { data: { user }, error: adminError } = await adminClient.auth.getUser(token);
+        
+        if (user) {
+          console.log('Authentication successful with admin client');
+          userData = user;
+        } else {
+          console.log('Authentication failed with admin client:', adminError?.message);
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              message: 'Invalid authentication token',
+              error: adminError?.message || 'No user found with admin verification',
+              tokenInfo: {
+                length: tokenLength,
+                preview: maskedToken
+              }
+            }),
+            { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+          );
+        }
+      } catch (adminError) {
+        console.error('Error using admin client:', adminError);
+      }
+    }
+    
+    // If we still don't have user data, authentication failed
+    if (!userData) {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          message: 'Invalid authentication token',
-          error: userError?.message || 'No user found',
+          message: 'Authentication failed with all methods',
           tokenInfo: {
             length: tokenLength,
             preview: maskedToken
@@ -77,15 +129,15 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log('Connection test successful for user:', user.id);
+    console.log('Connection test successful for user:', userData.id);
 
     // Return success response
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'Connection successful',
-        userId: user.id,
-        email: user.email
+        userId: userData.id,
+        email: userData.email
       }),
       { status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
     );

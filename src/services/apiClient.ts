@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, getCurrentToken } from '@/integrations/supabase/client';
 
 // Enable debug mode for development environments
 const DEBUG = import.meta.env.DEV;
@@ -25,28 +25,45 @@ let refreshPromise: Promise<any> | null = null;
 supabaseAPI.interceptors.request.use(
   async (config) => {
     try {
-      // Get the current session
-      const { data: { session } } = await supabase.auth.getSession();
+      // For authentication diagnostic clarity, log all requests in debug mode
+      if (DEBUG) {
+        console.log(`API request: ${config.method?.toUpperCase()} ${config.url}`);
+      }
+      
+      // Get fresh token directly instead of relying on session
+      const token = await getCurrentToken();
       
       // Add the token to the request if available
-      if (session?.access_token) {
-        config.headers['Authorization'] = `Bearer ${session.access_token}`;
-        if (DEBUG) console.log('Setting Authorization header with token');
+      if (token) {
+        // Set token directly in header for maximum compatibility
+        config.headers['Authorization'] = `Bearer ${token}`;
+        
+        if (DEBUG) {
+          // Log the token (masked) for debugging
+          const tokenLength = token.length;
+          const maskedToken = tokenLength > 10 ? 
+            `${token.substring(0, 5)}...${token.substring(tokenLength - 5)}` : 
+            'token too short';
+          console.log(`Setting Authorization header with token: ${maskedToken}, length: ${tokenLength}`);
+        }
       } else {
-        console.warn('No session token available for API request');
+        console.warn('No token available for API request:', config.url);
+        
         // Force token refresh and try again
         try {
           const { data } = await supabase.auth.refreshSession();
           if (data.session?.access_token) {
             config.headers['Authorization'] = `Bearer ${data.session.access_token}`;
-            if (DEBUG) console.log('Setting Authorization header with refreshed token');
+            if (DEBUG) console.log('Setting Authorization header with newly refreshed token');
+          } else {
+            console.error('No token available after refresh');
           }
         } catch (refreshError) {
           console.error('Failed to refresh token:', refreshError);
         }
       }
       
-      // Add a custom header with the request time for debugging
+      // Add custom headers for CORS and debugging
       config.headers['x-request-time'] = new Date().toISOString();
       
       return config;
@@ -89,6 +106,11 @@ supabaseAPI.interceptors.response.use(
         if (!isRefreshing) {
           isRefreshing = true;
           console.log('Token expired, refreshing session...');
+          
+          // Force clear any existing sessions to avoid contamination
+          await supabase.auth.signOut({ scope: 'local' });
+          
+          // Now get a fresh session
           refreshPromise = supabase.auth.refreshSession();
         }
         

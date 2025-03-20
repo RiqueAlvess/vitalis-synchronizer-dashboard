@@ -18,6 +18,8 @@ const Sync = () => {
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [activeSyncProcesses, setActiveSyncProcesses] = useState<{count: number, types: string[]}>({ count: 0, types: [] });
   const [syncResult, setSyncResult] = useState<{type: string; success: boolean; message: string} | null>(null);
+  const [authStatus, setAuthStatus] = useState<any>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(false);
   const checkIntervalRef = useRef<number | null>(null);
   
   // Check for active syncs - implementation with debounce
@@ -177,6 +179,49 @@ const Sync = () => {
     }
   }, [syncResult]);
   
+  // New function to diagnose authentication issues
+  const checkAuthStatus = async () => {
+    try {
+      setIsCheckingAuth(true);
+      
+      // Import dynamically to avoid circular dependencies
+      const { diagnoseAuthIssues } = await import('@/integrations/supabase/client');
+      
+      // Run the diagnosis
+      const result = await diagnoseAuthIssues();
+      console.log('Auth diagnosis result:', result);
+      
+      setAuthStatus(result);
+      
+      if (result.success) {
+        toast({
+          title: 'Autenticação válida',
+          description: 'Seu token de autenticação está funcionando corretamente.',
+        });
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Problema de autenticação',
+          description: 'Há problemas com sua autenticação. Verifique os detalhes no console.',
+        });
+      }
+    } catch (error) {
+      console.error('Error checking auth status:', error);
+      setAuthStatus({
+        success: false,
+        message: error instanceof Error ? error.message : 'Erro ao verificar autenticação'
+      });
+      
+      toast({
+        variant: 'destructive',
+        title: 'Erro de autenticação',
+        description: 'Não foi possível verificar o status da autenticação.',
+      });
+    } finally {
+      setIsCheckingAuth(false);
+    }
+  };
+  
   return (
     <DashboardLayout
       title="Sincronização de Dados"
@@ -207,7 +252,27 @@ const Sync = () => {
         
         <Card>
           <CardHeader>
-            <CardTitle>Iniciar Sincronização</CardTitle>
+            <CardTitle className="flex justify-between items-center">
+              <span>Iniciar Sincronização</span>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={checkAuthStatus}
+                disabled={isCheckingAuth}
+              >
+                {isCheckingAuth ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Verificando...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Verificar Autenticação
+                  </>
+                )}
+              </Button>
+            </CardTitle>
             <CardDescription>
               Escolha qual tipo de dados você deseja sincronizar do sistema SOC.
             </CardDescription>
@@ -306,6 +371,37 @@ const Sync = () => {
                   Visualizar Funcionários
                 </Button>
               )}
+            </CardFooter>
+          )}
+          
+          {authStatus && (
+            <CardFooter className="pt-0">
+              <Alert variant={authStatus.success ? "default" : "destructive"} className="w-full">
+                {authStatus.success ? (
+                  <CheckCircle2 className="h-4 w-4" />
+                ) : (
+                  <AlertCircle className="h-4 w-4" />
+                )}
+                <AlertTitle>Status da Autenticação</AlertTitle>
+                <AlertDescription className="mt-2">
+                  <div className="text-sm">
+                    {authStatus.success 
+                      ? `Autenticação válida para o usuário: ${authStatus.user?.email}` 
+                      : 'Problemas na autenticação. Tente fazer login novamente.'}
+                  </div>
+                  
+                  {!authStatus.success && (
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => navigate('/login')}
+                      className="mt-2"
+                    >
+                      Fazer Login Novamente
+                    </Button>
+                  )}
+                </AlertDescription>
+              </Alert>
             </CardFooter>
           )}
         </Card>
