@@ -10,7 +10,7 @@ export const supabaseAPI = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000 // Increased timeout to 30 seconds for sync operations
+  timeout: 60000 // Aumentado para 60 segundos para operações de sincronização
 });
 
 // Track if we're currently refreshing the token

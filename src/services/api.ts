@@ -326,6 +326,16 @@ const apiService = {
         console.error('Error fetching sync logs:', error);
         throw error;
       }
+    },
+    
+    getById: async (id: number) => {
+      try {
+        const response = await supabaseAPI.get(`/sync-logs/${id}`);
+        return response.data;
+      } catch (error) {
+        console.error(`Error fetching sync log with ID ${id}:`, error);
+        throw error;
+      }
     }
   },
   
@@ -375,7 +385,13 @@ const apiService = {
         // Get the employee API config
         const config = await apiService.getApiConfig('employee') as EmployeeApiConfig;
         
-        const response = await supabaseAPI.post('/queue-sync-processor/enqueue', {
+        if (!config.isConfigured) {
+          throw new Error('API do SOC para funcionários não configurada. Configure a API antes de sincronizar.');
+        }
+        
+        console.log('Iniciando sincronização de funcionários:', config);
+        
+        const response = await supabaseAPI.post('/sync-soc-api', {
           type: 'employee',
           params: {
             empresa: config.empresa,
@@ -402,7 +418,13 @@ const apiService = {
         // Get the absenteeism API config
         const config = await apiService.getApiConfig('absenteeism') as AbsenteeismApiConfig;
         
-        const response = await supabaseAPI.post('/queue-sync-processor/enqueue', {
+        if (!config.isConfigured) {
+          throw new Error('API do SOC para absenteísmo não configurada. Configure a API antes de sincronizar.');
+        }
+        
+        console.log('Iniciando sincronização de absenteísmo:', config);
+        
+        const response = await supabaseAPI.post('/sync-soc-api', {
           type: 'absenteeism',
           params: {
             empresa: config.empresa,
@@ -427,7 +449,13 @@ const apiService = {
         // Get the company API config
         const config = await apiService.getApiConfig('company') as ApiConfig;
         
-        const response = await supabaseAPI.post('/queue-sync-processor/enqueue', {
+        if (!config.isConfigured) {
+          throw new Error('API do SOC para empresas não configurada. Configure a API antes de sincronizar.');
+        }
+        
+        console.log('Iniciando sincronização de empresas:', config);
+        
+        const response = await supabaseAPI.post('/sync-soc-api', {
           type: 'company',
           params: {
             empresa: config.empresa,
@@ -444,13 +472,13 @@ const apiService = {
       }
     },
     
-    checkJobStatus: async (jobId: string) => {
+    checkSyncStatus: async (syncId: number) => {
       try {
-        const response = await supabaseAPI.get(`/queue-sync-processor/status?jobId=${jobId}`);
+        const response = await supabaseAPI.get(`/sync-logs/${syncId}`);
         return response.data;
       } catch (error) {
-        console.error('Error checking job status:', error);
-        throw new Error('Failed to check job status: ' + (error.message || 'Unknown error'));
+        console.error(`Error checking sync status for ID ${syncId}:`, error);
+        throw new Error(`Failed to check sync status: ${error.message || 'Unknown error'}`);
       }
     }
   },

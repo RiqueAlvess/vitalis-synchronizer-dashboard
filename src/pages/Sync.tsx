@@ -15,83 +15,92 @@ const SyncPage = () => {
     type: string; 
     success: boolean; 
     message: string;
-    jobId?: string;
+    syncId?: number;
   } | null>(null);
   
-  const [jobStatus, setJobStatus] = useState<{
-    status: 'queued' | 'processing' | 'completed' | 'failed';
+  const [syncStatus, setSyncStatus] = useState<{
+    status: 'queued' | 'started' | 'processing' | 'completed' | 'error';
+    message: string;
     progress: number;
-    total?: number;
-    processed?: number;
-    error?: string;
+    error_details?: string;
   } | null>(null);
   
-  // Poll for job status if we have an active job
+  // Consultar status da sincronização
   useEffect(() => {
-    if (!syncResult?.jobId || jobStatus?.status === 'completed' || jobStatus?.status === 'failed') {
+    if (!syncResult?.syncId) {
       return;
     }
     
-    const interval = setInterval(async () => {
+    const checkSyncStatus = async () => {
       try {
-        console.log('Checking job status for:', syncResult.jobId);
-        const status = await apiService.sync.checkJobStatus(syncResult.jobId!);
-        console.log('Job status:', status);
+        console.log('Verificando status da sincronização:', syncResult.syncId);
+        const status = await apiService.syncLogs.getById(syncResult.syncId!);
+        console.log('Status da sincronização:', status);
         
-        if (status && status.success !== false) {
-          setJobStatus(status);
+        if (status) {
+          // Calcular progresso com base no status
+          let progress = 0;
+          switch (status.status) {
+            case 'queued':
+              progress = 10;
+              break;
+            case 'started':
+              progress = 20;
+              break;
+            case 'processing':
+              progress = 50;
+              break;
+            case 'completed':
+              progress = 100;
+              break;
+            case 'error':
+              progress = 100;
+              break;
+          }
           
-          if (status.status === 'completed' || status.status === 'failed') {
-            clearInterval(interval);
-            
+          setSyncStatus({
+            status: status.status,
+            message: status.message,
+            progress: progress,
+            error_details: status.error_details
+          });
+          
+          // Parar de consultar quando a sincronização for concluída ou falhar
+          if (status.status === 'completed' || status.status === 'error') {
             toast({
               variant: status.status === 'completed' ? 'default' : 'destructive',
               title: status.status === 'completed' ? 'Sincronização concluída' : 'Erro na sincronização',
-              description: status.status === 'completed' 
-                ? `Sincronização concluída com sucesso. ${status.processed} registros processados.`
-                : `Erro durante a sincronização: ${status.error}`
+              description: status.message
             });
-          }
-        } else {
-          console.log('Invalid status response:', status);
-          // If we get an invalid response, clear the interval
-          if (status && status.success === false) {
-            clearInterval(interval);
-            
-            toast({
-              variant: 'destructive',
-              title: 'Erro na sincronização',
-              description: status.message || 'Ocorreu um erro durante a sincronização.'
-            });
+            return;
           }
         }
       } catch (error) {
-        console.error('Error checking job status:', error);
-        // Only clear on persistent errors
-        if (error.status === 404) {
-          clearInterval(interval);
-          setJobStatus(prev => ({
-            ...prev!,
-            status: 'failed',
-            error: 'Job não encontrado ou expirado'
-          }));
-        }
+        console.error('Erro ao verificar status da sincronização:', error);
       }
-    }, 3000); // Check every 3 seconds
+    };
+    
+    // Verificar status imediatamente
+    checkSyncStatus();
+    
+    // Configurar verificação periódica
+    const interval = setInterval(checkSyncStatus, 3000); // Verificar a cada 3 segundos
     
     return () => clearInterval(interval);
-  }, [syncResult?.jobId, jobStatus?.status, toast]);
+  }, [syncResult?.syncId, toast]);
   
-  const handleSync = async (type: 'employee' | 'absenteeism') => {
+  const handleSync = async (type: 'employee' | 'absenteeism' | 'company') => {
     try {
       setSyncResult(null);
-      setJobStatus(null);
+      setSyncStatus(null);
       
-      const typeLabel = type === 'employee' ? 'funcionários' : 'absenteísmo';
-        
+      const typeLabel = 
+        type === 'employee' ? 'funcionários' : 
+        type === 'absenteeism' ? 'absenteísmo' : 'empresas';
+      
       toast({
         title: 'Sincronização iniciada',
-        description: `Adicionando sincronização de ${typeLabel} à fila...`
+        description: `Iniciando sincronização de ${typeLabel}...`
       });
       
       let result;
@@ -103,9 +112,12 @@ const SyncPage = () => {
         case 'absenteeism':
           result = await apiService.sync.absenteeism();
           break;
+        case 'company':
+          result = await apiService.sync.companies();
+          break;
       }
       
-      console.log('Sync result:', result);
+      console.log('Resultado da sincronização:', result);
       
       if (!result) {
         throw new Error('Resposta vazia do servidor');
@@ -115,35 +127,24 @@ const SyncPage = () => {
         type: typeLabel,
         success: result.success !== false,
         message: result.message || 'Sincronização iniciada',
-        jobId: result.jobId
+        syncId: result.syncId
       });
       
-      if (result.jobId) {
-        setJobStatus({
-          status: 'queued',
-          progress: 0
-        });
-        
-        toast({
-          title: 'Sincronização em fila',
-          description: `Sincronização de ${typeLabel} adicionada à fila de processamento.`
-        });
-      } else {
-        toast({
-          variant: result.success !== false ? 'default' : 'destructive',
-          title: result.success !== false ? 'Sincronização iniciada' : 'Erro na sincronização',
-          description: result.message || 'Ocorreu um erro durante a sincronização.'
-        });
-      }
+      toast({
+        variant: 'default',
+        title: 'Sincronização em andamento',
+        description: `Sincronização de ${typeLabel} iniciada. Você pode acompanhar o progresso nesta página.`
+      });
       
       return result;
     } catch (error) {
-      console.error(`Error during ${type} sync:`, error);
+      console.error(`Erro durante a sincronização de ${type}:`, error);
       
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       
       setSyncResult({
-        type: type === 'employee' ? 'funcionários' : 'absenteísmo',
+        type: type === 'employee' ? 'funcionários' : 
+              type === 'absenteeism' ? 'absenteísmo' : 'empresas',
         success: false,
         message: errorMessage
       });
@@ -158,43 +159,44 @@ const SyncPage = () => {
     }
   };
   
-  const renderJobStatus = () => {
-    if (!jobStatus) return null;
+  const renderSyncStatus = () => {
+    if (!syncStatus) return null;
     
     const statusLabels = {
       queued: 'Em fila',
+      started: 'Iniciado',
       processing: 'Processando',
       completed: 'Concluído',
-      failed: 'Falhou'
+      error: 'Erro'
     };
     
     const statusColors = {
       queued: 'bg-blue-100 text-blue-800',
+      started: 'bg-blue-100 text-blue-800',
       processing: 'bg-yellow-100 text-yellow-800',
       completed: 'bg-green-100 text-green-800',
-      failed: 'bg-red-100 text-red-800'
+      error: 'bg-red-100 text-red-800'
     };
     
     return (
       <div className="space-y-4 mt-4">
         <div className="flex justify-between items-center">
           <div className="flex items-center space-x-2">
-            <span className={`px-2 py-1 rounded text-xs font-medium ${statusColors[jobStatus.status]}`}>
-              {statusLabels[jobStatus.status]}
+            <span className={`px-2 py-1 rounded text-xs font-medium ${statusColors[syncStatus.status]}`}>
+              {statusLabels[syncStatus.status]}
             </span>
             <span className="text-sm text-muted-foreground">
-              {jobStatus.processed && jobStatus.total 
-                ? `${jobStatus.processed} de ${jobStatus.total} registros processados`
-                : 'Aguardando início do processamento'}
+              {syncStatus.message}
             </span>
           </div>
-          <span className="text-sm font-medium">{jobStatus.progress}%</span>
+          <span className="text-sm font-medium">{syncStatus.progress}%</span>
         </div>
-        <Progress value={jobStatus.progress} className="h-2" />
+        <Progress value={syncStatus.progress} className="h-2" />
         
-        {jobStatus.error && (
-          <div className="text-sm text-red-600 mt-2">
-            <strong>Erro:</strong> {jobStatus.error}
+        {syncStatus.error_details && (
+          <div className="text-sm text-red-600 mt-2 p-2 bg-red-50 rounded overflow-auto max-h-32">
+            <strong>Detalhes do erro:</strong>
+            <pre className="text-xs mt-1">{syncStatus.error_details}</pre>
           </div>
         )}
       </div>
@@ -219,7 +221,7 @@ const SyncPage = () => {
             </AlertTitle>
             <AlertDescription>
               {syncResult.message}
-              {renderJobStatus()}
+              {renderSyncStatus()}
             </AlertDescription>
           </Alert>
         )}
