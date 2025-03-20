@@ -6,8 +6,6 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const SOC_API_URL = 'https://ws1.soc.com.br/WebSoc/exportadados';
 
-const BATCH_SIZE = 50; // Number of records to process at once
-
 Deno.serve(async (req) => {
   // Handle CORS preflight request
   if (req.method === 'OPTIONS') {
@@ -118,14 +116,86 @@ Deno.serve(async (req) => {
     const syncId = syncLog.id;
     const userId = user.id;
     
-    // Run the heavy processing in the background
-    EdgeRuntime.waitUntil(processApiData(
-      apiUrl, 
-      type, 
-      syncId, 
-      userId, 
-      supabaseAdmin
-    ));
+    // Run the heavy processing in the background with waitUntil
+    // Esta é a parte importante que garante que todo processamento seja feito em segundo plano
+    EdgeRuntime.waitUntil((async () => {
+      try {
+        console.log(`Processing ${type} data in background for sync ID ${syncId}`);
+        
+        // Make the API request
+        const response = await fetch(apiUrl);
+        
+        if (!response.ok) {
+          throw new Error(`API request failed with status: ${response.status}`);
+        }
+        
+        // Get the text response and decode it from latin-1
+        const responseBuffer = await response.arrayBuffer();
+        const decoder = new TextDecoder('latin1');
+        const decodedContent = decoder.decode(responseBuffer);
+        
+        // Parse the JSON response
+        let jsonData;
+        try {
+          jsonData = JSON.parse(decodedContent);
+        } catch (e) {
+          console.error('Error parsing JSON:', e);
+          throw new Error(`Invalid JSON response: ${e.message}`);
+        }
+        
+        if (!Array.isArray(jsonData)) {
+          throw new Error('API did not return an array of records');
+        }
+        
+        console.log(`Received ${jsonData.length} records from SOC API for ${type}`);
+        
+        // Update sync log with total count
+        await supabaseAdmin
+          .from('sync_logs')
+          .update({
+            message: `Processing ${jsonData.length} ${type} records`
+          })
+          .eq('id', syncId);
+        
+        // Processando todos os dados de uma vez, sem usar batch
+        let result;
+        switch (type) {
+          case 'employee':
+            result = await processEmployeeData(supabaseAdmin, jsonData, userId);
+            break;
+          case 'absenteeism':
+            result = await processAbsenteeismData(supabaseAdmin, jsonData, userId);
+            break;
+          default:
+            throw new Error(`Unsupported data type: ${type}`);
+        }
+        
+        // Update sync log with completion status
+        await supabaseAdmin
+          .from('sync_logs')
+          .update({
+            status: 'completed',
+            message: `Synchronization completed: ${jsonData.length} ${type} records processed`,
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', syncId);
+        
+        console.log(`Sync ID ${syncId} for ${type} completed successfully`);
+      } catch (error) {
+        console.error(`Error processing ${type} data for sync ID ${syncId}:`, error);
+        
+        // Update sync log with error
+        await supabaseAdmin
+          .from('sync_logs')
+          .update({
+            status: 'error',
+            message: `Error: ${error.message}`,
+            error_details: error.stack,
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', syncId);
+      }
+    })());
 
     // Return immediate success response
     return new Response(
@@ -134,9 +204,7 @@ Deno.serve(async (req) => {
         message: `Synchronization job for ${type} started successfully`,
         syncId: syncLog.id
       }),
-      { 
-        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
-      }
+      { headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
     );
   } catch (error) {
     console.error('Unexpected error:', error);
@@ -154,116 +222,9 @@ Deno.serve(async (req) => {
   }
 });
 
-// Function to process API data in the background
-async function processApiData(apiUrl, type, syncId, userId, supabase) {
-  try {
-    console.log(`Processing ${type} data in background for sync ID ${syncId}`);
-    
-    // Make the API request
-    const response = await fetch(apiUrl);
-    
-    if (!response.ok) {
-      throw new Error(`API request failed with status: ${response.status}`);
-    }
-    
-    // Get the text response and decode it from latin-1
-    const responseBuffer = await response.arrayBuffer();
-    const decoder = new TextDecoder('latin1');
-    const decodedContent = decoder.decode(responseBuffer);
-    
-    // Parse the JSON response
-    let jsonData;
-    try {
-      jsonData = JSON.parse(decodedContent);
-    } catch (e) {
-      console.error('Error parsing JSON:', e);
-      throw new Error(`Invalid JSON response: ${e.message}`);
-    }
-    
-    if (!Array.isArray(jsonData)) {
-      throw new Error('API did not return an array of records');
-    }
-    
-    console.log(`Received ${jsonData.length} records from SOC API for ${type}`);
-    
-    // Update sync log with total count
-    await supabase
-      .from('sync_logs')
-      .update({
-        message: `Processing ${jsonData.length} ${type} records`
-      })
-      .eq('id', syncId);
-    
-    // Process data in batches
-    let processed = 0;
-    const total = jsonData.length;
-    
-    for (let i = 0; i < total; i += BATCH_SIZE) {
-      const batch = jsonData.slice(i, Math.min(i + BATCH_SIZE, total));
-      
-      // Process batch based on type
-      let processResult;
-      
-      switch (type) {
-        case 'employee':
-          processResult = await processEmployeeBatch(supabase, batch, userId);
-          break;
-        case 'absenteeism':
-          processResult = await processAbsenteeismBatch(supabase, batch, userId);
-          break;
-        default:
-          throw new Error(`Unsupported data type: ${type}`);
-      }
-      
-      processed += batch.length;
-      
-      // Update progress
-      const progress = Math.round((processed / total) * 100);
-      
-      await supabase
-        .from('sync_logs')
-        .update({
-          message: `Processed ${processed} of ${total} records (${progress}%)`
-        })
-        .eq('id', syncId);
-      
-      console.log(`Processed batch ${i}-${i + batch.length} of ${total} (${progress}%)`);
-      
-      // Small delay to prevent overwhelming the database
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    
-    // Update sync log with completion status
-    await supabase
-      .from('sync_logs')
-      .update({
-        status: 'completed',
-        message: `Synchronization completed: ${processed} ${type} records processed`,
-        completed_at: new Date().toISOString()
-      })
-      .eq('id', syncId);
-    
-    console.log(`Sync ID ${syncId} for ${type} completed successfully`);
-    
-  } catch (error) {
-    console.error(`Error processing ${type} data for sync ID ${syncId}:`, error);
-    
-    // Update sync log with error
-    await supabase
-      .from('sync_logs')
-      .update({
-        status: 'error',
-        message: `Error: ${error.message}`,
-        error_details: error.stack,
-        completed_at: new Date().toISOString()
-      })
-      .eq('id', syncId);
-  }
-}
-
-// Function to process employees
-async function processEmployeeBatch(supabase, data, userId) {
-  console.log(`Processing batch of ${data.length} employees`);
+// Function to process all employee data
+async function processEmployeeData(supabase, data, userId) {
+  console.log(`Processing ${data.length} employee records at once`);
   
   const employeeData = data.map(item => ({
     soc_code: item.CODIGO,
@@ -306,7 +267,7 @@ async function processEmployeeBatch(supabase, data, userId) {
     is_disabled: item.DEFICIENTE === 1,
     disability_description: item.DEFICIENCIA,
     mother_name: item.NM_MAE_FUNCIONARIO,
-    last_update_date: item.DATAULTALTERACAO ? new Date(item.DATAULTALTERACAO) : null,
+    last_update_date: item.DATAULTERACAO ? new Date(item.DATAULTERACAO) : null,
     hr_registration: item.MATRICULARH,
     skin_color: item.COR,
     education: item.ESCOLARIDADE,
@@ -338,9 +299,9 @@ async function processEmployeeBatch(supabase, data, userId) {
   return { count: employeeData.length };
 }
 
-// Function to process absenteeism
-async function processAbsenteeismBatch(supabase, data, userId) {
-  console.log(`Processing batch of ${data.length} absenteeism records`);
+// Function to process all absenteeism data
+async function processAbsenteeismData(supabase, data, userId) {
+  console.log(`Processing ${data.length} absenteeism records at once`);
   
   const absenteeismData = data.map(item => ({
     unit: item.UNIDADE,

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ const Sync = () => {
         description: 'A sincronização foi iniciada e pode levar alguns minutos.',
       });
       
-      // Corrigindo o erro de chamada de método
+      // Usando explicitamente cada método para evitar erros de função
       let result;
       if (type === 'employee') {
         result = await apiService.sync.employees();
@@ -70,6 +70,17 @@ const Sync = () => {
       setSyncInProgress(false);
     }
   };
+  
+  // Atualizar o histórico quando uma sincronização for concluída
+  useEffect(() => {
+    if (syncResult && syncResult.success) {
+      // Aqui podemos implementar polling para verificar o status da sincronização se necessário
+      const syncComponent = document.getElementById('sync-history');
+      if (syncComponent) {
+        syncComponent.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  }, [syncResult]);
   
   return (
     <DashboardLayout
@@ -156,7 +167,9 @@ const Sync = () => {
           )}
         </Card>
         
-        <SyncHistory />
+        <div id="sync-history">
+          <SyncHistory />
+        </div>
       </div>
     </DashboardLayout>
   );
