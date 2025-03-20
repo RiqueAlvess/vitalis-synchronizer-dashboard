@@ -8,6 +8,7 @@ interface DashboardLayoutProps {
   title?: string;
   subtitle?: string;
   rightContent?: React.ReactNode;
+  actions?: React.ReactNode;  // Added this property to fix the error
   containerClassName?: string;
 }
 
@@ -16,12 +17,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   title,
   subtitle,
   rightContent,
+  actions,  // Added this prop to the destructuring
   containerClassName,
 }) => {
   return (
     <PageTransition>
       <div className="pt-20 pb-12 min-h-screen">
-        {(title || subtitle || rightContent) && (
+        {(title || subtitle || rightContent || actions) && (
           <header className="mb-8 px-6 md:px-8">
             <div className="container mx-auto">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -33,6 +35,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                     <p className="text-muted-foreground">{subtitle}</p>
                   )}
                 </div>
+                {actions && (
+                  <div className="flex items-center gap-2">{actions}</div>
+                )}
                 {rightContent && (
                   <div className="flex items-center gap-4">{rightContent}</div>
                 )}

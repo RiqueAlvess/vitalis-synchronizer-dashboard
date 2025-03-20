@@ -183,12 +183,12 @@ const EmployeeList = () => {
             </TableHeader>
             <TableBody>
               {filteredEmployees.map((employee) => (
-                <TableRow key={employee.id || employee.employee_id}>
+                <TableRow key={employee.id || employee.soc_code || employee.employee_id || Math.random().toString()}>
                   <TableCell className="font-medium">{employee.full_name || employee.name || '-'}</TableCell>
                   <TableCell>{employee.position_name || employee.position || '-'}</TableCell>
                   <TableCell>{employee.sector_name || employee.sector || '-'}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={getStatusBadge(employee.status)}>
+                    <Badge variant="outline" className={getStatusBadge(employee.status || '')}>
                       {employee.status || 'Desconhecido'}
                     </Badge>
                   </TableCell>

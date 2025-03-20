@@ -24,15 +24,16 @@ export interface DashboardData {
 
 // Define types for mock data
 export interface MockEmployeeData {
-  id: number;
-  name: string;
-  full_name: string;
-  position: string;
-  position_name: string;
-  sector: string;
-  sector_name: string;
-  status: string;
-  absentDays: number;
+  id?: number;
+  employee_id?: string;  // Added this property to fix the error
+  name?: string;
+  full_name?: string;
+  position?: string;
+  position_name?: string;
+  sector?: string;
+  sector_name?: string;
+  status?: string;
+  absentDays?: number;
 }
 
 // Add API configuration interfaces with savedLocally property
