@@ -1,6 +1,6 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
-import { corsHeaders, logWithContext, syncErrorResponse, ERROR_CODES } from '../_shared/cors.ts';
+import { corsHeaders } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
@@ -18,7 +18,14 @@ type DashboardCache = {
 const dashboardCache = new Map<string, DashboardCache>();
 
 Deno.serve(async (req) => {
-  const log = (message, data = null) => logWithContext('dashboard-data', message, data);
+  const log = (message: string, data: any = null) => {
+    const timestamp = new Date().toISOString();
+    if (data) {
+      console.log(`[${timestamp}][dashboard-data] ${message}`, data);
+    } else {
+      console.log(`[${timestamp}][dashboard-data] ${message}`);
+    }
+  };
   
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -29,7 +36,18 @@ Deno.serve(async (req) => {
     // Get the authorization header
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return syncErrorResponse(req, 'Missing authorization header', 401, null, ERROR_CODES.UNAUTHORIZED);
+      log('Missing authorization header');
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: 'Missing authorization header',
+          code: 'auth/unauthorized'
+        }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
     }
     
     // Extract token (remove Bearer prefix if it exists)
@@ -58,7 +76,18 @@ Deno.serve(async (req) => {
     
     if (userError || !user) {
       log('User verification error', userError);
-      return syncErrorResponse(req, 'Invalid authentication token', 401, userError, ERROR_CODES.UNAUTHORIZED);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: 'Invalid authentication token',
+          error: userError?.message,
+          code: 'auth/unauthorized'
+        }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
     }
     
     log(`Authenticated as user: ${user.email} (${user.id})`);
@@ -72,7 +101,18 @@ Deno.serve(async (req) => {
     
     if (countError) {
       log('Error checking employee count', countError);
-      return syncErrorResponse(req, 'Error checking data availability', 500, countError, ERROR_CODES.DB_ERROR);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: 'Error checking data availability',
+          error: countError.message,
+          code: 'database/error'
+        }),
+        { 
+          status: 500, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
     }
     
     if (employeeCount === 0) {
@@ -291,11 +331,33 @@ Deno.serve(async (req) => {
       );
     } catch (dbError) {
       log('Error processing dashboard data', dbError);
-      return syncErrorResponse(req, 'Error generating dashboard data', 500, dbError, ERROR_CODES.DATA_PROCESSING_ERROR);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: 'Error generating dashboard data',
+          error: dbError.message,
+          code: 'data_processing_error'
+        }),
+        { 
+          status: 500, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
     }
   } catch (error) {
-    log('Unexpected error', error);
-    return syncErrorResponse(req, 'Unexpected error', 500, error, ERROR_CODES.UNKNOWN_ERROR);
+    console.error('Unexpected error in dashboard-data function:', error);
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        message: 'Unexpected error',
+        error: error.message,
+        code: 'unknown_error'
+      }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+      }
+    );
   }
 });
 

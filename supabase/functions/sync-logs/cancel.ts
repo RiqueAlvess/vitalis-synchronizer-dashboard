@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
     // Check if the sync log exists and belongs to the user
     const { data: syncLog, error: fetchError } = await supabase
       .from('sync_logs')
-      .select('id, status, type, message, started_at, completed_at')
+      .select('id, status, type, message, started_at, completed_at, user_id')
       .eq('id', syncId)
       .single();
     
@@ -78,6 +78,18 @@ Deno.serve(async (req) => {
         JSON.stringify({ success: false, message: `Sync log ${syncId} not found` }),
         { 
           status: 404, 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+    
+    // Verify the sync log belongs to the user
+    if (syncLog.user_id !== session.user.id) {
+      console.error(`User ${session.user.id} attempted to cancel sync ${syncId} belonging to user ${syncLog.user_id}`);
+      return new Response(
+        JSON.stringify({ success: false, message: `You don't have permission to cancel this sync` }),
+        { 
+          status: 403, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
         }
       );
@@ -163,7 +175,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: `Sync process ${syncId} cancelled successfully`,
+        message: `Sincronização ${syncId} cancelada com sucesso`,
         syncId,
         type: syncLog.type
       }),

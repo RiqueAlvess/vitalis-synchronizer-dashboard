@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 import { supabase, getCurrentToken } from '@/integrations/supabase/client';
 
@@ -62,7 +63,7 @@ supabaseAPI.interceptors.request.use(
         }
       }
       
-      // Prevent caching of API calls
+      // Prevent caching of API calls by adding timestamp
       if (config.method?.toLowerCase() === 'get') {
         config.params = { ...config.params, _t: Date.now() };
       }

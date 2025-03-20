@@ -33,59 +33,18 @@ const Dashboard = () => {
       }
     };
 
-    // Set a timeout to ensure we don't get stuck in loading
-    const timeout = setTimeout(() => {
-      setIsLoading(false);
-    }, 3000);
-
     loadSettings();
+    
+    // Set a guaranteed timeout to prevent infinite loading
+    const timeout = setTimeout(() => {
+      if (isLoading) {
+        console.log("Force ending loading state after timeout");
+        setIsLoading(false);
+      }
+    }, 3000);
     
     return () => clearTimeout(timeout);
   }, [isAuthenticated, getSettings, user]);
-
-  const handleSaveSettings = async () => {
-    if (!user) return;
-    
-    // Exemplo de configurações para salvar
-    const settings = { 
-      theme: userSettings?.theme || 'light', 
-      notifications: userSettings?.notifications !== undefined ? userSettings.notifications : true,
-      lastUpdated: new Date().toISOString()
-    };
-    
-    try {
-      const success = await saveSettings(settings);
-      
-      if (success) {
-        toast({
-          title: 'Configurações salvas',
-          description: 'Suas preferências foram atualizadas com sucesso!',
-        });
-        setUserSettings(settings);
-      }
-    } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Erro ao salvar',
-        description: 'Não foi possível salvar suas preferências.',
-      });
-    }
-  };
-
-  const toggleTheme = () => {
-    const newTheme = userSettings?.theme === 'dark' ? 'light' : 'dark';
-    setUserSettings({
-      ...userSettings,
-      theme: newTheme
-    });
-  };
-
-  const toggleNotifications = () => {
-    setUserSettings({
-      ...userSettings,
-      notifications: !userSettings?.notifications
-    });
-  };
 
   return (
     <DashboardLayout 
@@ -103,8 +62,6 @@ const Dashboard = () => {
       ) : (
         <DashboardOverview />
       )}
-      
-      {/* Moved to UserProfile component instead */}
     </DashboardLayout>
   );
 };
