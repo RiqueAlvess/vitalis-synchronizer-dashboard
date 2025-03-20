@@ -194,39 +194,98 @@ const Sync = () => {
   };
   
   const handleResetActiveSyncs = async () => {
-    try {
-      setIsResettingSyncs(true);
-      
-      console.log('Attempting to reset all active syncs...');
-      const result = await syncLogsService.resetActiveSyncs();
-      
-      console.log('Reset result:', result);
-      
-      if (result && result.success) {
-        toast({
-          title: 'Sincronizações resetadas',
-          description: result.message || 'Todas as sincronizações ativas foram canceladas com sucesso.',
-        });
-        
-        // Immediately check for active syncs
-        await checkActiveSyncs();
-        
-        // Trigger history refresh
-        setShouldRefreshHistory(true);
-      } else {
-        throw new Error(result?.message || 'Erro desconhecido ao resetar sincronizações');
-      }
-    } catch (error) {
-      console.error('Error resetting active syncs:', error);
+  try {
+    setIsResettingSyncs(true);
+    
+    console.log('Attempting to reset all active syncs...');
+    const result = await syncLogsService.resetActiveSyncs();
+    
+    console.log('Reset result:', result);
+    
+    if (result && result.success) {
       toast({
-        variant: 'destructive',
-        title: 'Erro ao resetar sincronizações',
-        description: error instanceof Error ? error.message : 'Não foi possível cancelar todas as sincronizações ativas.',
+        title: 'Sincronizações resetadas',
+        description: result.message || 'Todas as sincronizações ativas foram canceladas com sucesso.',
       });
-    } finally {
-      setIsResettingSyncs(false);
+      
+      // Immediately check for active syncs
+      await checkActiveSyncs();
+      
+      // Trigger history refresh
+      setShouldRefreshHistory(true);
+      
+      // If there were any syncs in needs_continuation status, offer to restart them
+      if (result.continuableSyncs && result.continuableSyncs.length > 0) {
+        toast({
+          title: 'Sincronizações continuáveis',
+          description: `Existem ${result.continuableSyncs.length} sincronizações que podem ser retomadas.`,
+          action: (
+            <ToastAction altText="Retomar todas" onClick={() => handleRetryAllSyncs(result.continuableSyncs)}>
+              Retomar todas
+            </ToastAction>
+          ),
+        });
+      }
+    } else {
+      throw new Error(result?.message || 'Erro desconhecido ao resetar sincronizações');
     }
-  };
+  } catch (error) {
+    console.error('Error resetting active syncs:', error);
+    toast({
+      variant: 'destructive',
+      title: 'Erro ao resetar sincronizações',
+      description: error instanceof Error ? error.message : 'Não foi possível cancelar todas as sincronizações ativas.',
+    });
+  } finally {
+    setIsResettingSyncs(false);
+  }
+};
+
+// Adicione esta nova função para tentar retomar todas as sincronizações continuáveis
+const handleRetryAllSyncs = async (syncIds: number[]) => {
+  try {
+    setSyncInProgress(true);
+    
+    const results = [];
+    for (const syncId of syncIds) {
+      try {
+        const result = await syncLogsService.retrySync(syncId);
+        results.push(result);
+        
+        // Pequeno delay entre as tentativas para evitar sobrecarregar
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (err) {
+        console.error(`Error retrying sync ${syncId}:`, err);
+        results.push({ 
+          success: false, 
+          syncId, 
+          error: err instanceof Error ? err.message : 'Erro desconhecido' 
+        });
+      }
+    }
+    
+    const successful = results.filter(r => r.success).length;
+    const failed = results.length - successful;
+    
+    toast({
+      title: 'Retomada de sincronizações',
+      description: `${successful} sincronizações retomadas com sucesso, ${failed} falhas.`,
+    });
+    
+    // Refresh the sync history
+    setShouldRefreshHistory(true);
+    
+  } catch (error) {
+    console.error('Error retrying syncs:', error);
+    toast({
+      variant: 'destructive',
+      title: 'Erro ao retomar sincronizações',
+      description: error instanceof Error ? error.message : 'Falha ao tentar retomar sincronizações',
+    });
+  } finally {
+    setSyncInProgress(false);
+  }
+};
   
   const handleViewEmployees = () => {
     navigate('/employees');
