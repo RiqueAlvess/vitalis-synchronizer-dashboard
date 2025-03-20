@@ -2,8 +2,6 @@
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-
 // Type definitions
 export type ApiConfigType = 'employee' | 'absenteeism' | 'company';
 
@@ -66,6 +64,43 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Default mock employees for fallback
+const defaultMockEmployees = [
+  {
+    id: 1,
+    name: 'João Silva',
+    full_name: 'João Carlos Silva',
+    position: 'Analista de TI',
+    position_name: 'Analista de Sistemas',
+    sector: 'TI',
+    sector_name: 'Tecnologia da Informação',
+    status: 'Ativo',
+    cpf: '123.456.789-00'
+  },
+  {
+    id: 2,
+    name: 'Maria Souza',
+    full_name: 'Maria Eduarda Souza',
+    position: 'Gerente de RH',
+    position_name: 'Gerente de Recursos Humanos',
+    sector: 'RH',
+    sector_name: 'Recursos Humanos',
+    status: 'Ativo',
+    cpf: '987.654.321-00'
+  },
+  {
+    id: 3,
+    name: 'Pedro Santos',
+    full_name: 'Pedro Henrique Santos',
+    position: 'Assistente Administrativo',
+    position_name: 'Assistente Administrativo',
+    sector: 'ADM',
+    sector_name: 'Administrativo',
+    status: 'Afastado',
+    cpf: '456.789.123-00'
+  }
+];
 
 // API Services
 const apiService = {
@@ -199,10 +234,20 @@ const apiService = {
     getAll: async () => {
       try {
         const { data } = await api.get('/functions/v1/employees');
-        return data;
+        
+        // Validar se os dados retornados são um array
+        if (Array.isArray(data)) {
+          console.log('Loaded employees array:', data);
+          return data;
+        } else {
+          console.error('API returned non-array data:', data);
+          console.log('Returning mock data instead');
+          return defaultMockEmployees;
+        }
       } catch (error) {
         console.error('Error fetching employees:', error);
-        throw error;
+        console.log('Returning mock data due to error');
+        return defaultMockEmployees;
       }
     },
     

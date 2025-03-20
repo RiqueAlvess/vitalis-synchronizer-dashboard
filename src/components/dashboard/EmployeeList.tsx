@@ -15,8 +15,10 @@ import { Badge } from '@/components/ui/badge';
 import { 
   RefreshCw, 
   Search, 
-  UserRound 
+  UserRound,
+  AlertCircle 
 } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import apiService from '@/services/api';
 import { MockEmployeeData } from '@/types/dashboard';
 import { Loader2 } from 'lucide-react';
@@ -39,6 +41,7 @@ const EmployeeList = () => {
   const [filteredEmployees, setFilteredEmployees] = useState<MockEmployeeData[]>([]);
   const [displayedEmployees, setDisplayedEmployees] = useState<MockEmployeeData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [syncProgress, setSyncProgress] = useState<{current: number, total: number} | null>(null);
@@ -46,27 +49,48 @@ const EmployeeList = () => {
   const [totalPages, setTotalPages] = useState(1);
   const { toast } = useToast();
 
-  // Function to load employees with retry logic
+  // Function to load employees with retry logic and better error handling
   const loadEmployees = async () => {
     try {
       setIsLoading(true);
-      // Use the imported retryRequest helper for better reliability
-      const data = await retryRequest(
-        () => apiService.employees.getAll(),
-        3,  // 3 retries
-        1000 // 1s initial delay
-      );
+      setLoadError(null);
+      
+      let data: MockEmployeeData[] = [];
+      
+      try {
+        // Use the imported retryRequest helper for better reliability
+        data = await retryRequest(
+          () => apiService.employees.getAll(),
+          3,  // 3 retries
+          1000 // 1s initial delay
+        );
+      } catch (error) {
+        console.error('Error loading employees with retry:', error);
+        // Throw so we can handle in the outer catch
+        throw error;
+      }
+      
+      // Ensure we have an array of employees
+      if (!Array.isArray(data)) {
+        console.error('Received non-array data:', data);
+        throw new Error('Formato de dados inválido');
+      }
       
       console.log('Loaded employees:', data);
       setEmployees(data);
       setFilteredEmployees(data);
     } catch (error) {
       console.error('Error loading employees:', error);
+      setLoadError('Não foi possível carregar a lista de funcionários. Tente novamente mais tarde.');
       toast({
         title: 'Erro ao carregar funcionários',
         description: 'Não foi possível carregar a lista de funcionários. Tente novamente mais tarde.',
         variant: 'destructive',
       });
+      
+      // Set default empty array to prevent mapping errors
+      setEmployees([]);
+      setFilteredEmployees([]);
     } finally {
       setIsLoading(false);
     }
@@ -77,6 +101,7 @@ const EmployeeList = () => {
     try {
       setIsRefreshing(true);
       setSyncProgress(null);
+      setLoadError(null);
       
       toast({
         title: 'Atualizando lista de funcionários',
@@ -181,6 +206,15 @@ const EmployeeList = () => {
 
   // Filter employees when search term changes
   useEffect(() => {
+    // Ensure employees is an array before filtering
+    if (!Array.isArray(employees)) {
+      console.error('employees is not an array:', employees);
+      setFilteredEmployees([]);
+      setTotalPages(1);
+      setCurrentPage(1);
+      return;
+    }
+    
     if (!searchTerm.trim()) {
       setFilteredEmployees(employees);
       
@@ -215,6 +249,12 @@ const EmployeeList = () => {
   
   // Update displayed employees when page or filtered list changes
   useEffect(() => {
+    if (!Array.isArray(filteredEmployees)) {
+      console.error('filteredEmployees is not an array:', filteredEmployees);
+      setDisplayedEmployees([]);
+      return;
+    }
+    
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     const endIndex = startIndex + ITEMS_PER_PAGE;
     setDisplayedEmployees(filteredEmployees.slice(startIndex, endIndex));
@@ -329,6 +369,27 @@ const EmployeeList = () => {
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Erro ao carregar funcionários</AlertTitle>
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
+        
+        <div className="flex justify-center">
+          <Button onClick={loadEmployees} className="mr-2">
+            Tentar novamente
+          </Button>
+          <Button onClick={handleRefresh} variant="outline">
+            Sincronizar dados
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
@@ -375,16 +436,16 @@ const EmployeeList = () => {
         </div>
       )}
 
-      {filteredEmployees.length === 0 ? (
+      {(!Array.isArray(filteredEmployees) || filteredEmployees.length === 0) ? (
         <div className="text-center py-12 bg-muted/20 rounded-md">
           <UserRound className="h-12 w-12 mx-auto text-muted-foreground/50" />
           <h3 className="mt-4 text-lg font-medium">Nenhum funcionário encontrado</h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            {employees.length === 0
+            {!Array.isArray(employees) || employees.length === 0
               ? 'Parece que você ainda não sincronizou seus funcionários. Clique em "Sincronizar" para começar.'
               : 'Nenhum funcionário encontrado com o filtro atual. Tente outro termo de busca.'}
           </p>
-          {employees.length === 0 && (
+          {(!Array.isArray(employees) || employees.length === 0) && (
             <Button onClick={handleRefresh} className="mt-4" disabled={isRefreshing}>
               {isRefreshing ? 'Sincronizando...' : 'Sincronizar Agora'}
             </Button>
@@ -407,7 +468,7 @@ const EmployeeList = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {displayedEmployees.map((employee) => (
+                {Array.isArray(displayedEmployees) && displayedEmployees.map((employee) => (
                   <TableRow key={employee.id || employee.soc_code || employee.employee_id || Math.random().toString()}>
                     <TableCell className="font-medium">{employee.full_name || employee.name || '-'}</TableCell>
                     <TableCell>{employee.position_name || employee.position || '-'}</TableCell>
