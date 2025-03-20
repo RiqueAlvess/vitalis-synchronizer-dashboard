@@ -9,9 +9,11 @@ import { useToast } from "@/components/ui/use-toast";
 import { Loader2, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
 import apiService from '@/services/api';
 import SyncHistory from '@/components/sync/SyncHistory';
+import { useNavigate } from 'react-router-dom';
 
 const Sync = () => {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [syncResult, setSyncResult] = useState<{type: string; success: boolean; message: string} | null>(null);
   
@@ -69,6 +71,11 @@ const Sync = () => {
     } finally {
       setSyncInProgress(false);
     }
+  };
+  
+  // Navegar para a página de funcionários após sincronização
+  const handleViewEmployees = () => {
+    navigate('/employees');
   };
   
   // Atualizar o histórico quando uma sincronização for concluída
@@ -151,7 +158,7 @@ const Sync = () => {
           </CardContent>
           
           {syncResult && (
-            <CardFooter>
+            <CardFooter className="flex flex-col items-start gap-4">
               <Alert variant={syncResult.success ? "default" : "destructive"}>
                 {syncResult.success ? (
                   <CheckCircle2 className="h-4 w-4" />
@@ -163,6 +170,16 @@ const Sync = () => {
                   {syncResult.message}
                 </AlertDescription>
               </Alert>
+              
+              {syncResult.success && syncResult.type === 'employee' && (
+                <Button 
+                  variant="outline" 
+                  onClick={handleViewEmployees}
+                  className="self-end"
+                >
+                  Visualizar Funcionários
+                </Button>
+              )}
             </CardFooter>
           )}
         </Card>

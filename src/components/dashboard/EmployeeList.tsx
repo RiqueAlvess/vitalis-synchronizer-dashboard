@@ -12,11 +12,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, Search, Filter, UserRound } from 'lucide-react';
+import { RefreshCw, Search, UserRound } from 'lucide-react';
 import apiService from '@/services/api';
 import { MockEmployeeData } from '@/types/dashboard';
 import { Loader2 } from 'lucide-react';
-import { formatDate } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 
 const EmployeeList = () => {
@@ -51,19 +50,22 @@ const EmployeeList = () => {
   const handleRefresh = async () => {
     try {
       setIsRefreshing(true);
-      await apiService.employees.sync();
       toast({
-        title: 'Sincronização iniciada',
-        description: 'A sincronização dos dados de funcionários foi iniciada. Isso pode levar alguns minutos.',
+        title: 'Atualizando lista de funcionários',
+        description: 'Buscando dados mais recentes...',
       });
       
-      // Reload the employee list after a brief delay
-      setTimeout(loadEmployees, 3000);
-    } catch (error) {
-      console.error('Error syncing employees:', error);
+      await loadEmployees();
+      
       toast({
-        title: 'Erro na sincronização',
-        description: 'Não foi possível sincronizar os dados de funcionários. Verifique as configurações.',
+        title: 'Lista atualizada',
+        description: 'Os dados dos funcionários foram atualizados com sucesso.',
+      });
+    } catch (error) {
+      console.error('Error refreshing employees:', error);
+      toast({
+        title: 'Erro ao atualizar',
+        description: 'Não foi possível atualizar a lista de funcionários. Tente novamente.',
         variant: 'destructive',
       });
     } finally {
@@ -74,6 +76,15 @@ const EmployeeList = () => {
   // Load employees on component mount
   useEffect(() => {
     loadEmployees();
+    
+    // Auto refresh every 30 seconds if a sync is in progress
+    const interval = setInterval(() => {
+      if (!isRefreshing && !isLoading) {
+        loadEmployees();
+      }
+    }, 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   // Filter employees when search term changes
@@ -86,7 +97,7 @@ const EmployeeList = () => {
     const lowercasedTerm = searchTerm.toLowerCase();
     const filtered = employees.filter(
       employee =>
-        employee.name.toLowerCase().includes(lowercasedTerm) ||
+        employee.name?.toLowerCase().includes(lowercasedTerm) ||
         employee.full_name?.toLowerCase().includes(lowercasedTerm) ||
         employee.position_name?.toLowerCase().includes(lowercasedTerm) ||
         employee.sector_name?.toLowerCase().includes(lowercasedTerm)
@@ -138,7 +149,7 @@ const EmployeeList = () => {
             ) : (
               <RefreshCw className="h-4 w-4" />
             )}
-            Sincronizar
+            Atualizar Lista
           </Button>
         </div>
       </div>
@@ -154,7 +165,7 @@ const EmployeeList = () => {
           </p>
           {employees.length === 0 && (
             <Button onClick={handleRefresh} className="mt-4" disabled={isRefreshing}>
-              {isRefreshing ? 'Sincronizando...' : 'Sincronizar Agora'}
+              {isRefreshing ? 'Atualizando...' : 'Atualizar Agora'}
             </Button>
           )}
         </div>
@@ -172,8 +183,8 @@ const EmployeeList = () => {
             </TableHeader>
             <TableBody>
               {filteredEmployees.map((employee) => (
-                <TableRow key={employee.id}>
-                  <TableCell className="font-medium">{employee.full_name || employee.name}</TableCell>
+                <TableRow key={employee.id || employee.soc_code}>
+                  <TableCell className="font-medium">{employee.full_name || employee.name || '-'}</TableCell>
                   <TableCell>{employee.position_name || employee.position || '-'}</TableCell>
                   <TableCell>{employee.sector_name || employee.sector || '-'}</TableCell>
                   <TableCell>

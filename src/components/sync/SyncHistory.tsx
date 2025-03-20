@@ -19,7 +19,7 @@ import { syncLogsService } from '@/services/syncLogsService';
 const SyncHistory = () => {
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-
+  
   const fetchLogs = async () => {
     try {
       setIsLoading(true);
@@ -32,8 +32,16 @@ const SyncHistory = () => {
     }
   };
 
+  // Auto-refresh logs every 10 seconds to show updated status
   useEffect(() => {
     fetchLogs();
+    
+    // Set up auto-refresh interval
+    const interval = setInterval(() => {
+      fetchLogs();
+    }, 10000); // 10 seconds
+    
+    return () => clearInterval(interval);
   }, []);
 
   const formatDateTime = (dateString: string) => {
@@ -48,19 +56,21 @@ const SyncHistory = () => {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'success':
+      case 'completed':
         return (
           <span className="flex items-center text-green-700 bg-green-50 rounded-full px-2.5 py-0.5 text-xs font-medium">
             <CheckCircle2 className="w-3 h-3 mr-1" />
-            Sucesso
+            Concluído
           </span>
         );
-      case 'pending':
+      case 'queued':
+      case 'started':
+      case 'processing':
       case 'in_progress':
         return (
           <span className="flex items-center text-amber-700 bg-amber-50 rounded-full px-2.5 py-0.5 text-xs font-medium">
             <Clock className="w-3 h-3 mr-1" />
-            {status === 'pending' ? 'Pendente' : 'Em Progresso'}
+            {status === 'queued' || status === 'started' ? 'Pendente' : 'Em Progresso'}
           </span>
         );
       case 'error':
@@ -99,9 +109,24 @@ const SyncHistory = () => {
 
   return (
     <div className="space-y-6">
-      <h3 className="text-lg font-medium mb-4">Histórico de Sincronização</h3>
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-medium">Histórico de Sincronização</h3>
+        <Button variant="outline" onClick={fetchLogs} disabled={isLoading} size="sm">
+          {isLoading ? (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              Atualizando...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Atualizar
+            </>
+          )}
+        </Button>
+      </div>
       
-      {isLoading ? (
+      {isLoading && logs.length === 0 ? (
         Array.from({ length: 3 }).map((_, index) => (
           <div key={index} className="flex items-center space-x-4 mb-4">
             <Skeleton className="h-12 w-full rounded" />
@@ -146,22 +171,6 @@ const SyncHistory = () => {
           </Table>
         </div>
       )}
-      
-      <div className="flex justify-end mt-4">
-        <Button variant="outline" onClick={fetchLogs} disabled={isLoading}>
-          {isLoading ? (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              Atualizando...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Atualizar
-            </>
-          )}
-        </Button>
-      </div>
     </div>
   );
 };
