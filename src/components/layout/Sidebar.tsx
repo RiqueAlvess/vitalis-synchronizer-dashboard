@@ -125,7 +125,7 @@ const Sidebar = () => {
       <div className="p-4 border-t">
         <div className="flex items-center mb-4">
           <Avatar className="h-9 w-9 mr-2">
-            <AvatarImage src={user?.avatarUrl} alt={userFullName} />
+            <AvatarImage src="" alt={userFullName} />
             <AvatarFallback>{userInitials}</AvatarFallback>
           </Avatar>
           <div className="flex flex-col overflow-hidden">
