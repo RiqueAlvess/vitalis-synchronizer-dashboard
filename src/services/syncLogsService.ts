@@ -179,44 +179,58 @@ export const syncLogsService = {
   },
   
   // Set up a timeout to automatically cancel hung syncs
-  setupSyncWatchdog: async () => {
-    try {
-      const activeSyncs = await syncLogsService.getActiveSyncs();
+ setupSyncWatchdog: async () => {
+  try {
+    const activeSyncs = await syncLogsService.getActiveSyncs();
+    
+    // Check each active sync to see if it's hung (no updates for over 10 minutes)
+    if (activeSyncs.logs && activeSyncs.logs.length > 0) {
+      const now = new Date();
       
-      // Check each active sync to see if it's hung (no updates for over 10 minutes)
-      if (activeSyncs.logs && activeSyncs.logs.length > 0) {
-        const now = new Date();
+      for (const sync of activeSyncs.logs) {
+        // Parse dates
+        const startedAt = new Date(sync.started_at);
+        const updatedAt = sync.updated_at ? new Date(sync.updated_at) : startedAt;
         
-        for (const sync of activeSyncs.logs) {
-          // Parse dates
-          const startedAt = new Date(sync.started_at);
-          const updatedAt = sync.updated_at ? new Date(sync.updated_at) : startedAt;
+        // Calculate elapsed time in minutes
+        const elapsedMinutes = (now.getTime() - updatedAt.getTime()) / (1000 * 60);
+        
+        // If no update for more than 10 minutes, consider it hung
+        if (elapsedMinutes > 10) {
+          console.log(`Detected hung sync #${sync.id}, elapsed minutes: ${elapsedMinutes.toFixed(1)}`);
           
-          // Calculate elapsed time in minutes
-          const elapsedMinutes = (now.getTime() - updatedAt.getTime()) / (1000 * 60);
+          // Attempt to cancel it
+          await syncLogsService.cancelSync(sync.id);
           
-          // If no update for more than 10 minutes, consider it hung
-          if (elapsedMinutes > 10) {
-            console.log(`Detected hung sync #${sync.id}, elapsed minutes: ${elapsedMinutes.toFixed(1)}`);
-            
-            // Attempt to cancel it
-            await syncLogsService.cancelSync(sync.id);
-            
-            // Update the sync record to mark it as hung/timed out
-            await supabaseAPI.post('/sync-logs/update-status', {
-              syncId: sync.id,
-              status: 'error',
-              message: `Sincronização cancelada automaticamente após ${elapsedMinutes.toFixed(0)} minutos sem atualizações.`,
-              errorDetails: 'Possível sincronização travada detectada pelo sistema e cancelada automaticamente.'
-            });
-          }
+          // Update the sync record to mark it as hung/timed out
+          await supabaseAPI.post('/sync-logs/update-status', {
+            syncId: sync.id,
+            status: 'error',
+            message: `Sincronização cancelada automaticamente após ${elapsedMinutes.toFixed(0)} minutos sem atualizações.`,
+            errorDetails: 'Possível sincronização travada detectada pelo sistema e cancelada automaticamente.'
+          });
+          
+          // After a short delay, try to restart the sync
+          setTimeout(async () => {
+            // Create a new sync log entry for continuation
+            try {
+              const { data } = await supabaseAPI.post('/sync-logs/retry', { 
+                syncId: sync.id,
+                force: true  // Force retry even on error status
+              });
+              console.log(`Auto-restarted hung sync #${sync.id}, new sync ID: ${data?.newSyncId || 'unknown'}`);
+            } catch (retryError) {
+              console.error(`Failed to auto-restart hung sync #${sync.id}:`, retryError);
+            }
+          }, 5000);
         }
       }
-      
-      return { success: true };
-    } catch (error) {
-      console.error('Error in sync watchdog:', error);
-      return { success: false, error };
     }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in sync watchdog:', error);
+    return { success: false, error };
   }
+}
 };
