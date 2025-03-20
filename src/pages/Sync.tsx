@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, RefreshCw, AlertCircle, CheckCircle2, Ban } from 'lucide-react';
+import { Loader2, RefreshCw, AlertCircle, CheckCircle2, Ban, InfoIcon } from 'lucide-react';
 import apiService from '@/services/api';
 import SyncHistory from '@/components/sync/SyncHistory';
 import { useNavigate } from 'react-router-dom';
@@ -74,8 +74,10 @@ const Sync = () => {
       // Usando explicitamente cada método para evitar erros de função
       let result;
       if (type === 'employee') {
+        // Iniciar sincronização com processamento em paralelo
         result = await apiService.sync.employees();
       } else if (type === 'absenteeism') {
+        // Iniciar sincronização com processamento em paralelo
         result = await apiService.sync.absenteeism();
       } else {
         throw new Error(`Tipo de sincronização não suportado: ${type}`);
@@ -166,6 +168,14 @@ const Sync = () => {
                 <div className="text-sm text-muted-foreground">
                   Sincroniza os dados de todos os funcionários cadastrados no SOC, incluindo informações pessoais, cargos, setores e departamentos.
                 </div>
+                <Alert variant="outline" className="bg-blue-50 border-blue-100">
+                  <InfoIcon className="h-4 w-4 text-blue-600" />
+                  <AlertTitle className="text-blue-700">Processamento em paralelo</AlertTitle>
+                  <AlertDescription className="text-blue-600">
+                    A sincronização de funcionários agora é processada em lotes paralelos para maior eficiência, 
+                    especialmente com grandes volumes de dados.
+                  </AlertDescription>
+                </Alert>
                 <Button 
                   onClick={() => handleSync('employee')} 
                   disabled={syncInProgress || activeSyncProcesses.count > 0}
@@ -189,6 +199,14 @@ const Sync = () => {
                 <div className="text-sm text-muted-foreground">
                   Sincroniza os dados de absenteísmo (faltas, atestados, afastamentos) registrados no sistema SOC.
                 </div>
+                <Alert variant="outline" className="bg-blue-50 border-blue-100">
+                  <InfoIcon className="h-4 w-4 text-blue-600" />
+                  <AlertTitle className="text-blue-700">Processamento em paralelo</AlertTitle>
+                  <AlertDescription className="text-blue-600">
+                    A sincronização de absenteísmo agora é processada em lotes paralelos para maior eficiência, 
+                    permitindo sincronização mais rápida de grandes volumes de dados.
+                  </AlertDescription>
+                </Alert>
                 <Button 
                   onClick={() => handleSync('absenteeism')} 
                   disabled={syncInProgress || activeSyncProcesses.count > 0}

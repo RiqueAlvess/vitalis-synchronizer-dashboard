@@ -6,8 +6,9 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const SOC_API_URL = 'https://ws1.soc.com.br/WebSoc/exportadados';
 
-// Smaller batch size for more reliable processing with extensive logging
-const BATCH_SIZE = 15;
+// Configuração para processamento em lotes paralelos
+const DEFAULT_BATCH_SIZE = 100; // Tamanho padrão do lote reduzido para processamento mais rápido
+const DEFAULT_MAX_CONCURRENT = 3; // Número máximo de lotes processados simultaneamente
 // Maximum time to run before refreshing the function (in milliseconds)
 const MAX_EXECUTION_TIME = 50 * 1000; // 50 seconds to be safe with edge function limits
 // Delay between processing batches to avoid overloading the DB
@@ -92,7 +93,7 @@ Deno.serve(async (req) => {
 
     // Get request body
     const requestData = await req.json();
-    let { type, params, continuationData } = requestData;
+    let { type, params, continuationData, parallel = false, batchSize = DEFAULT_BATCH_SIZE, maxConcurrent = DEFAULT_MAX_CONCURRENT } = requestData;
 
     // Check if this is a continuation of a previous sync
     let continuationMode = false;
@@ -114,7 +115,7 @@ Deno.serve(async (req) => {
       syncId = continuationData.syncId;
       parentSyncId = continuationData.parentSyncId || null;
       batchNumber = continuationData.batchNumber || 0;
-      totalBatches = continuationData.totalBatches || Math.ceil(totalRecords / BATCH_SIZE);
+      totalBatches = continuationData.totalBatches || Math.ceil(totalRecords / batchSize);
       
       console.log(`Continuing from record ${processedSoFar}/${totalRecords} (batch ${batchNumber}/${totalBatches})`);
     } else {
@@ -134,19 +135,26 @@ Deno.serve(async (req) => {
       }
 
       console.log(`New sync request for type ${type} with params:`, params);
+      
+      // Log if parallel processing is enabled
+      if (parallel) {
+        console.log(`Parallel processing enabled with batchSize=${batchSize}, maxConcurrent=${maxConcurrent}`);
+      }
     }
 
     // If this is not a continuation, create a new sync log entry
     if (!continuationMode) {
+      const syncLogData: any = {
+        type,
+        status: 'started',
+        message: `Iniciando sincronização de ${type}${parallel ? ' com processamento paralelo' : ''}`,
+        user_id: user.id,
+        started_at: new Date().toISOString()
+      };
+      
       const { data: syncLog, error: syncLogError } = await supabaseAdmin
         .from('sync_logs')
-        .insert({
-          type,
-          status: 'started',
-          message: `Iniciando sincronização de ${type}`,
-          user_id: user.id,
-          started_at: new Date().toISOString()
-        })
+        .insert(syncLogData)
         .select()
         .single();
 
@@ -179,7 +187,7 @@ Deno.serve(async (req) => {
     // Prepare response that will be sent immediately
     const immediateResponse = {
       success: true,
-      message: `Synchronization job for ${type} started successfully`,
+      message: `Synchronization job for ${type} started successfully${parallel ? ' with parallel processing' : ''}`,
       syncId: syncId
     };
     
@@ -319,215 +327,249 @@ Deno.serve(async (req) => {
           
           console.log(`Received ${records.length} records from SOC API for ${type}`);
           totalRecords = records.length;
-          totalBatches = Math.ceil(totalRecords / BATCH_SIZE);
+          totalBatches = Math.ceil(totalRecords / batchSize);
           
           // Update sync log with total count
           await supabaseAdmin
             .from('sync_logs')
             .update({
               message: `Processando ${records.length} registros de ${type}`,
-              total_batches: totalBatches
+              total_batches: totalBatches,
+              total_records: totalRecords,
+              processed_records: 0
             })
             .eq('id', syncId);
         }
         
-        // Process in batches
-        let processedCount = processedSoFar;
-        let successCount = 0;
-        let errorCount = 0;
-        let consecutiveFailures = 0;
-        
-        console.log(`Processing ${totalRecords - processedSoFar} remaining records in ${totalBatches} batches of ${BATCH_SIZE}`);
-        
-        for (let i = processedSoFar; i < totalRecords; i += BATCH_SIZE) {
-          const currentBatchStart = Date.now();
-          batchNumber++;
+        // Decidir entre processamento sequencial ou paralelo
+        if (parallel && !continuationMode) {
+          console.log(`Starting parallel processing with ${maxConcurrent} concurrent batches`);
           
-          // Check if we're approaching the max execution time
-          const elapsedTime = Date.now() - startTime;
-          if (elapsedTime > MAX_EXECUTION_TIME) {
-            console.log(`Approaching max execution time after processing ${processedCount - processedSoFar} records (${elapsedTime}ms elapsed)`);
+          // Processar lotes em paralelo
+          await processInParallel(
+            records, 
+            type, 
+            batchSize, 
+            maxConcurrent, 
+            supabaseAdmin, 
+            userId, 
+            syncId
+          );
+          
+        } else {
+          // Process in batches sequentially (original approach)
+          let processedCount = processedSoFar;
+          let successCount = 0;
+          let errorCount = 0;
+          let consecutiveFailures = 0;
+          
+          console.log(`Processing ${totalRecords - processedSoFar} remaining records in ${totalBatches} batches of ${batchSize}`);
+          
+          for (let i = processedSoFar; i < totalRecords; i += batchSize) {
+            const currentBatchStart = Date.now();
+            batchNumber++;
             
-            // Create a new sync log entry for continuation
-            const { data: continuationLog } = await supabaseAdmin
-              .from('sync_logs')
-              .insert({
-                type,
-                status: 'processing',
-                message: `Continuando lote ${batchNumber}/${totalBatches}. Processados ${processedCount} de ${totalRecords} registros (${Math.round((processedCount / totalRecords) * 100)}%).`,
-                user_id: userId,
-                started_at: new Date().toISOString(),
-                parent_id: parentSyncId || syncId, // Use o ID principal para manter o rastreamento
-                batch: batchNumber,
-                total_batches: totalBatches
-              })
-              .select()
-              .single();
+            // Check if we're approaching the max execution time
+            const elapsedTime = Date.now() - startTime;
+            if (elapsedTime > MAX_EXECUTION_TIME) {
+              console.log(`Approaching max execution time after processing ${processedCount - processedSoFar} records (${elapsedTime}ms elapsed)`);
               
-            if (continuationLog) {
-              console.log(`Created continuation log with ID ${continuationLog.id}`);
-              
-              // Update current log with partial completion
-              await supabaseAdmin
+              // Create a new sync log entry for continuation
+              const { data: continuationLog } = await supabaseAdmin
                 .from('sync_logs')
-                .update({
-                  status: 'continues',
-                  message: `Processado parcialmente: ${processedCount} de ${totalRecords} registros (${Math.round((processedCount / totalRecords) * 100)}%). Continuando no lote ${batchNumber}.`,
-                  completed_at: new Date().toISOString()
+                .insert({
+                  type,
+                  status: 'processing',
+                  message: `Continuando lote ${batchNumber}/${totalBatches}. Processados ${processedCount} de ${totalRecords} registros (${Math.round((processedCount / totalRecords) * 100)}%).`,
+                  user_id: userId,
+                  started_at: new Date().toISOString(),
+                  parent_id: parentSyncId || syncId, // Use o ID principal para manter o rastreamento
+                  batch: batchNumber,
+                  total_batches: totalBatches
                 })
-                .eq('id', syncId);
+                .select()
+                .single();
                 
-              // Remaining records to process
-              const remainingRecords = records.slice(i);
-              
-              // Call the same endpoint to continue processing
-              try {
-                console.log(`Sending continuation request with ${remainingRecords.length} remaining records`);
-                const continuationResponse = await fetch(`${SUPABASE_URL}/functions/v1/sync-soc-api`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                  },
-                  body: JSON.stringify({
-                    type,
-                    params,
-                    continuationData: {
-                      records: remainingRecords,
-                      processedSoFar: processedCount,
-                      totalRecords,
-                      syncId: continuationLog.id,
-                      parentSyncId: parentSyncId || syncId, // Mantém o rastreamento do ID principal
-                      batchNumber,
-                      totalBatches
-                    }
+              if (continuationLog) {
+                console.log(`Created continuation log with ID ${continuationLog.id}`);
+                
+                // Update current log with partial completion
+                await supabaseAdmin
+                  .from('sync_logs')
+                  .update({
+                    status: 'continues',
+                    message: `Processado parcialmente: ${processedCount} de ${totalRecords} registros (${Math.round((processedCount / totalRecords) * 100)}%). Continuando no lote ${batchNumber}.`,
+                    completed_at: new Date().toISOString(),
+                    processed_records: processedCount,
+                    success_count: successCount,
+                    error_count: errorCount
                   })
-                });
-                
-                if (!continuationResponse.ok) {
-                  console.error(`Continuation request failed with status: ${continuationResponse.status}`);
-                  const responseText = await continuationResponse.text();
-                  console.error(`Response: ${responseText}`);
+                  .eq('id', syncId);
                   
-                  // Update the log with the failure but don't fail the whole process
+                // Remaining records to process
+                const remainingRecords = records.slice(i);
+                
+                // Call the same endpoint to continue processing
+                try {
+                  console.log(`Sending continuation request with ${remainingRecords.length} remaining records`);
+                  const continuationResponse = await fetch(`${SUPABASE_URL}/functions/v1/sync-soc-api`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                      type,
+                      params,
+                      continuationData: {
+                        records: remainingRecords,
+                        processedSoFar: processedCount,
+                        totalRecords,
+                        syncId: continuationLog.id,
+                        parentSyncId: parentSyncId || syncId, // Mantém o rastreamento do ID principal
+                        batchNumber,
+                        totalBatches
+                      }
+                    })
+                  });
+                  
+                  if (!continuationResponse.ok) {
+                    console.error(`Continuation request failed with status: ${continuationResponse.status}`);
+                    const responseText = await continuationResponse.text();
+                    console.error(`Response: ${responseText}`);
+                    
+                    // Update the log with the failure but don't fail the whole process
+                    await supabaseAdmin
+                      .from('sync_logs')
+                      .update({
+                        status: 'error',
+                        message: `Falha ao criar processo de continuação: ${continuationResponse.status} - ${responseText}`,
+                        completed_at: new Date().toISOString()
+                      })
+                      .eq('id', continuationLog.id);
+                    
+                  } else {
+                    console.log(`Continuation request sent successfully, ending current process`);
+                  }
+                  
+                  return; // End current process after sending continuation
+                } catch (continuationError) {
+                  console.error(`Error sending continuation request:`, continuationError);
+                  
+                  // Update the log with the error
                   await supabaseAdmin
                     .from('sync_logs')
                     .update({
                       status: 'error',
-                      message: `Falha ao criar processo de continuação: ${continuationResponse.status} - ${responseText}`,
+                      message: `Erro ao criar processo de continuação: ${continuationError.message}`,
                       completed_at: new Date().toISOString()
                     })
                     .eq('id', continuationLog.id);
                   
-                } else {
-                  console.log(`Continuation request sent successfully, ending current process`);
+                  // Continue with current process if continuation fails
                 }
+              }
+            }
+            
+            const batchData = records.slice(i, i + batchSize);
+            
+            console.log(`Processing batch ${batchNumber}/${totalBatches} with ${batchData.length} records`);
+            
+            try {
+              let result;
+              if (type === 'employee') {
+                result = await processEmployeeBatch(supabaseAdmin, batchData, userId);
+                successCount += result.success || 0;
+                errorCount += result.error || 0;
+              } else if (type === 'absenteeism') {
+                result = await processAbsenteeismBatch(supabaseAdmin, batchData, userId);
+                successCount += result.success || 0;
+                errorCount += result.error || 0;
+              } else if (type === 'company') {
+                result = await processCompanyBatch(supabaseAdmin, batchData, userId);
+                successCount += result.success || 0;
+                errorCount += result.error || 0;
+              }
+              
+              processedCount += batchData.length;
+              consecutiveFailures = 0; // Reseta contagem de falhas consecutivas após sucesso
+              
+              // Update sync log with progress
+              await supabaseAdmin
+                .from('sync_logs')
+                .update({
+                  message: `Lote ${batchNumber}/${totalBatches}: Processados ${processedCount} de ${totalRecords} registros (${Math.round((processedCount / totalRecords) * 100)}%). Sucesso: ${successCount}, Erros: ${errorCount}`,
+                  batch: batchNumber,
+                  total_batches: totalBatches,
+                  processed_records: processedCount,
+                  success_count: successCount,
+                  error_count: errorCount
+                })
+                .eq('id', syncId);
                 
-                return; // End current process after sending continuation
-              } catch (continuationError) {
-                console.error(`Error sending continuation request:`, continuationError);
+              console.log(`Batch ${batchNumber} processed in ${Date.now() - currentBatchStart}ms. Success: ${result.success || 0}, Errors: ${result.error || 0}`);
+              console.log(`Total progress: ${processedCount}/${totalRecords} (${Math.round((processedCount / totalRecords) * 100)}%)`);
+              
+              // Add delay between batches to avoid overloading the DB
+              await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+              
+            } catch (batchError) {
+              console.error(`Error processing batch ${batchNumber}:`, batchError);
+              errorCount += batchData.length;
+              consecutiveFailures++;
+              
+              // Verificar se atingimos o número máximo de falhas consecutivas
+              if (consecutiveFailures >= maxFailures) {
+                console.error(`Maximum consecutive failures (${maxFailures}) reached. Stopping process.`);
                 
-                // Update the log with the error
+                // Atualizar log com erro fatal
                 await supabaseAdmin
                   .from('sync_logs')
                   .update({
                     status: 'error',
-                    message: `Erro ao criar processo de continuação: ${continuationError.message}`,
-                    completed_at: new Date().toISOString()
+                    message: `Erro crítico: ${consecutiveFailures} falhas consecutivas. Processo interrompido. Último erro: ${batchError.message}`,
+                    error_details: batchError.stack,
+                    completed_at: new Date().toISOString(),
+                    processed_records: processedCount,
+                    success_count: successCount,
+                    error_count: errorCount
                   })
-                  .eq('id', continuationLog.id);
-                
-                // Continue with current process if continuation fails
+                  .eq('id', syncId);
+                  
+                throw new Error(`Maximum failures reached: ${batchError.message}`);
               }
-            }
-          }
-          
-          const batchData = records.slice(i, i + BATCH_SIZE);
-          
-          console.log(`Processing batch ${batchNumber}/${totalBatches} with ${batchData.length} records`);
-          
-          try {
-            let result;
-            if (type === 'employee') {
-              result = await processEmployeeBatch(supabaseAdmin, batchData, userId);
-              successCount += result.success || 0;
-              errorCount += result.error || 0;
-            } else if (type === 'absenteeism') {
-              result = await processAbsenteeismBatch(supabaseAdmin, batchData, userId);
-              successCount += result.success || 0;
-              errorCount += result.error || 0;
-            } else if (type === 'company') {
-              result = await processCompanyBatch(supabaseAdmin, batchData, userId);
-              successCount += result.success || 0;
-              errorCount += result.error || 0;
-            }
-            
-            processedCount += batchData.length;
-            consecutiveFailures = 0; // Reseta contagem de falhas consecutivas após sucesso
-            
-            // Update sync log with progress
-            await supabaseAdmin
-              .from('sync_logs')
-              .update({
-                message: `Lote ${batchNumber}/${totalBatches}: Processados ${processedCount} de ${totalRecords} registros (${Math.round((processedCount / totalRecords) * 100)}%). Sucesso: ${successCount}, Erros: ${errorCount}`,
-                batch: batchNumber,
-                total_batches: totalBatches
-              })
-              .eq('id', syncId);
               
-            console.log(`Batch ${batchNumber} processed in ${Date.now() - currentBatchStart}ms. Success: ${result.success || 0}, Errors: ${result.error || 0}`);
-            console.log(`Total progress: ${processedCount}/${totalRecords} (${Math.round((processedCount / totalRecords) * 100)}%)`);
-            
-            // Add delay between batches to avoid overloading the DB
-            await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
-            
-          } catch (batchError) {
-            console.error(`Error processing batch ${batchNumber}:`, batchError);
-            errorCount += batchData.length;
-            consecutiveFailures++;
-            
-            // Verificar se atingimos o número máximo de falhas consecutivas
-            if (consecutiveFailures >= maxFailures) {
-              console.error(`Maximum consecutive failures (${maxFailures}) reached. Stopping process.`);
-              
-              // Atualizar log com erro fatal
+              // Continue with next batch even if one fails (até o limite máximo)
               await supabaseAdmin
                 .from('sync_logs')
                 .update({
-                  status: 'error',
-                  message: `Erro crítico: ${consecutiveFailures} falhas consecutivas. Processo interrompido. Último erro: ${batchError.message}`,
-                  error_details: batchError.stack,
-                  completed_at: new Date().toISOString()
+                  message: `Erro no lote ${batchNumber}/${totalBatches}: ${batchError.message}. Tentando próximo lote.`,
+                  processed_records: processedCount,
+                  success_count: successCount,
+                  error_count: errorCount
                 })
                 .eq('id', syncId);
                 
-              throw new Error(`Maximum failures reached: ${batchError.message}`);
+              // Adiciona um atraso maior após falha para permitir que o sistema se recupere
+              await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS * 3));
             }
-            
-            // Continue with next batch even if one fails (até o limite máximo)
-            await supabaseAdmin
-              .from('sync_logs')
-              .update({
-                message: `Erro no lote ${batchNumber}/${totalBatches}: ${batchError.message}. Tentando próximo lote.`
-              })
-              .eq('id', syncId);
-              
-            // Adiciona um atraso maior após falha para permitir que o sistema se recupere
-            await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS * 3));
           }
+          
+          // Update sync log with completion status
+          await supabaseAdmin
+            .from('sync_logs')
+            .update({
+              status: 'completed',
+              message: `Sincronização concluída: ${successCount} de ${totalRecords} registros processados com sucesso. Erros: ${errorCount}`,
+              completed_at: new Date().toISOString(),
+              processed_records: processedCount,
+              success_count: successCount,
+              error_count: errorCount
+            })
+            .eq('id', syncId);
+          
+          console.log(`Sync ID ${syncId} for ${type} completed successfully. Success: ${successCount}, Errors: ${errorCount}`);
         }
-        
-        // Update sync log with completion status
-        await supabaseAdmin
-          .from('sync_logs')
-          .update({
-            status: 'completed',
-            message: `Sincronização concluída: ${successCount} de ${totalRecords} registros processados com sucesso. Erros: ${errorCount}`,
-            completed_at: new Date().toISOString()
-          })
-          .eq('id', syncId);
-        
-        console.log(`Sync ID ${syncId} for ${type} completed successfully. Success: ${successCount}, Errors: ${errorCount}`);
       } catch (error) {
         console.error(`Error processing ${type} data for sync ID ${syncId}:`, error);
         
@@ -565,9 +607,225 @@ Deno.serve(async (req) => {
   }
 });
 
-// Function to process company batches with improved error handling and retries
+// Função para processar registros em paralelo
+async function processInParallel(
+  records: any[],
+  type: string,
+  batchSize: number,
+  maxConcurrent: number,
+  supabaseAdmin: any,
+  userId: string,
+  parentLogId: number
+) {
+  console.log(`Starting parallel processing with batch size ${batchSize} and max concurrent ${maxConcurrent}`);
+  
+  const totalRecords = records.length;
+  const totalBatches = Math.ceil(totalRecords / batchSize);
+  
+  // Atualizar log principal
+  await supabaseAdmin
+    .from('sync_logs')
+    .update({
+      total_records: totalRecords,
+      total_batches: totalBatches,
+      message: `Processando ${totalRecords} registros em ${totalBatches} lotes paralelos (máx ${maxConcurrent} simultâneos)`
+    })
+    .eq('id', parentLogId);
+  
+  // Processamento em lotes
+  let processedBatches = 0;
+  let successCount = 0;
+  let errorCount = 0;
+  let processedRecords = 0;
+  
+  // Processa lotes em paralelo com limite de concorrência
+  for (let startIdx = 0; startIdx < totalRecords; startIdx += batchSize * maxConcurrent) {
+    const batchPromises = [];
+    const batchLogs = [];
+    
+    // Criar até maxConcurrent lotes em paralelo
+    for (let j = 0; j < maxConcurrent && startIdx + j * batchSize < totalRecords; j++) {
+      const batchStartIdx = startIdx + j * batchSize;
+      const batchEndIdx = Math.min(batchStartIdx + batchSize, totalRecords);
+      const batchNumber = Math.floor(batchStartIdx / batchSize) + 1;
+      const batchData = records.slice(batchStartIdx, batchEndIdx);
+      
+      // Criar log para este lote
+      const { data: batchLog } = await supabaseAdmin
+        .from('sync_logs')
+        .insert({
+          type: type,
+          status: 'processing',
+          message: `Processando lote ${batchNumber}/${totalBatches} (${batchData.length} registros)`,
+          user_id: userId,
+          parent_id: parentLogId,
+          batch: batchNumber,
+          total_batches: totalBatches,
+          total_records: batchData.length,
+          processed_records: 0,
+          started_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+      
+      batchLogs.push(batchLog);
+      
+      // Criar promise para processar este lote
+      batchPromises.push(
+        processBatchWithLogs(
+          type,
+          batchData,
+          batchNumber,
+          totalBatches,
+          supabaseAdmin,
+          userId,
+          batchLog.id
+        )
+      );
+    }
+    
+    // Aguardar conclusão deste conjunto de lotes
+    const results = await Promise.allSettled(batchPromises);
+    
+    // Processar resultados
+    results.forEach((result, idx) => {
+      const batchLog = batchLogs[idx];
+      
+      if (result.status === 'fulfilled') {
+        const batchResult = result.value;
+        
+        processedBatches++;
+        processedRecords += batchResult.processedCount || 0;
+        successCount += batchResult.successCount || 0;
+        errorCount += batchResult.errorCount || 0;
+        
+        console.log(`Batch ${batchLog.batch}/${totalBatches} completed with ${batchResult.successCount} successes and ${batchResult.errorCount} errors`);
+      } else {
+        // Algum erro ocorreu
+        errorCount += batchSize;
+        console.error(`Batch ${batchLog.batch}/${totalBatches} failed: ${result.reason}`);
+        
+        // Atualizar log do lote com erro
+        supabaseAdmin
+          .from('sync_logs')
+          .update({
+            status: 'error',
+            message: `Erro no processamento: ${result.reason}`,
+            error_details: JSON.stringify(result.reason),
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', batchLog.id);
+      }
+    });
+    
+    // Atualizar log principal com progresso
+    await supabaseAdmin
+      .from('sync_logs')
+      .update({
+        message: `Processado ${processedBatches}/${totalBatches} lotes. ${processedRecords}/${totalRecords} registros (${Math.round((processedRecords / totalRecords) * 100)}%). Sucesso: ${successCount}, Erros: ${errorCount}`,
+        processed_records: processedRecords,
+        success_count: successCount,
+        error_count: errorCount
+      })
+      .eq('id', parentLogId);
+  }
+  
+  // Atualizar log principal com conclusão
+  await supabaseAdmin
+    .from('sync_logs')
+    .update({
+      status: 'completed',
+      message: `Sincronização concluída: ${successCount} de ${totalRecords} registros processados com sucesso em ${totalBatches} lotes. Erros: ${errorCount}`,
+      processed_records: processedRecords,
+      success_count: successCount,
+      error_count: errorCount,
+      completed_at: new Date().toISOString()
+    })
+    .eq('id', parentLogId);
+    
+  console.log(`Parallel processing completed. Total records: ${totalRecords}, Success: ${successCount}, Errors: ${errorCount}`);
+  
+  return {
+    processedCount: processedRecords,
+    successCount,
+    errorCount
+  };
+}
+
+// Função para processar um lote com logs detalhados
+async function processBatchWithLogs(
+  type: string,
+  batchData: any[],
+  batchNumber: number,
+  totalBatches: number,
+  supabaseAdmin: any,
+  userId: string,
+  batchLogId: number
+) {
+  try {
+    console.log(`Processing batch ${batchNumber}/${totalBatches} with ${batchData.length} records`);
+    
+    // Atualizar status do lote
+    await supabaseAdmin
+      .from('sync_logs')
+      .update({
+        message: `Processando ${batchData.length} registros no lote ${batchNumber}/${totalBatches}`
+      })
+      .eq('id', batchLogId);
+    
+    // Processar dados do lote
+    let result: { success?: number, error?: number } = { success: 0, error: 0 };
+    
+    if (type === 'employee') {
+      result = await processEmployeeBatch(supabaseAdmin, batchData, userId);
+    } else if (type === 'absenteeism') {
+      result = await processAbsenteeismBatch(supabaseAdmin, batchData, userId);
+    } else if (type === 'company') {
+      result = await processCompanyBatch(supabaseAdmin, batchData, userId);
+    }
+    
+    const successCount = result.success || 0;
+    const errorCount = result.error || 0;
+    
+    // Atualizar log do lote com conclusão
+    await supabaseAdmin
+      .from('sync_logs')
+      .update({
+        status: 'completed',
+        message: `Lote ${batchNumber}/${totalBatches} concluído: ${successCount} sucessos, ${errorCount} erros`,
+        processed_records: batchData.length,
+        success_count: successCount,
+        error_count: errorCount,
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', batchLogId);
+      
+    return {
+      processedCount: batchData.length,
+      successCount,
+      errorCount
+    };
+  } catch (error) {
+    console.error(`Error processing batch ${batchNumber}:`, error);
+    
+    // Atualizar log do lote com erro
+    await supabaseAdmin
+      .from('sync_logs')
+      .update({
+        status: 'error',
+        message: `Erro no processamento do lote ${batchNumber}: ${error.message}`,
+        error_details: error.stack,
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', batchLogId);
+      
+    throw error;
+  }
+}
+
+// Function to process companies
 async function processCompanyBatch(supabase, data, userId) {
-  console.log(`Processing batch of ${data.length} company records`);
+  console.log(`Processing batch of ${data.length} companies`);
   let success = 0;
   let error = 0;
 

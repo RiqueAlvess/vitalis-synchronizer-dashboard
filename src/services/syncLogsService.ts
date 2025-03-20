@@ -31,7 +31,8 @@ export const syncLogsService = {
         .from('sync_logs')
         .select('*')
         .order('id', { ascending: false })
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(50); // Limitar para evitar carregar muitos registros
 
       if (error) {
         console.error('Error fetching sync logs:', error);
@@ -110,14 +111,14 @@ export const syncLogsService = {
     }
   },
   
-  // Get logs by parent ID
+  // Get logs by parent ID with realtime updates
   getLogsByParentId: async (parentId: number): Promise<SyncLog[]> => {
     try {
       const { data, error } = await supabase
         .from('sync_logs')
         .select('*')
         .eq('parent_id', parentId)
-        .order('id', { ascending: true });
+        .order('batch', { ascending: true });
 
       if (error) {
         console.error(`Error fetching logs with parent ID ${parentId}:`, error);
@@ -130,7 +131,7 @@ export const syncLogsService = {
         type: item.type as SyncLogType,
         status: item.status as SyncLogStatus,
         created_at: item.created_at,
-        started_at: item.started_at || item.created_at, // Use created_at as fallback if started_at is missing
+        started_at: item.started_at || item.created_at,
         completed_at: item.completed_at || undefined,
         message: item.message || undefined,
         error_details: item.error_details || undefined,
@@ -147,6 +148,53 @@ export const syncLogsService = {
       return transformedData;
     } catch (error) {
       console.error('Error in getLogsByParentId service:', error);
+      throw error;
+    }
+  },
+  
+  // Setup realtime subscription for synclog updates
+  subscribeToSyncUpdates: async (syncId: number, callback: (log: SyncLog) => void) => {
+    try {
+      // Subscribe to updates for the main sync log
+      const channel = supabase
+        .channel(`synclog-${syncId}`)
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'sync_logs',
+          filter: `id=eq.${syncId}`
+        }, (payload) => {
+          // Transform payload data to SyncLog
+          const updatedLog = payload.new as DbSyncLog;
+          const log: SyncLog = {
+            id: updatedLog.id,
+            type: updatedLog.type as SyncLogType,
+            status: updatedLog.status as SyncLogStatus,
+            created_at: updatedLog.created_at,
+            started_at: updatedLog.started_at || updatedLog.created_at,
+            completed_at: updatedLog.completed_at || undefined,
+            message: updatedLog.message || undefined,
+            error_details: updatedLog.error_details || undefined,
+            user_id: updatedLog.user_id || undefined,
+            parent_id: updatedLog.parent_id || undefined,
+            batch: updatedLog.batch || undefined,
+            total_batches: updatedLog.total_batches || undefined,
+            total_records: updatedLog.total_records || undefined,
+            processed_records: updatedLog.processed_records || undefined,
+            success_count: updatedLog.success_count || undefined,
+            error_count: updatedLog.error_count || undefined
+          };
+          
+          callback(log);
+        })
+        .subscribe();
+      
+      // Return unsubscribe function
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    } catch (error) {
+      console.error('Error in subscribeToSyncUpdates service:', error);
       throw error;
     }
   },

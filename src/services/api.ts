@@ -142,7 +142,13 @@ const apiService = {
   sync: {
     employees: async () => {
       try {
-        const { data } = await api.post('/functions/v1/sync-soc-data', { type: 'employee' });
+        // Iniciar a sincronização com processamento paralelo
+        const { data } = await api.post('/functions/v1/sync-soc-data', { 
+          type: 'employee',
+          parallel: true,
+          batchSize: 100, // Tamanho reduzido para processamento mais rápido
+          maxConcurrent: 3 // Máximo de lotes processados simultaneamente
+        });
         return data;
       } catch (error) {
         console.error('Error syncing employees:', error);
@@ -152,7 +158,13 @@ const apiService = {
 
     absenteeism: async () => {
       try {
-        const { data } = await api.post('/functions/v1/sync-soc-data', { type: 'absenteeism' });
+        // Iniciar a sincronização com processamento paralelo
+        const { data } = await api.post('/functions/v1/sync-soc-data', { 
+          type: 'absenteeism',
+          parallel: true,
+          batchSize: 100, // Tamanho reduzido para processamento mais rápido
+          maxConcurrent: 3 // Máximo de lotes processados simultaneamente
+        });
         return data;
       } catch (error) {
         console.error('Error syncing absenteeism data:', error);
@@ -196,7 +208,12 @@ const apiService = {
     
     sync: async () => {
       try {
-        const { data } = await api.post('/functions/v1/sync-soc-data', { type: 'employee' });
+        const { data } = await api.post('/functions/v1/sync-soc-data', { 
+          type: 'employee',
+          parallel: true,
+          batchSize: 100,
+          maxConcurrent: 3
+        });
         return data;
       } catch (error) {
         console.error('Error syncing employees:', error);
