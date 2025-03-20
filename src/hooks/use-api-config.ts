@@ -31,7 +31,7 @@ export function useApiConfig(type: ApiConfigType) {
         
         // Usar o mecanismo de retry para obter a configuração
         const data = await retryRequest(
-          () => apiService.getApiConfig(type),
+          () => apiService.apiConfig.get(type),
           3,  // Tentar até 3 vezes
           1000 // Começar com 1 segundo de atraso
         );
@@ -84,7 +84,7 @@ export function useApiConfig(type: ApiConfigType) {
       
       // Usar o mecanismo de retry com backoff exponencial para tentar o salvamento múltiplas vezes
       const result = await retryRequest(
-        () => apiService.saveApiConfig(configToSave),
+        () => apiService.apiConfig.save(configToSave),
         3,  // Tentar até 3 vezes
         1000 // Começar com 1 segundo de atraso
       );
@@ -143,7 +143,7 @@ export function useApiConfig(type: ApiConfigType) {
       
       // Usar o mecanismo de retry para teste também
       const result = await retryRequest(
-        () => apiService.testApiConnection(configToTest),
+        () => apiService.apiConfig.test(configToTest),
         2,  // Tentar até 2 vezes
         1000 // Começar com 1 segundo de atraso
       );

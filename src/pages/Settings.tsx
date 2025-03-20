@@ -72,8 +72,8 @@ const Settings = () => {
         
         // Carregar configurações
         const results = await Promise.allSettled([
-          apiService.getApiConfig('employee'),
-          apiService.getApiConfig('absenteeism')
+          apiService.apiConfig.get('employee'),
+          apiService.apiConfig.get('absenteeism')
         ]);
         
         console.log('API config loading results:', results.map(r => ({ 
@@ -114,7 +114,7 @@ const Settings = () => {
       console.log('Testing API connectivity...');
       setApiConnectivity(null);
       
-      const result = await apiService.testApiConnection({
+      const result = await apiService.apiConfig.test({
         type: 'employee',
         empresa: 'test',
         codigo: 'test',
@@ -152,8 +152,8 @@ const Settings = () => {
       }
       
       const results = await Promise.allSettled([
-        apiService.getApiConfig('employee'),
-        apiService.getApiConfig('absenteeism')
+        apiService.apiConfig.get('employee'),
+        apiService.apiConfig.get('absenteeism')
       ]);
       
       if (results.every(result => result.status === 'rejected')) {

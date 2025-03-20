@@ -4,6 +4,34 @@ import { supabase } from '@/integrations/supabase/client';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
+// Type definitions
+export type ApiConfigType = 'employee' | 'absenteeism' | 'company';
+
+export interface ApiConfig {
+  type: ApiConfigType;
+  empresa: string;
+  codigo: string;
+  chave: string;
+  tipoSaida: string;
+  isConfigured?: boolean;
+}
+
+export interface EmployeeApiConfig extends ApiConfig {
+  type: 'employee';
+  ativo: string;
+  inativo: string;
+  afastado: string;
+  pendente: string;
+  ferias: string;
+}
+
+export interface AbsenteeismApiConfig extends ApiConfig {
+  type: 'absenteeism';
+  empresaTrabalho: string;
+  dataInicio: string;
+  dataFim: string;
+}
+
 // Ensure URLs are constructed properly
 const ensureUrlFormat = (url: string): string => {
   if (!url) return '';
@@ -65,21 +93,31 @@ const apiService = {
         throw error;
       }
     },
+    
+    getDashboardData: async () => {
+      try {
+        const { data } = await api.get('/functions/v1/dashboard-data');
+        return data;
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+        throw error;
+      }
+    },
   },
 
   // API Configuration
   apiConfig: {
-    get: async () => {
+    get: async (type: ApiConfigType) => {
       try {
-        const { data } = await api.get('/functions/v1/get-api-config');
+        const { data } = await api.get(`/functions/v1/get-api-config?type=${type}`);
         return data;
       } catch (error) {
-        console.error('Error fetching API configuration:', error);
+        console.error(`Error fetching ${type} API configuration:`, error);
         throw error;
       }
     },
 
-    save: async (config: any) => {
+    save: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig) => {
       try {
         const { data } = await api.post('/functions/v1/save-api-config', config);
         return data;
@@ -89,7 +127,7 @@ const apiService = {
       }
     },
 
-    test: async (config: any) => {
+    test: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig) => {
       try {
         const { data } = await api.post('/functions/v1/test-connection', config);
         return data;
@@ -132,7 +170,7 @@ const apiService = {
       }
     },
     
-    // Novo método para cancelar um processo de sincronização
+    // Method to cancel a sync process
     cancelSync: async (syncId: number) => {
       try {
         const { data } = await api.post('/functions/v1/sync-logs/cancel', { syncId });
@@ -155,6 +193,16 @@ const apiService = {
         throw error;
       }
     },
+    
+    sync: async () => {
+      try {
+        const { data } = await api.post('/functions/v1/sync-soc-data', { type: 'employee' });
+        return data;
+      } catch (error) {
+        console.error('Error syncing employees:', error);
+        throw error;
+      }
+    },
   },
 
   // Companies
@@ -169,6 +217,19 @@ const apiService = {
       }
     },
   },
+  
+  // Helper methods to match the direct calls in the components
+  getApiConfig: async (type: ApiConfigType) => {
+    return apiService.apiConfig.get(type);
+  },
+  
+  saveApiConfig: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig) => {
+    return apiService.apiConfig.save(config);
+  },
+  
+  testApiConnection: async (config: ApiConfig | EmployeeApiConfig | AbsenteeismApiConfig) => {
+    return apiService.apiConfig.test(config);
+  }
 };
 
 export default apiService;

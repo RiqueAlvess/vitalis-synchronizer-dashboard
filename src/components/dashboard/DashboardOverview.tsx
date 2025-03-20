@@ -18,7 +18,7 @@ const DashboardOverview = () => {
     const fetchData = async () => {
       try {
         setIsLoading(true);
-        const data = await apiService.getDashboardData();
+        const data = await apiService.dashboard.getAbsenteeismData();
         
         // This is a heuristic, since our mock data always returns 3.42%
         setIsUsingMockData(data.absenteeismRate === 3.42);

@@ -1,6 +1,21 @@
 
 import { supabase } from "@/integrations/supabase/client";
-import { SyncLog } from "@/types/sync";
+
+export interface SyncLog {
+  id: number;
+  user_id: string;
+  type: string;
+  status: string;
+  message: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  total_records?: number;
+  processed_records?: number;
+  success_count?: number;
+  error_count?: number;
+  parent_id?: number | null;
+}
 
 export const syncLogsService = {
   // Get all sync logs
