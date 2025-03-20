@@ -25,12 +25,14 @@ const SyncHistory: React.FC = () => {
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isClearing, setIsClearing] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const intervalRef = useRef<number | null>(null);
   
   const fetchLogs = async () => {
     try {
       setIsLoading(true);
       const syncLogs = await syncLogsService.getLogs();
+      console.log('Fetched sync logs:', syncLogs);
       setLogs(syncLogs);
     } catch (error) {
       console.error('Error fetching sync logs:', error);
@@ -47,12 +49,22 @@ const SyncHistory: React.FC = () => {
   const handleClearHistory = async () => {
     try {
       setIsClearing(true);
-      await syncLogsService.clearHistory();
-      toast({
-        title: 'Histórico limpo',
-        description: 'O histórico de sincronização foi limpo com sucesso.'
-      });
-      fetchLogs(); // Recarregar lista após limpar
+      console.log('Starting clear history operation');
+      
+      const result = await syncLogsService.clearHistory();
+      console.log('Clear history result:', result);
+      
+      if (result) {
+        toast({
+          title: 'Histórico limpo',
+          description: 'O histórico de sincronização foi limpo com sucesso.'
+        });
+        
+        // Recarregar lista após limpar
+        await fetchLogs();
+      } else {
+        throw new Error('Falha ao limpar histórico');
+      }
     } catch (error) {
       console.error('Error clearing sync history:', error);
       toast({
@@ -62,6 +74,7 @@ const SyncHistory: React.FC = () => {
       });
     } finally {
       setIsClearing(false);
+      setIsDialogOpen(false); // Close dialog after operation
     }
   };
   
@@ -70,6 +83,7 @@ const SyncHistory: React.FC = () => {
     // Limpar intervalo existente se houver
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
     
     // Verificar se há sincronizações ativas
@@ -77,21 +91,29 @@ const SyncHistory: React.FC = () => {
       ['processing', 'in_progress', 'queued', 'started', 'continues'].includes(log.status)
     );
     
+    console.log('Has active sync processes:', hasActiveSync);
+    
     // Só configurar novo intervalo se houver sincronizações ativas
     if (hasActiveSync) {
+      console.log('Setting up auto-refresh interval');
       intervalRef.current = window.setInterval(() => {
+        console.log('Auto-refreshing sync logs...');
         fetchLogs();
-      }, 10000); // Atualizar a cada 10 segundos, em vez de 5
+      }, 10000); // Atualizar a cada 10 segundos
     }
   };
   
   // Carregar logs iniciais e configurar atualizações
   useEffect(() => {
+    console.log('SyncHistory component mounted');
     fetchLogs();
+    
+    // Cleanup on unmount
     return () => {
-      // Limpar intervalo quando o componente for desmontado
+      console.log('SyncHistory component unmounting, clearing interval');
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
     };
   }, []);
@@ -100,6 +122,33 @@ const SyncHistory: React.FC = () => {
   useEffect(() => {
     startAutoRefresh();
   }, [logs]);
+  
+  // Verificar manualmente status de sincronizações ativas
+  useEffect(() => {
+    const checkActiveSyncs = async () => {
+      try {
+        const activeSyncs = await syncLogsService.getActiveSyncs();
+        console.log('Manual check for active syncs:', activeSyncs);
+        
+        if (activeSyncs.count > 0 && !intervalRef.current) {
+          console.log('Found active syncs, starting auto-refresh');
+          startAutoRefresh();
+        }
+      } catch (error) {
+        console.error('Error checking active syncs:', error);
+      }
+    };
+    
+    // Verificar a cada 30 segundos independentemente da condição anterior
+    const checkInterval = setInterval(checkActiveSyncs, 30000);
+    
+    // Verificar imediatamente na montagem
+    checkActiveSyncs();
+    
+    return () => {
+      clearInterval(checkInterval);
+    };
+  }, []);
   
   return (
     <Card>
@@ -120,13 +169,14 @@ const SyncHistory: React.FC = () => {
             <span className="ml-2 hidden sm:inline">Atualizar</span>
           </Button>
           
-          <AlertDialog>
+          <AlertDialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <AlertDialogTrigger asChild>
               <Button 
                 variant="outline" 
                 size="sm"
                 className="text-red-600 border-red-200 hover:bg-red-50"
                 disabled={isClearing || logs.length === 0}
+                onClick={() => setIsDialogOpen(true)}
               >
                 {isClearing ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -145,7 +195,7 @@ const SyncHistory: React.FC = () => {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogCancel onClick={() => setIsDialogOpen(false)}>Cancelar</AlertDialogCancel>
                 <AlertDialogAction 
                   onClick={handleClearHistory}
                   className="bg-red-600 hover:bg-red-700"

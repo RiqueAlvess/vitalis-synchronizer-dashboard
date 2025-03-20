@@ -251,18 +251,35 @@ export const syncLogsService = {
   // Clear completed/error sync history logs
   clearHistory: async (): Promise<boolean> => {
     try {
-      // Delete only logs that are completed, with error, or cancelled
-      // Do not delete logs that are in progress
+      console.log('Attempting to clear history');
+      
+      // First fetch active process IDs to avoid deleting them
+      const { data: activeProcesses, error: fetchError } = await supabase
+        .from('sync_logs')
+        .select('id')
+        .in('status', ['processing', 'in_progress', 'queued', 'started', 'continues']);
+      
+      if (fetchError) {
+        console.error('Error fetching active processes:', fetchError);
+        throw fetchError;
+      }
+      
+      // Only proceed with deletion if we successfully fetched active processes
+      const activeIds = activeProcesses?.map(item => item.id) || [];
+      console.log('Active process IDs (will be preserved):', activeIds);
+      
+      // Delete logs that have completed statuses and are not in the active list
       const { error } = await supabase
         .from('sync_logs')
         .delete()
         .in('status', ['completed', 'error', 'cancelled']);
-
+        
       if (error) {
         console.error('Error clearing sync history:', error);
         throw error;
       }
-
+      
+      console.log('History cleared successfully');
       return true;
     } catch (error) {
       console.error('Error in clearHistory service:', error);
@@ -273,9 +290,11 @@ export const syncLogsService = {
   // Get active sync processes
   getActiveSyncs: async (): Promise<{count: number, types: string[]}> => {
     try {
+      console.log('Checking for active sync processes...');
+      
       const { data, error } = await supabase
         .from('sync_logs')
-        .select('id, type')
+        .select('id, type, status')
         .in('status', ['processing', 'in_progress', 'queued', 'started', 'continues']);
 
       if (error) {
@@ -283,15 +302,22 @@ export const syncLogsService = {
         throw error;
       }
 
+      // Print debug info
+      console.log('Active sync processes data:', data);
+      
       // Extract unique types
       const types = [...new Set(data?.map(log => log.type) || [])];
+      const count = data?.length || 0;
+      
+      console.log(`Found ${count} active sync processes of types: ${types.join(', ')}`);
       
       return {
-        count: data?.length || 0,
+        count,
         types
       };
     } catch (error) {
       console.error('Error in getActiveSyncs service:', error);
+      // Don't throw, just return empty result
       return { count: 0, types: [] };
     }
   }

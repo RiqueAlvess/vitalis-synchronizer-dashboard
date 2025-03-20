@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,10 +20,13 @@ const Sync = () => {
   const [syncResult, setSyncResult] = useState<{type: string; success: boolean; message: string} | null>(null);
   const checkIntervalRef = useRef<number | null>(null);
   
-  // Verificar se há sincronizações ativas
-  const checkActiveSyncs = async () => {
+  // Verificar se há sincronizações ativas - implementação com debounce
+  const checkActiveSyncs = useCallback(async () => {
     try {
+      console.log('Checking active syncs...');
       const activeSyncs = await syncLogsService.getActiveSyncs();
+      console.log('Active syncs:', activeSyncs);
+      
       if (activeSyncs.count > 0) {
         setActiveSyncProcesses(activeSyncs);
       } else {
@@ -32,26 +35,30 @@ const Sync = () => {
     } catch (error) {
       console.error('Error checking active syncs:', error);
     }
-  };
+  }, []);
   
-  // Verificar sincronizações ativas ao carregar a página e a cada 10 segundos (aumentado de 5)
+  // Verificar sincronizações ativas ao carregar a página e periodicamente
   useEffect(() => {
+    console.log('Sync component mounted');
+    // Verificação imediata
     checkActiveSyncs();
     
     // Usar intervalo apenas se não houver outro já definido
     if (!checkIntervalRef.current) {
+      console.log('Setting up active sync check interval');
       checkIntervalRef.current = window.setInterval(() => {
         checkActiveSyncs();
-      }, 10000); // Aumentado de 5000 para 10000ms
+      }, 15000); // Verificar a cada 15 segundos
     }
     
     return () => {
+      console.log('Sync component unmounting, clearing interval');
       if (checkIntervalRef.current) {
         clearInterval(checkIntervalRef.current);
         checkIntervalRef.current = null;
       }
     };
-  }, []);
+  }, [checkActiveSyncs]);
   
   const handleSync = async (type: 'employee' | 'absenteeism') => {
     try {
@@ -80,6 +87,8 @@ const Sync = () => {
         description: 'A sincronização foi iniciada e pode levar alguns minutos.',
       });
       
+      console.log(`Starting ${type} sync...`);
+      
       // Usando explicitamente cada método para evitar erros de função
       let result;
       if (type === 'employee') {
@@ -92,6 +101,8 @@ const Sync = () => {
         throw new Error(`Tipo de sincronização não suportado: ${type}`);
       }
       
+      console.log(`Sync result:`, result);
+      
       setSyncResult({
         type,
         success: true,
@@ -103,8 +114,8 @@ const Sync = () => {
         description: `A sincronização de ${typeLabels[type]} foi iniciada com sucesso.`,
       });
       
-      // Atualizar lista de sincronizações ativas
-      checkActiveSyncs();
+      // Atualizar lista de sincronizações ativas após breve delay
+      setTimeout(() => checkActiveSyncs(), 1000);
       
     } catch (error) {
       console.error(`Error syncing ${type}:`, error);
