@@ -1,37 +1,35 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.31.0';
-import { corsHeaders } from '../_shared/cors.ts';
+import { corsHeaders, handleCorsPreflightRequest, createErrorResponse, createSuccessResponse } from '../_shared/cors.ts';
 
 // Get environment variables
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
 
-export const corsOptions = {
-  headers: {
-    ...corsHeaders(),
-    'Content-Type': 'application/json',
-  },
-};
-
 export async function activeHandler(req: Request): Promise<Response> {
   console.log('Active syncs endpoint called');
     
   // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders(req) });
-  }
+  const corsResponse = handleCorsPreflightRequest(req);
+  if (corsResponse) return corsResponse;
   
   try {
-    // Initialize the Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Initialize the Supabase client with timeout configuration
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: {
+        fetch: (url, options = {}) => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+          options.signal = controller.signal;
+          return fetch(url, options).finally(() => clearTimeout(timeoutId));
+        }
+      }
+    });
     
     // Authenticate the request
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ success: false, message: 'Missing authorization header' }),
-        { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-      );
+      return createErrorResponse('Missing authorization header', 401, null, req);
     }
     
     // Extract the token
@@ -42,57 +40,37 @@ export async function activeHandler(req: Request): Promise<Response> {
     
     if (authError || !user) {
       console.error('Authentication error:', authError);
-      return new Response(
-        JSON.stringify({ success: false, message: 'Authentication failed' }),
-        { status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-      );
+      return createErrorResponse('Authentication failed', 401, authError, req);
     }
     
     console.log('Authenticated as user:', user.email, `(${user.id})`);
     
-    // Fetch active sync logs - including statuses that may need attention
+    // Use more specific query with proper indexing for better performance
+    // Only select necessary columns to reduce payload size
     const { data: logs, error } = await supabase
       .from('sync_logs')
-      .select('*')
+      .select('id, type, status, message, started_at, updated_at, completed_at')
       .or('status.eq.in_progress,status.eq.queued,status.eq.started,status.eq.continues,status.eq.processing')
       .order('started_at', { ascending: false })
-      .limit(50);
+      .limit(20); // Reduced limit for faster response
     
     if (error) {
       console.error('Error fetching active syncs:', error);
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          message: 'Error fetching active syncs', 
-          error: error.message 
-        }),
-        { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-      );
+      return createErrorResponse('Error fetching active syncs', 500, error, req);
     }
     
     // Extract unique types from active syncs
     const types = [...new Set(logs.map(log => log.type))];
     
-    // Return the results
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        count: logs.length,
-        types,
-        logs
-      }),
-      { status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-    );
+    // Return the results with a more efficient payload
+    return createSuccessResponse({ 
+      count: logs.length,
+      types,
+      logs
+    }, 'Active syncs retrieved successfully', req);
     
   } catch (error) {
     console.error('Unexpected error in active syncs:', error);
-    return new Response(
-      JSON.stringify({ 
-        success: false, 
-        message: 'An unexpected error occurred', 
-        error: error.message 
-      }),
-      { status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
-    );
+    return createErrorResponse('An unexpected error occurred', 500, error, req);
   }
 }

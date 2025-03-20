@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Table,
@@ -26,6 +25,7 @@ const SyncLogsTable: React.FC<SyncLogsTableProps> = ({ onSync }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState<{ [key: string]: boolean }>({});
   const refreshIntervalRef = useRef<number | null>(null);
+  const lastActiveCountRef = useRef(0);
 
   const fetchLogs = async () => {
     try {
@@ -42,36 +42,75 @@ const SyncLogsTable: React.FC<SyncLogsTableProps> = ({ onSync }) => {
   useEffect(() => {
     fetchLogs();
     
-    // Limpar o intervalo atual se existir
-    if (refreshIntervalRef.current) {
-      clearInterval(refreshIntervalRef.current);
-      refreshIntervalRef.current = null;
-    }
+    const checkForActiveSyncs = async () => {
+      try {
+        const activeSync = await syncLogsService.getActiveSyncs();
+        const hasActiveSync = activeSync.count > 0;
+        
+        lastActiveCountRef.current = activeSync.count;
+        
+        if (refreshIntervalRef.current) {
+          clearInterval(refreshIntervalRef.current);
+          refreshIntervalRef.current = null;
+        }
+        
+        if (hasActiveSync) {
+          refreshIntervalRef.current = window.setInterval(() => {
+            fetchLogs();
+          }, 15000);
+        } else {
+          refreshIntervalRef.current = window.setInterval(() => {
+            fetchLogs();
+          }, 60000);
+        }
+      } catch (error) {
+        console.error('Error checking active syncs status:', error);
+      }
+    };
     
-    // Verificar se há sincronizações ativas
-    const hasActiveSync = logs.some(log => 
-      ['processing', 'in_progress', 'queued', 'started', 'continues'].includes(log.status)
-    );
-    
-    // Configurar intervalo apenas se houver sincronizações ativas
-    if (hasActiveSync) {
-      refreshIntervalRef.current = window.setInterval(() => {
-        fetchLogs();
-      }, 15000); // Atualizar a cada 15 segundos
-    }
+    checkForActiveSyncs();
     
     return () => {
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
       }
     };
+  }, []);
+
+  useEffect(() => {
+    const activeCount = logs.filter(log => 
+      ['processing', 'in_progress', 'queued', 'started', 'continues'].includes(log.status)
+    ).length;
+    
+    if (activeCount !== lastActiveCountRef.current) {
+      const hasActiveSync = activeCount > 0;
+      lastActiveCountRef.current = activeCount;
+      
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+      
+      if (hasActiveSync) {
+        console.log(`Setting up refresh interval for ${activeCount} active syncs`);
+        refreshIntervalRef.current = window.setInterval(() => {
+          fetchLogs();
+        }, 15000);
+      } else {
+        console.log('Setting up long refresh interval (no active syncs)');
+        refreshIntervalRef.current = window.setInterval(() => {
+          fetchLogs();
+        }, 60000);
+      }
+    }
   }, [logs]);
 
   const handleSync = async (type: 'employee' | 'absenteeism') => {
     try {
       setIsSyncing(prev => ({ ...prev, [type]: true }));
       await onSync(type);
-      await fetchLogs(); // Refresh logs after sync
+      await fetchLogs();
     } catch (error) {
       console.error(`Error syncing ${type}:`, error);
     } finally {

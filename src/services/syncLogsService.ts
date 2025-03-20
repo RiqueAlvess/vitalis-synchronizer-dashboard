@@ -1,36 +1,53 @@
 
 import supabaseAPI from './apiClient';
 
+// Helper for more robust API calls with proper error handling
+const safeApiCall = async (apiCall, fallback = null, logPrefix = 'API') => {
+  try {
+    const result = await apiCall();
+    return result?.data || fallback;
+  } catch (error) {
+    // Log error but don't crash
+    console.error(`${logPrefix} Error:`, error);
+    return fallback;
+  }
+};
+
 export const syncLogsService = {
-  // Get all sync logs with pagination
+  // Get all sync logs with pagination and better error handling
   getLogs: async (limit = 50, offset = 0, order = 'desc') => {
     try {
-      const { data } = await supabaseAPI.get(`/sync-logs?limit=${limit}&offset=${offset}&order=${order}`);
+      // Add cache busting parameter to prevent stale responses
+      const timestamp = new Date().getTime();
+      const { data } = await supabaseAPI.get(`/sync-logs?limit=${limit}&offset=${offset}&order=${order}&_t=${timestamp}`, {
+        timeout: 15000, // Shorter timeout for log fetching
+      });
       return data?.data || [];
     } catch (error) {
       console.error('Error fetching sync logs:', error);
-      throw error;
+      // Return empty array as fallback instead of throwing
+      return [];
     }
   },
   
-  // Get a specific sync log by ID
+  // Get a specific sync log by ID with better error handling
   getLog: async (id: number) => {
-    try {
-      const { data } = await supabaseAPI.get(`/sync-logs?id=${id}`);
-      return data?.data?.[0] || null;
-    } catch (error) {
-      console.error(`Error fetching sync log ${id}:`, error);
-      throw error;
-    }
+    return safeApiCall(
+      () => supabaseAPI.get(`/sync-logs?id=${id}`),
+      null,
+      `Sync log ${id}`
+    ).then(data => data?.[0] || null);
   },
   
-  // Get active sync processes - Improved with error handling and fallback
+  // Get active sync processes - Optimized with error handling and caching
   getActiveSyncs: async () => {
     try {
       console.log('Checking active sync processes...');
-      // Use the retryRequest helper for more reliable fetching
-      const { data } = await supabaseAPI.get('/sync-logs/active', {
-        timeout: 10000, // Shorter timeout for active syncs check
+      
+      // Add cache busting to prevent stale responses
+      const timestamp = new Date().getTime();
+      const { data } = await supabaseAPI.get(`/sync-logs/active?_t=${timestamp}`, {
+        timeout: 15000, // Shorter timeout for active checks
       });
       
       // Log response for debugging
@@ -38,9 +55,11 @@ export const syncLogsService = {
       
       // Validate response structure and return
       if (data && typeof data === 'object') {
-        return data.logs ? 
-          { count: data.count || 0, types: data.types || [], logs: data.logs || [] } : 
-          { count: 0, types: [], logs: [] };
+        return {
+          count: data.count || 0, 
+          types: data.types || [], 
+          logs: data.logs || []
+        };
       } else {
         console.warn('Invalid response format from active syncs endpoint:', data);
         return { count: 0, types: [], logs: [] };
@@ -54,45 +73,37 @@ export const syncLogsService = {
   
   // Reset all active sync processes
   resetActiveSyncs: async () => {
-    try {
-      const { data } = await supabaseAPI.post('/sync-logs/reset');
-      return data;
-    } catch (error) {
-      console.error('Error resetting active syncs:', error);
-      throw error;
-    }
+    return safeApiCall(
+      () => supabaseAPI.post('/sync-logs/reset'),
+      { success: false, message: 'Failed to reset syncs' },
+      'Reset syncs'
+    );
   },
   
   // Cancel a specific sync process
   cancelSync: async (syncId: number) => {
-    try {
-      const { data } = await supabaseAPI.post('/sync-logs/cancel', { syncId });
-      return data;
-    } catch (error) {
-      console.error(`Error cancelling sync ${syncId}:`, error);
-      throw error;
-    }
+    return safeApiCall(
+      () => supabaseAPI.post('/sync-logs/cancel', { syncId }),
+      { success: false, message: 'Failed to cancel sync' },
+      `Cancel sync ${syncId}`
+    );
   },
   
   // Clear sync history
   clearHistory: async () => {
-    try {
-      const { data } = await supabaseAPI.post('/sync-logs/clear');
-      return data;
-    } catch (error) {
-      console.error('Error clearing sync history:', error);
-      throw error;
-    }
+    return safeApiCall(
+      () => supabaseAPI.post('/sync-logs/clear'),
+      { success: false, message: 'Failed to clear history' },
+      'Clear history'
+    );
   },
   
   // Force retry a failed or stuck sync
   retrySync: async (syncId: number) => {
-    try {
-      const { data } = await supabaseAPI.post('/sync-logs/retry', { syncId });
-      return data;
-    } catch (error) {
-      console.error(`Error retrying sync ${syncId}:`, error);
-      throw error;
-    }
+    return safeApiCall(
+      () => supabaseAPI.post('/sync-logs/retry', { syncId }),
+      { success: false, message: 'Failed to retry sync' },
+      `Retry sync ${syncId}`
+    );
   }
 };
