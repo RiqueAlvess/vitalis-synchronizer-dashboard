@@ -38,7 +38,7 @@ const ensureUrlFormat = (url: string): string => {
 
 // Create base API instance
 const api = axios.create({
-  baseURL: SUPABASE_URL,
+  baseURL: 'https://rdrvashvfvjdtuuuqjio.supabase.co', // Fixed: replaced SUPABASE_URL with the actual URL
 });
 
 // Add authentication token to all requests
