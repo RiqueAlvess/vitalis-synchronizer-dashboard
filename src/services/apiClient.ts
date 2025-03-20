@@ -1,4 +1,3 @@
-
 import axios from 'axios';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -10,8 +9,8 @@ export const supabaseAPI = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  // Significantly increased timeout for large sync operations
-  timeout: 300000 // 5 minutes for large data processing
+  // Significantly increased timeout for large sync operations - 20 minutes
+  timeout: 1200000 // 20 minutes for large data processing
 });
 
 // Track if we're currently refreshing the token

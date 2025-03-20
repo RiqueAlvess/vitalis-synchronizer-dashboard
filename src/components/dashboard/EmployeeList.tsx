@@ -17,6 +17,7 @@ import apiService from '@/services/api';
 import { MockEmployeeData } from '@/types/dashboard';
 import { Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { retryRequest } from '@/services/apiClient';
 
 const EmployeeList = () => {
   const [employees, setEmployees] = useState<MockEmployeeData[]>([]);
@@ -30,8 +31,8 @@ const EmployeeList = () => {
   const loadEmployees = async () => {
     try {
       setIsLoading(true);
-      // Use the retryRequest helper for better reliability
-      const data = await apiService.retryRequest(
+      // Use the imported retryRequest helper for better reliability
+      const data = await retryRequest(
         () => apiService.employees.getAll(),
         3,  // 3 retries
         1000 // 1s initial delay
