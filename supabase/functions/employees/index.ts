@@ -33,6 +33,7 @@ Deno.serve(async (req) => {
     // Get the authorization header
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
+      console.error('Missing Authorization header in employees request');
       return new Response(
         JSON.stringify({ success: false, message: 'Missing authorization header' }),
         { 
@@ -44,6 +45,7 @@ Deno.serve(async (req) => {
     
     // Extract token (remove Bearer prefix if it exists)
     const token = authHeader.replace('Bearer ', '');
+    console.log(`Got token with length: ${token.length}`);
     
     // Initialize Supabase client
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -72,6 +74,8 @@ Deno.serve(async (req) => {
       );
     }
     
+    console.log(`Authenticated user: ${user.id}, email: ${user.email}`);
+    
     // Check if sync mode is requested - redirect to sync endpoint
     if (syncMode) {
       return new Response(
@@ -93,7 +97,7 @@ Deno.serve(async (req) => {
     const cachedData = employeeCache.get(cacheKey);
     
     if (!skipCache && cachedData && now - cachedData.timestamp < CACHE_TTL) {
-      console.log(`Returning cached employee data for user ${user.id}`);
+      console.log(`Returning cached employee data for user ${user.id}, found ${cachedData.data.length} records`);
       const paginatedData = cachedData.data.slice(offset, offset + limit);
       
       return new Response(
@@ -113,7 +117,7 @@ Deno.serve(async (req) => {
       );
     }
     
-    console.log(`Fetching employees for user ${user.id}`);
+    console.log(`Fetching employees for user ${user.id} from database`);
     
     // Fetch employees from the database with pagination
     const { data: employees, error: fetchError, count } = await supabase
@@ -152,10 +156,12 @@ Deno.serve(async (req) => {
       );
     }
     
+    console.log(`Found ${employees?.length || 0} employees (count: ${count || 0}) for user ${user.id}`);
+    
     // If this was a full fetch (offset 0), update the cache
     if (offset === 0) {
       // Only cache if we have a reasonable number of records (don't cache huge datasets)
-      if (count && count < 10000) {
+      if (count && count < 10000 && Array.isArray(employees)) {
         employeeCache.set(cacheKey, {
           data: employees,
           timestamp: now,
@@ -163,14 +169,14 @@ Deno.serve(async (req) => {
         });
         console.log(`Updated cache for user ${user.id} with ${employees.length} employees`);
       } else {
-        console.log(`Not caching data for user ${user.id} due to large dataset size (${count} records)`);
+        console.log(`Not caching data for user ${user.id} due to large dataset size (${count} records) or invalid data`);
       }
     }
     
     return new Response(
       JSON.stringify({
         success: true,
-        data: employees,
+        data: employees || [],
         count,
         offset,
         limit,
@@ -182,7 +188,7 @@ Deno.serve(async (req) => {
       }
     );
   } catch (error) {
-    console.error('Unexpected error:', error);
+    console.error('Unexpected error in employees endpoint:', error);
     return new Response(
       JSON.stringify({ success: false, message: 'Erro interno no servidor', error: error.message }),
       { 

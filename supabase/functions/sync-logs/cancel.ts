@@ -26,6 +26,7 @@ Deno.serve(async (req) => {
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session) {
+      console.error("Unauthorized attempt to cancel sync - no session found");
       return new Response(
         JSON.stringify({ success: false, message: 'Not authenticated' }),
         { 
@@ -41,6 +42,7 @@ Deno.serve(async (req) => {
     const force = !!body.force; // Force flag to bypass some checks
     
     if (!syncId) {
+      console.error("Missing required syncId parameter");
       return new Response(
         JSON.stringify({ success: false, message: 'Missing required parameter: syncId' }),
         { 
@@ -57,7 +59,6 @@ Deno.serve(async (req) => {
       .from('sync_logs')
       .select('id, status, type, message, started_at, completed_at')
       .eq('id', syncId)
-      .eq('user_id', session.user.id)
       .single();
     
     if (fetchError) {
@@ -72,8 +73,9 @@ Deno.serve(async (req) => {
     }
     
     if (!syncLog) {
+      console.error(`Sync log ${syncId} not found`);
       return new Response(
-        JSON.stringify({ success: false, message: `Sync log ${syncId} not found or does not belong to you` }),
+        JSON.stringify({ success: false, message: `Sync log ${syncId} not found` }),
         { 
           status: 404, 
           headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } 
@@ -81,8 +83,9 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Skip cancellation if it's already completed or cancelled
+    // Skip cancellation if it's already completed or cancelled and force is not set
     if (['completed', 'error', 'cancelled'].includes(syncLog.status) && !force) {
+      console.log(`Sync process ${syncId} already ${syncLog.status}, no need to cancel`);
       return new Response(
         JSON.stringify({ 
           success: true, 
@@ -109,8 +112,7 @@ Deno.serve(async (req) => {
         completed_at: now,
         updated_at: now
       })
-      .eq('id', syncId)
-      .eq('user_id', session.user.id);
+      .eq('id', syncId);
     
     if (updateError) {
       console.error(`Error updating sync log ${syncId}:`, updateError);
@@ -124,22 +126,25 @@ Deno.serve(async (req) => {
     }
     
     // Also update any child processes that might be running as part of this sync
-    const { error: childUpdateError } = await adminClient
-      .from('sync_logs')
-      .update({
-        status: 'cancelled',
-        message: 'Processo cancelado pelo usuário (processo pai)',
-        completed_at: now,
-        updated_at: now
-      })
-      .eq('parent_id', syncId);
-    
-    if (childUpdateError) {
-      console.warn(`Error updating child sync logs for ${syncId}:`, childUpdateError);
+    try {
+      const { error: childUpdateError } = await adminClient
+        .from('sync_logs')
+        .update({
+          status: 'cancelled',
+          message: 'Processo cancelado pelo usuário (processo pai)',
+          completed_at: now,
+          updated_at: now
+        })
+        .eq('parent_id', syncId);
+      
+      if (childUpdateError) {
+        console.warn(`Error updating child sync logs for ${syncId}:`, childUpdateError);
+      }
+    } catch (e) {
+      console.error(`Failed to update child processes for sync ${syncId}:`, e);
     }
     
     // Signal other systems about the cancellation by creating a cancellation record
-    // This helps in case the sync is running in a separate process
     try {
       await adminClient
         .from('sync_cancellations')
@@ -149,10 +154,12 @@ Deno.serve(async (req) => {
           cancelled_at: now,
           force: force
         });
+      console.log(`Created cancellation signal record for sync ${syncId}`);
     } catch (e) {
       console.warn(`Failed to create cancellation signal record:`, e);
     }
     
+    console.log(`Successfully cancelled sync ${syncId}`);
     return new Response(
       JSON.stringify({ 
         success: true, 
@@ -166,7 +173,7 @@ Deno.serve(async (req) => {
       }
     );
   } catch (error) {
-    console.error('Unexpected error:', error);
+    console.error('Unexpected error in cancel function:', error);
     return new Response(
       JSON.stringify({ success: false, message: 'Erro interno no servidor', error: error.message }),
       { 

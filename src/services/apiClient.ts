@@ -1,4 +1,3 @@
-
 import axios from 'axios';
 import { supabase, getCurrentToken } from '@/integrations/supabase/client';
 
@@ -62,9 +61,6 @@ supabaseAPI.interceptors.request.use(
           console.error('Failed to refresh token:', refreshError);
         }
       }
-      
-      // Remove the problematic header that's causing CORS issues
-      // config.headers['x-request-time'] = new Date().toISOString();
       
       // Prevent caching of API calls
       if (config.method?.toLowerCase() === 'get') {

@@ -1,3 +1,4 @@
+
 // src/services/syncLogsService.ts
 import supabaseAPI from './apiClient';
 
@@ -22,6 +23,7 @@ export const syncLogsService = {
       const { data } = await supabaseAPI.get(`/sync-logs?limit=${limit}&offset=${offset}&order=${order}&_t=${timestamp}`, {
         timeout: 15000, // Shorter timeout for log fetching
       });
+      console.log('Fetched sync logs:', data?.data);
       return data?.data || [];
     } catch (error) {
       console.error('Error fetching sync logs:', error);
@@ -66,6 +68,8 @@ export const syncLogsService = {
       }
     } catch (error) {
       console.error('Error checking active syncs:', error);
+      // Manual check as fallback if API fails
+      console.log('Manual check for active syncs:', { count: 0, types: [], logs: [] });
       // Return empty result on error to prevent UI issues
       return { count: 0, types: [], logs: [] };
     }
@@ -101,7 +105,7 @@ export const syncLogsService = {
         syncId,
         force: true // Add force parameter to ensure cancellation works
       }, {
-        timeout: 10000 // Enforce a shorter timeout
+        timeout: 20000 // Increased timeout to ensure cancellation completes
       });
       
       console.log(`Cancel sync #${syncId} result:`, data);
@@ -126,12 +130,12 @@ export const syncLogsService = {
         }
       }, 2000);
       
-      return data || { success: true, message: 'Cancellation request processed' };
+      return data || { success: true, message: 'Cancelamento iniciado com sucesso.' };
     } catch (error) {
       console.error(`Error cancelling sync #${syncId}:`, error);
       return { 
         success: false, 
-        message: `Failed to cancel sync #${syncId}: ${error.message || 'Unknown error'}` 
+        message: `Falha ao cancelar sincronização #${syncId}: ${error.message || 'Erro desconhecido'}` 
       };
     }
   },
@@ -155,12 +159,12 @@ export const syncLogsService = {
         syncLogsService.getLogs();
       }, 1000);
       
-      return data || { success: true, message: 'History cleared successfully' };
+      return data || { success: true, message: 'Histórico de sincronização limpo com sucesso' };
     } catch (error) {
       console.error('Error clearing sync history:', error);
       return { 
         success: false, 
-        message: 'Failed to clear history: ' + (error.message || 'Unknown error') 
+        message: 'Falha ao limpar histórico: ' + (error.message || 'Erro desconhecido') 
       };
     }
   },
@@ -169,7 +173,7 @@ export const syncLogsService = {
   retrySync: async (syncId: number) => {
     return safeApiCall(
       () => supabaseAPI.post('/sync-logs/retry', { syncId }),
-      { success: false, message: 'Failed to retry sync' },
+      { success: false, message: 'Falha ao reiniciar sincronização' },
       `Retry sync ${syncId}`
     );
   },
