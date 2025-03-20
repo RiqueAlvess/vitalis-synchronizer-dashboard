@@ -15,15 +15,14 @@ const Sync = () => {
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [syncResult, setSyncResult] = useState<{type: string; success: boolean; message: string} | null>(null);
   
-  const handleSync = async (type: 'employee' | 'absenteeism' | 'company') => {
+  const handleSync = async (type: 'employee' | 'absenteeism') => {
     try {
       setSyncInProgress(true);
       setSyncResult(null);
       
       const typeLabels = {
         employee: 'funcionários',
-        absenteeism: 'absenteísmo',
-        company: 'empresas'
+        absenteeism: 'absenteísmo'
       };
       
       toast({
@@ -79,10 +78,9 @@ const Sync = () => {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="employee" className="w-full">
-              <TabsList className="grid grid-cols-3 mb-4">
+              <TabsList className="grid grid-cols-2 mb-4">
                 <TabsTrigger value="employee">Funcionários</TabsTrigger>
                 <TabsTrigger value="absenteeism">Absenteísmo</TabsTrigger>
-                <TabsTrigger value="company">Empresas</TabsTrigger>
               </TabsList>
               
               <TabsContent value="employee" className="space-y-4">
@@ -126,29 +124,6 @@ const Sync = () => {
                     <>
                       <RefreshCw className="mr-2 h-4 w-4" />
                       Sincronizar Absenteísmo
-                    </>
-                  )}
-                </Button>
-              </TabsContent>
-              
-              <TabsContent value="company" className="space-y-4">
-                <div className="text-sm text-muted-foreground">
-                  Sincroniza os dados de empresas registradas no sistema SOC, incluindo informações cadastrais e filiais.
-                </div>
-                <Button 
-                  onClick={() => handleSync('company')} 
-                  disabled={syncInProgress}
-                  className="w-full"
-                >
-                  {syncInProgress ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Sincronizando...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      Sincronizar Empresas
                     </>
                   )}
                 </Button>
