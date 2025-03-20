@@ -66,6 +66,14 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Validate type - only allow employee and absenteeism
+    if (type !== 'employee' && type !== 'absenteeism') {
+      return new Response(
+        JSON.stringify({ success: false, message: 'Invalid type. Only "employee" and "absenteeism" are supported.' }),
+        { status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } }
+      );
+    }
+
     console.log(`Sync request for type ${type} with params:`, params);
 
     // Create a sync log entry
@@ -197,9 +205,6 @@ async function processApiData(apiUrl, type, syncId, userId, supabase) {
       let processResult;
       
       switch (type) {
-        case 'company':
-          processResult = await processCompanyBatch(supabase, batch, userId);
-          break;
         case 'employee':
           processResult = await processEmployeeBatch(supabase, batch, userId);
           break;
@@ -254,46 +259,6 @@ async function processApiData(apiUrl, type, syncId, userId, supabase) {
       })
       .eq('id', syncId);
   }
-}
-
-// Function to process companies
-async function processCompanyBatch(supabase, data, userId) {
-  console.log(`Processing batch of ${data.length} companies`);
-  
-  const companyData = data.map(item => ({
-    soc_code: item.CODIGO,
-    short_name: item.NOMEABREVIADO,
-    corporate_name: item.RAZAOSOCIAL,
-    initial_corporate_name: item.RAZAOSOCIALINICIAL,
-    address: item.ENDERECO,
-    address_number: item.NUMEROENDERECO,
-    address_complement: item.COMPLEMENTOENDERECO,
-    neighborhood: item.BAIRRO,
-    city: item.CIDADE,
-    zip_code: item.CEP,
-    state: item.UF,
-    tax_id: item.CNPJ,
-    state_registration: item.INSCRICAOESTADUAL,
-    municipal_registration: item.INSCRICAOMUNICIPAL,
-    is_active: item.ATIVO === 1,
-    integration_client_code: item.CODIGOCLIENTEINTEGRACAO,
-    client_code: item['CÓD. CLIENTE'],
-    user_id: userId
-  }));
-  
-  const { data: result, error } = await supabase
-    .from('companies')
-    .upsert(companyData, {
-      onConflict: 'soc_code, user_id',
-      ignoreDuplicates: false
-    });
-  
-  if (error) {
-    console.error('Error upserting companies:', error);
-    throw error;
-  }
-  
-  return { count: companyData.length };
 }
 
 // Function to process employees

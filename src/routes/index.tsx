@@ -11,7 +11,6 @@ import ApiConfig from '@/pages/ApiConfig';
 import Settings from '@/pages/Settings';
 import Sync from '@/pages/Sync';
 import Employees from '@/pages/Employees';
-import Companies from '@/pages/Companies';
 
 // Placeholder components for the routes that are not yet implemented
 const Absenteeism = () => <div className="p-6"><h1 className="text-2xl font-bold">Absenteísmo (Recurso Premium)</h1></div>;
@@ -54,10 +53,6 @@ export const router = createBrowserRouter([
   {
     path: '/employees',
     element: <ProtectedRoute><Employees /></ProtectedRoute>
-  },
-  {
-    path: '/companies',
-    element: <ProtectedRoute><Companies /></ProtectedRoute>
   },
   {
     path: '/absenteeism',

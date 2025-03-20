@@ -10,7 +10,6 @@ import {
   UserRound,
   RefreshCw,
   Activity,
-  Building,
   AlertCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -100,12 +99,6 @@ const Sidebar = () => {
             title="Indicadores"
             to="/indicators"
             isPro={true}
-          />
-          
-          <SidebarItem
-            icon={<Building className="h-4 w-4" />}
-            title="Empresas"
-            to="/companies"
           />
           
           <SidebarItem
