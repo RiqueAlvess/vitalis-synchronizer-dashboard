@@ -156,7 +156,7 @@ Deno.serve(async (req) => {
           })
           .eq('id', syncId);
         
-        // Processar em lotes menores para evitar problemas de tamanho de request
+        // Process in smaller batches to avoid request size issues
         const BATCH_SIZE = 50;
         let processedCount = 0;
         let totalBatches = Math.ceil(jsonData.length / BATCH_SIZE);
@@ -193,7 +193,7 @@ Deno.serve(async (req) => {
             // Continue with next batch even if one fails
           }
           
-          // Pequeno intervalo entre lotes para evitar sobrecarga
+          // Small delay between batches to avoid overload
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         
@@ -311,6 +311,7 @@ async function processEmployeeBatch(supabase, data, userId) {
     user_id: userId
   }));
   
+  // Use upsert with the newly added constraint
   const { data: result, error } = await supabase
     .from('employees')
     .upsert(employeeData, {
@@ -326,7 +327,7 @@ async function processEmployeeBatch(supabase, data, userId) {
   return { count: employeeData.length };
 }
 
-// Function to process absenteeism batches
+// Function to process absenteeism batches - Updated to use insert instead of upsert
 async function processAbsenteeismBatch(supabase, data, userId) {
   console.log(`Processing batch of ${data.length} absenteeism records`);
   
@@ -350,6 +351,7 @@ async function processAbsenteeismBatch(supabase, data, userId) {
     user_id: userId
   }));
   
+  // Use insert instead of upsert for absenteeism records
   const { data: result, error } = await supabase
     .from('absenteeism')
     .insert(absenteeismData);

@@ -250,7 +250,7 @@ async function processCompanyBatch(supabase, data, userId) {
   const { data: result, error } = await supabase
     .from('companies')
     .upsert(companyData, {
-      onConflict: 'soc_code, user_id',
+      onConflict: 'soc_code, user_id', // Updated to match the new constraint
       ignoreDuplicates: false
     });
   
@@ -307,7 +307,7 @@ async function processEmployeeBatch(supabase, data, userId) {
     is_disabled: item.DEFICIENTE === 1,
     disability_description: item.DEFICIENCIA,
     mother_name: item.NM_MAE_FUNCIONARIO,
-    last_update_date: item.DATAULTALTERACAO ? new Date(item.DATAULTALTERACAO) : null,
+    last_update_date: item.DATAULTERACAO ? new Date(item.DATAULTERACAO) : null,
     hr_registration: item.MATRICULARH,
     skin_color: item.COR,
     education: item.ESCOLARIDADE,
@@ -327,7 +327,7 @@ async function processEmployeeBatch(supabase, data, userId) {
   const { data: result, error } = await supabase
     .from('employees')
     .upsert(employeeData, {
-      onConflict: 'soc_code, user_id',
+      onConflict: 'soc_code, user_id', // Updated to match the new constraint
       ignoreDuplicates: false
     });
   
@@ -339,7 +339,7 @@ async function processEmployeeBatch(supabase, data, userId) {
   return { count: employeeData.length };
 }
 
-// Function to process absenteeism
+// Function to process absenteeism - Updated to use insert instead of upsert
 async function processAbsenteeismBatch(supabase, data, userId) {
   console.log(`Processing batch of ${data.length} absenteeism records`);
   
@@ -363,6 +363,7 @@ async function processAbsenteeismBatch(supabase, data, userId) {
     user_id: userId
   }));
   
+  // Use insert instead of upsert for absenteeism records
   const { data: result, error } = await supabase
     .from('absenteeism')
     .insert(absenteeismData);
