@@ -40,7 +40,7 @@ const Dashboard = () => {
         console.log("Force ending loading state after timeout");
         setIsLoading(false);
       }
-    }, 3000);
+    }, 2000); // Reduced from 3000 to 2000ms for faster feedback
     
     return () => clearTimeout(timeout);
   }, [isAuthenticated, getSettings, user]);

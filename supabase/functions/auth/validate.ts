@@ -43,34 +43,45 @@ Deno.serve(async (req) => {
       }
     });
     
-    // Verify token with admin client
-    const { data: { user }, error } = await adminClient.auth.getUser(token);
-    
-    if (error || !user) {
+    try {
+      // Verify token with admin client
+      const { data: { user }, error } = await adminClient.auth.getUser(token);
+      
+      if (error || !user) {
+        return syncErrorResponse(
+          req,
+          'Invalid authentication token',
+          401,
+          error?.message || 'User not found',
+          'auth/unauthorized'
+        );
+      }
+      
+      return new Response(
+        JSON.stringify({
+          success: true,
+          user: {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            created_at: user.created_at
+          }
+        }),
+        { 
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+          status: 200
+        }
+      );
+    } catch (verifyError) {
+      console.error('Error verifying token:', verifyError);
       return syncErrorResponse(
         req,
         'Invalid authentication token',
         401,
-        error?.message || 'User not found',
+        'Auth session missing!',
         'auth/unauthorized'
       );
     }
-    
-    return new Response(
-      JSON.stringify({
-        success: true,
-        user: {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          created_at: user.created_at
-        }
-      }),
-      { 
-        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
-        status: 200
-      }
-    );
   } catch (error) {
     console.error('Unexpected error in auth validation:', error);
     return syncErrorResponse(
