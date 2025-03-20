@@ -655,6 +655,87 @@ async function scheduleContinuation(
       })
       .eq('id', syncId);
     
+    // Attempt to immediately create a continuation sync
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Get the original request parameters
+        const { data: originalSync } = await supabase
+          .from('sync_logs')
+          .select('type, additional_info')
+          .eq('id', syncId)
+          .single();
+          
+        if (originalSync) {
+          // Create a new sync request with continuation data
+          const { data: newSync, error: newSyncError } = await supabase
+            .from('sync_logs')
+            .insert({
+              type: originalSync.type,
+              status: 'pending',
+              message: `Continuação da sincronização #${syncId} a partir do registro ${recordsProcessed}/${totalRecords}`,
+              user_id: user.id,
+              parent_id: syncId,
+              batch: currentBatch,
+              total_batches: Math.ceil(totalRecords / 50), // Usando batchSize de 50
+              processed_records: recordsProcessed,
+              total_records: totalRecords,
+              started_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+            
+          if (newSyncError) {
+            console.error(`Error creating continuation sync:`, newSyncError);
+          } else if (newSync) {
+            console.log(`Created continuation sync #${newSync.id} for sync #${syncId}`);
+            
+            // Make a request to the sync endpoint with the continuation data
+            const fetchUrl = `${supabase.supabaseUrl}/functions/v1/sync-soc-data`;
+            
+            const fetchOptions = {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${supabase.auth.token || ''}`
+              },
+              body: JSON.stringify({
+                type: originalSync.type,
+                syncId: newSync.id,
+                resumeFromBatch: currentBatch,
+                resumeFromRecord: recordsProcessed,
+                parallel: true, // Enable parallel processing
+                batchSize: 50,  // Smaller batch size
+                maxConcurrent: 3
+              })
+            };
+            
+            // Fire and forget - we don't need to await this
+            fetch(fetchUrl, fetchOptions)
+              .then(response => {
+                if (!response.ok) {
+                  console.error(`Error response from continuation request: ${response.status}`);
+                  return response.text().then(text => {
+                    throw new Error(`Status ${response.status}: ${text}`);
+                  });
+                }
+                return response.json();
+              })
+              .then(data => {
+                console.log(`Continuation request successful:`, data);
+              })
+              .catch(error => {
+                console.error(`Error sending continuation request:`, error);
+              });
+          }
+        }
+      }
+    } catch (continuationError) {
+      console.error(`Error trying to auto-continue sync:`, continuationError);
+      // We'll still mark the original sync as needs_continuation so the user can manually retry
+    }
+    
     console.log(`Scheduled continuation for sync ${syncId}`);
     activeSyncs.delete(syncId);
     return true;
