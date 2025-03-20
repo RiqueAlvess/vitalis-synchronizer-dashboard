@@ -14,12 +14,16 @@ const Login = () => {
 
   // Effect to redirect if already authenticated
   useEffect(() => {
-    if (isAuthenticated && !isLoading) {
+    // If the user is authenticated and not in loading state, redirect to dashboard
+    if (isAuthenticated) {
+      console.log('User is already authenticated, redirecting to dashboard');
       navigate('/dashboard', { replace: true });
+      return;
     }
     
     // Set a timeout to prevent infinite loading
     const timeoutId = setTimeout(() => {
+      console.log('Authentication check timeout triggered in Login page');
       setCheckTimeout(true);
     }, 3000);
     

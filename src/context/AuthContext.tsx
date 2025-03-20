@@ -1,6 +1,5 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from '@/components/ui/use-toast';
 import { authService } from '@/services/authService';
 import { AuthState, AuthContextValue, User } from '@/types/auth';
@@ -20,27 +19,34 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<AuthState>(initialState);
   const navigate = useNavigate();
+  const location = useLocation();
   
   // Effect to check authentication on mount
   useEffect(() => {
+    let isMounted = true;
+    
     const checkAuth = async () => {
-      // If we already have a stored session, set authenticated immediately to prevent flicker
-      const hasSession = hasStoredSession();
-      if (hasSession) {
-        setState(prev => ({ ...prev, isAuthenticated: true }));
-      }
-      
       try {
+        // First check if we have a session in storage to prevent flicker
+        const hasSession = hasStoredSession();
+        if (hasSession && isMounted) {
+          console.log("Found session in storage, setting authenticated state");
+          setState(prev => ({ ...prev, isAuthenticated: true }));
+        }
+        
+        // Then verify with the actual session data
         const userData = await authService.getCurrentUser();
         
-        if (userData) {
+        if (userData && isMounted) {
+          console.log("User authenticated:", userData.email);
           setState({
             user: userData,
             isLoading: false,
             isAuthenticated: true,
             error: null
           });
-        } else {
+        } else if (isMounted) {
+          console.log("No authenticated user found");
           setState({
             user: null,
             isLoading: false,
@@ -50,12 +56,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (err) {
         console.error('Auth check failed:', err);
-        setState({
-          user: null,
-          isLoading: false,
-          isAuthenticated: false,
-          error: err instanceof Error ? err.message : 'Error checking authentication'
-        });
+        if (isMounted) {
+          setState({
+            user: null,
+            isLoading: false,
+            isAuthenticated: false,
+            error: err instanceof Error ? err.message : 'Error checking authentication'
+          });
+        }
       }
     };
     
@@ -64,25 +72,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       async (event, session) => {
         console.log('Auth state changed:', event, session ? 'Session exists' : 'No session');
         
-        if (event === 'SIGNED_IN' && session) {
+        if (event === 'SIGNED_IN' && session && isMounted) {
           try {
             const userData = await authService.getCurrentUser();
-            setState({
-              user: userData,
-              isLoading: false,
-              isAuthenticated: true,
-              error: null
-            });
+            if (isMounted) {
+              setState({
+                user: userData,
+                isLoading: false,
+                isAuthenticated: true,
+                error: null
+              });
+              
+              // Redirect to intended page or dashboard if on login/register
+              if (['/login', '/register'].includes(location.pathname)) {
+                const intended = location.state?.from || '/dashboard';
+                navigate(intended, { replace: true });
+              }
+            }
           } catch (error) {
             console.error('Error getting user data after sign in:', error);
           }
-        } else if (event === 'SIGNED_OUT') {
+        } else if (event === 'SIGNED_OUT' && isMounted) {
           setState({
             user: null,
             isLoading: false,
             isAuthenticated: false,
             error: null
           });
+          
+          // Redirect to login if on protected page
+          if (!['/login', '/register', '/'].includes(location.pathname)) {
+            navigate('/login', { replace: true });
+          }
         }
       }
     );
@@ -91,9 +112,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
     
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [navigate, location]);
   
   // Authentication actions
   const login = async (email: string, password: string): Promise<User> => {

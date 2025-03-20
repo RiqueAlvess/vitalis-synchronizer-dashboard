@@ -20,14 +20,21 @@ const LoginForm = () => {
   const [lastAttemptTime, setLastAttemptTime] = useState(0);
   const navigate = useNavigate();
 
-  // Redirecionar se já estiver autenticado
+  // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      console.log("Usuário já autenticado, redirecionando para dashboard");
+      console.log("LoginForm: User is authenticated, redirecting to dashboard");
       navigate('/dashboard', { replace: true });
     }
   }, [isAuthenticated, navigate]);
 
+  // Reset submission state if global loading state changes
+  useEffect(() => {
+    if (!isLoading && isSubmitting) {
+      setIsSubmitting(false);
+    }
+  }, [isLoading, isSubmitting]);
+  
   const toggleShowPassword = () => setShowPassword(!showPassword);
 
   const validate = () => {
@@ -54,7 +61,7 @@ const LoginForm = () => {
       return;
     }
     
-    // Prevenir múltiplas tentativas muito próximas
+    // Prevent multiple attempts in quick succession
     const now = Date.now();
     if (now - lastAttemptTime < 2000) {
       toast({
@@ -72,17 +79,16 @@ const LoginForm = () => {
       
       console.log(`Tentando fazer login com email: ${email}`);
       await login(email, password);
-      // Login bem sucedido, a navegação acontece no contexto de autenticação
+      // Login successful, navigation happens in auth context
     } catch (error) {
       console.error("Erro capturado no formulário de login:", error);
-      // O erro já é tratado no AuthContext
-    } finally {
-      setIsSubmitting(false);
+      setIsSubmitting(false); // Make sure to reset on error
+      // Error is already handled in AuthContext
     }
   };
 
   const handleDemoLogin = async () => {
-    // Prevenir múltiplas tentativas muito próximas
+    // Prevent multiple attempts in quick succession
     const now = Date.now();
     if (now - lastAttemptTime < 2000) {
       toast({
@@ -103,15 +109,14 @@ const LoginForm = () => {
       
       console.log("Tentando fazer login com conta demo");
       await login('demo@example.com', 'demo123');
-      // Login bem sucedido, a navegação acontece no contexto de autenticação
+      // Login successful, navigation happens in auth context
     } catch (error) {
       console.error("Erro ao fazer login com conta demo:", error);
-    } finally {
-      setIsSubmitting(false);
+      setIsSubmitting(false); // Make sure to reset on error
     }
   };
 
-  // Adicionar atraso para evitar várias tentativas muito rápido
+  // Add delay to prevent too many attempts in quick succession
   const isButtonDisabled = isSubmitting || isLoading || loginAttempts > 5;
 
   return (
@@ -189,7 +194,7 @@ const LoginForm = () => {
         ) : "Entrar"}
       </Button>
       
-      {/* Aviso de limite de tentativas */}
+      {/* Warning about login attempt limit */}
       {loginAttempts > 5 && (
         <p className="text-sm text-amber-600 text-center">
           Muitas tentativas de login. Por favor, aguarde um momento antes de tentar novamente.

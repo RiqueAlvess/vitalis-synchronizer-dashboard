@@ -15,31 +15,31 @@ const PublicRoute: React.FC<PublicRouteProps> = ({ children }) => {
   const location = useLocation();
 
   useEffect(() => {
+    // First, check if the user is already authenticated
+    if (isAuthenticated) {
+      console.log('PublicRoute: User is authenticated, redirecting to dashboard');
+      const intended = location.state?.from || '/dashboard';
+      navigate(intended, { replace: true });
+      return;
+    }
+    
     // Set a timeout to prevent infinite loading
     const timeoutId = setTimeout(() => {
-      console.log('Public route authentication check timeout triggered');
+      console.log('PublicRoute: Authentication check timeout triggered');
       setCheckDone(true);
     }, 3000);
 
-    // If authentication check is complete, handle redirection
-    if (!isLoading) {
+    // When auth check completes and we know user isn't authenticated, render the page
+    if (!isLoading && !isAuthenticated) {
       clearTimeout(timeoutId);
       setCheckDone(true);
-      
-      // If the user is authenticated and trying to access a public route like login,
-      // redirect to the dashboard
-      if (isAuthenticated) {
-        console.log('Authenticated user trying to access public route:', location.pathname);
-        const intended = location.state?.from || '/dashboard';
-        navigate(intended, { replace: true });
-      }
     }
 
     return () => clearTimeout(timeoutId);
   }, [isAuthenticated, isLoading, navigate, location]);
 
-  // Show loading state only during initial check and not for too long
-  if (isLoading && !checkDone) {
+  // Show loading state only during initial check and not indefinitely
+  if ((isLoading || isAuthenticated) && !checkDone) {
     return (
       <div className="flex flex-col items-center justify-center h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-vitalis-600 mb-4" />
@@ -48,7 +48,8 @@ const PublicRoute: React.FC<PublicRouteProps> = ({ children }) => {
     );
   }
 
-  // Render children if not authenticated or if check has timed out
+  // Render children only if not authenticated or check is done
+  // This allows the page to show after timeout even if auth state is uncertain
   return (!isAuthenticated || checkDone) ? <>{children}</> : null;
 };
 
