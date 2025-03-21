@@ -1,381 +1,407 @@
+
 import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { useApiConfig } from '@/hooks/use-api-config';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
-import apiService, { AbsenteeismApiConfig as AbsenteeismApiConfigType } from '@/services/api';
-import { DatePicker } from '@/components/ui/date-picker';
-import { format } from 'date-fns';
-import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { localStorageService } from '@/services/localStorageService';
-import PreviewModeIndicator from '@/components/ui-custom/PreviewModeIndicator';
-import { supabase } from '@/integrations/supabase/client';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Loader2, CheckCircle, AlertCircle, Calendar, AlertTriangle } from 'lucide-react';
+import { format, addDays, differenceInDays, parse, isValid } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+
+// Função para formatar data no formato dd/mm/aaaa
+const formatDateString = (date: Date | null): string => {
+  if (!date) return '';
+  return format(date, 'dd/MM/yyyy');
+};
+
+// Função para converter string dd/mm/aaaa para objeto Date
+const parseDate = (dateString: string): Date | null => {
+  if (!dateString) return null;
+  // Tenta fazer o parse da data
+  const parsedDate = parse(dateString, 'dd/MM/yyyy', new Date());
+  return isValid(parsedDate) ? parsedDate : null;
+};
+
+// Função para validar o formato da data
+const isValidDateFormat = (dateString: string): boolean => {
+  if (!dateString) return true; // Vazio é permitido
+  const regex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+  if (!regex.test(dateString)) return false;
+  
+  const parsedDate = parseDate(dateString);
+  return parsedDate !== null;
+};
 
 const AbsenteeismApiConfig = () => {
+  const { config, isLoading, saveConfig, testConnection } = useApiConfig('absenteeism');
   const { toast } = useToast();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [isLoading, setIsLoading] = useState(false);
+  
+  // Estado local para os campos do formulário
+  const [empresa, setEmpresa] = useState('');
+  const [codigo, setCodigo] = useState('');
+  const [chave, setChave] = useState('');
+  const [empresaTrabalho, setEmpresaTrabalho] = useState('');
+  const [dataInicio, setDataInicio] = useState('');
+  const [dataFim, setDataFim] = useState('');
+  
+  // Estado para controlar o teste de conexão
   const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{success?: boolean; message?: string} | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  
+  // Estado para controlar validação das datas
+  const [dataInicioError, setDataInicioError] = useState('');
+  const [dataFimError, setDataFimError] = useState('');
+  const [intervalError, setIntervalError] = useState('');
 
-  const initialConfig: AbsenteeismApiConfigType = {
-    type: 'absenteeism',
-    empresa: '',
-    codigo: '',
-    chave: '',
-    tipoSaida: 'json',
-    empresaTrabalho: '',
-    dataInicio: '',
-    dataFim: '',
-    isConfigured: false
-  };
-
-  const [config, setConfig] = useState<AbsenteeismApiConfigType>(initialConfig);
-  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
-  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
-
+  // Carregar configuração quando o componente montar
   useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.warn('Sem sessão válida no componente');
-        toast({
-          variant: 'destructive',
-          title: 'Autenticação necessária',
-          description: 'Faça login para acessar esta funcionalidade'
-        });
-        navigate('/login', { state: { from: location.pathname } });
-      }
-    };
+    if (config) {
+      setEmpresa(config.empresa || '');
+      setCodigo(config.codigo || '');
+      setChave(config.chave || '');
+      setEmpresaTrabalho(config.empresaTrabalho || '');
+      setDataInicio(config.dataInicio || '');
+      setDataFim(config.dataFim || '');
+    }
+  }, [config]);
+
+  // Validar datas quando mudam
+  useEffect(() => {
+    validateDates();
+  }, [dataInicio, dataFim]);
+
+  // Função para validar as datas
+  const validateDates = () => {
+    // Resetar erros
+    setDataInicioError('');
+    setDataFimError('');
+    setIntervalError('');
     
-    checkSession();
-  }, []);
-
-  useEffect(() => {
-    const loadConfig = async () => {
-      try {
-        setIsLoading(true);
-        const savedConfig = await apiService.getApiConfig('absenteeism');
-        if (savedConfig) {
-          const typedConfig = savedConfig as AbsenteeismApiConfigType;
-          setConfig({
-            ...typedConfig,
-            tipoSaida: 'json',
-            isConfigured: !!typedConfig.empresa && !!typedConfig.codigo && !!typedConfig.chave
-          });
-          
-          if (typedConfig.dataInicio) {
-            try {
-              setStartDate(new Date(typedConfig.dataInicio));
-            } catch (e) {
-              console.error('Invalid start date format:', e);
-            }
-          }
-          
-          if (typedConfig.dataFim) {
-            try {
-              setEndDate(new Date(typedConfig.dataFim));
-            } catch (e) {
-              console.error('Invalid end date format:', e);
-            }
-          }
+    // Validar formato da data de início
+    if (dataInicio && !isValidDateFormat(dataInicio)) {
+      setDataInicioError('Data inválida. Use o formato dd/mm/aaaa.');
+      return false;
+    }
+    
+    // Validar formato da data de fim
+    if (dataFim && !isValidDateFormat(dataFim)) {
+      setDataFimError('Data inválida. Use o formato dd/mm/aaaa.');
+      return false;
+    }
+    
+    // Se ambas as datas estão preenchidas, validar o intervalo
+    if (dataInicio && dataFim) {
+      const inicio = parseDate(dataInicio);
+      const fim = parseDate(dataFim);
+      
+      if (inicio && fim) {
+        if (inicio > fim) {
+          setIntervalError('A data inicial não pode ser posterior à data final.');
+          return false;
         }
-      } catch (error) {
-        console.error('Error loading absenteeism API config:', error);
-        toast({
-          variant: 'destructive',
-          title: 'Erro',
-          description: 'Não foi possível carregar a configuração da API de absenteísmo.'
-        });
-      } finally {
-        setIsLoading(false);
+        
+        const days = differenceInDays(fim, inicio);
+        if (days > 30) {
+          setIntervalError('O intervalo entre as datas não pode exceder 30 dias.');
+          return false;
+        }
       }
-    };
-
-    loadConfig();
-  }, [toast]);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setConfig(prev => ({ ...prev, [name]: value }));
-    if (testResult) {
-      setTestResult(null);
     }
+    
+    return true;
   };
 
-  const handleStartDateChange = (date: Date | undefined) => {
-    setStartDate(date);
-    if (date) {
-      setConfig(prev => ({ ...prev, dataInicio: format(date, 'yyyy-MM-dd') }));
-    } else {
-      setConfig(prev => ({ ...prev, dataInicio: '' }));
-    }
-  };
-
-  const handleEndDateChange = (date: Date | undefined) => {
-    setEndDate(date);
-    if (date) {
-      setConfig(prev => ({ ...prev, dataFim: format(date, 'yyyy-MM-dd') }));
-    } else {
-      setConfig(prev => ({ ...prev, dataFim: '' }));
-    }
-  };
-
+  // Função para salvar a configuração
   const handleSave = async () => {
+    if (!empresa || !codigo || !chave) {
+      toast({
+        variant: 'destructive',
+        title: 'Campos obrigatórios',
+        description: 'Empresa, Código e Chave são campos obrigatórios.'
+      });
+      return;
+    }
+    
+    if (!validateDates()) {
+      toast({
+        variant: 'destructive',
+        title: 'Datas inválidas',
+        description: 'Verifique os erros nas datas antes de salvar.'
+      });
+      return;
+    }
+    
     try {
       setIsSaving(true);
       
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) {
-        console.error("Sessão não encontrada antes de salvar, forçando login");
-        toast({
-          variant: 'destructive',
-          title: 'Erro de autenticação',
-          description: 'Sua sessão expirou. Redirecionando para login...',
-        });
-        
-        setTimeout(() => {
-          navigate('/login', { state: { from: '/settings' } });
-        }, 2000);
-        return;
-      }
-      
-      console.log("Sessão válida encontrada, token:", 
-                data.session.access_token?.substring(0, 10) + "...");
-      
-      const configToSave: AbsenteeismApiConfigType = {
+      const configData = {
         type: 'absenteeism',
-        empresa: config.empresa,
-        codigo: config.codigo,
-        chave: config.chave,
+        empresa,
+        codigo,
+        chave,
         tipoSaida: 'json',
-        empresaTrabalho: config.empresaTrabalho,
-        dataInicio: config.dataInicio,
-        dataFim: config.dataFim,
-        isConfigured: true
+        empresaTrabalho,
+        dataInicio,
+        dataFim
       };
       
-      const result = await apiService.saveApiConfig(configToSave);
-      
-      if (!result) {
-        throw new Error('Falha ao salvar configurações');
-      }
+      await saveConfig(configData);
       
       toast({
         title: 'Configuração salva',
         description: 'Configuração da API de absenteísmo salva com sucesso.'
       });
-      
-      const savedConfig = await apiService.getApiConfig('absenteeism');
-      if (savedConfig) {
-        setConfig(savedConfig as AbsenteeismApiConfigType);
-      }
     } catch (error) {
-      console.error('Error saving absenteeism API config:', error);
-      
-      if (error.message?.includes('Not authenticated') || 
-          error.response?.status === 401) {
-        toast({
-          variant: 'destructive',
-          title: 'Erro de autenticação',
-          description: 'Sua sessão expirou. Por favor, faça login novamente.',
-        });
-        
-        setTimeout(() => {
-          navigate('/login', { state: { from: '/settings' } });
-        }, 2000);
-      } else {
-        toast({
-          variant: 'destructive',
-          title: 'Erro',
-          description: 'Não foi possível salvar a configuração da API de absenteísmo.'
-        });
-      }
+      console.error('Erro ao salvar configuração:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao salvar',
+        description: error instanceof Error ? error.message : 'Erro desconhecido ao salvar configuração'
+      });
     } finally {
       setIsSaving(false);
     }
   };
 
+  // Função para testar a conexão
   const handleTest = async () => {
+    if (!empresa || !codigo || !chave) {
+      toast({
+        variant: 'destructive',
+        title: 'Campos obrigatórios',
+        description: 'Empresa, Código e Chave são campos obrigatórios para testar a conexão.'
+      });
+      return;
+    }
+    
+    if (!validateDates()) {
+      toast({
+        variant: 'destructive',
+        title: 'Datas inválidas',
+        description: 'Verifique os erros nas datas antes de testar a conexão.'
+      });
+      return;
+    }
+    
     try {
       setIsTesting(true);
       setTestResult(null);
       
-      const testConfig = {
-        ...config,
-        tipoSaida: 'json'
+      const configData = {
+        type: 'absenteeism',
+        empresa,
+        codigo,
+        chave,
+        tipoSaida: 'json',
+        empresaTrabalho,
+        dataInicio,
+        dataFim
       };
       
-      let result;
+      const result = await testConnection(configData);
+      setTestResult(result);
       
-      if (localStorageService.isPreviewEnvironment()) {
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        result = {
-          success: true,
-          message: 'Conexão simulada bem-sucedida no ambiente de prévia.'
-        };
+      if (result.success) {
+        toast({
+          title: 'Teste bem-sucedido',
+          description: 'Conexão com a API de absenteísmo estabelecida com sucesso.'
+        });
       } else {
-        result = await apiService.testApiConnection(testConfig);
+        toast({
+          variant: 'destructive',
+          title: 'Erro no teste',
+          description: result.message || 'Falha ao conectar com a API de absenteísmo.'
+        });
       }
-      
-      setTestResult({
-        success: result.success,
-        message: result.message || (result.success 
-          ? 'Conexão com a API de Absenteísmo estabelecida com sucesso!' 
-          : 'Falha ao conectar com a API de Absenteísmo.')
-      });
-      
-      toast({
-        variant: result.success ? 'default' : 'destructive',
-        title: result.success ? 'Teste bem-sucedido' : 'Falha no teste',
-        description: result.message || (result.success 
-          ? 'A conexão com a API de Absenteísmo foi estabelecida com sucesso.' 
-          : 'Não foi possível conectar com a API de Absenteísmo.')
-      });
     } catch (error) {
-      console.error('Error testing API connection:', error);
-      setTestResult({
-        success: false,
-        message: 'Ocorreu um erro ao testar a conexão com a API.'
-      });
+      console.error('Erro ao testar conexão:', error);
+      setTestResult({ success: false, message: error instanceof Error ? error.message : 'Erro desconhecido' });
+      
       toast({
         variant: 'destructive',
-        title: 'Erro',
-        description: 'Ocorreu um erro ao testar a conexão com a API.'
+        title: 'Erro no teste',
+        description: error instanceof Error ? error.message : 'Erro desconhecido ao testar conexão'
       });
     } finally {
       setIsTesting(false);
     }
   };
 
+  // Função auxiliar para definir o período atual (30 dias)
+  const setCurrentPeriod = () => {
+    const today = new Date();
+    const thirtyDaysAgo = addDays(today, -30);
+    
+    setDataInicio(formatDateString(thirtyDaysAgo));
+    setDataFim(formatDateString(today));
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <h3 className="text-lg font-medium">Configuração da API de Absenteísmo</h3>
+          <p className="text-sm text-gray-500">Carregando configurações...</p>
+        </CardHeader>
+        <CardContent className="flex justify-center items-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card className="w-full">
+    <Card>
       <CardHeader>
-        <CardTitle>Configuração da API de Absenteísmo</CardTitle>
-        <CardDescription>
-          Configure os parâmetros para sincronização dos dados de absenteísmo.
-        </CardDescription>
+        <h3 className="text-lg font-medium">Configuração da API de Absenteísmo</h3>
+        <p className="text-sm text-gray-500">
+          Configure os parâmetros para integração com a API de absenteísmo do SOC
+        </p>
       </CardHeader>
-      
-      <PreviewModeIndicator />
-      
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="empresa">Empresa</Label>
+      <CardContent>
+        <div className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="empresa">Empresa Principal*</Label>
             <Input
               id="empresa"
-              name="empresa"
-              value={config.empresa}
-              onChange={handleInputChange}
-              placeholder="Código da empresa"
-              required
+              value={empresa}
+              onChange={(e) => setEmpresa(e.target.value)}
+              placeholder="Código da empresa principal"
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="empresaTrabalho">Empresa de Trabalho</Label>
-            <Input
-              id="empresaTrabalho"
-              name="empresaTrabalho"
-              value={config.empresaTrabalho}
-              onChange={handleInputChange}
-              placeholder="Código da empresa de trabalho"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="codigo">Código</Label>
+          
+          <div className="grid gap-2">
+            <Label htmlFor="codigo">Código*</Label>
             <Input
               id="codigo"
-              name="codigo"
-              value={config.codigo}
-              onChange={handleInputChange}
-              placeholder="Código de acesso"
-              required
+              value={codigo}
+              onChange={(e) => setCodigo(e.target.value)}
+              placeholder="Código de acesso à API"
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="chave">Chave</Label>
+          
+          <div className="grid gap-2">
+            <Label htmlFor="chave">Chave*</Label>
             <Input
               id="chave"
-              name="chave"
-              value={config.chave}
-              onChange={handleInputChange}
-              placeholder="Chave de acesso"
+              value={chave}
+              onChange={(e) => setChave(e.target.value)}
+              placeholder="Chave de acesso à API"
               type="password"
-              required
             />
+          </div>
+          
+          <div className="grid gap-2">
+            <Label htmlFor="empresaTrabalho">Empresa</Label>
+            <Input
+              id="empresaTrabalho"
+              value={empresaTrabalho}
+              onChange={(e) => setEmpresaTrabalho(e.target.value)}
+              placeholder="Código da empresa de trabalho"
+            />
+            <p className="text-xs text-gray-500">
+              Código da empresa retornado pela API de empresas
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="dataInicio">Data Inicial</Label>
+              <div className="relative">
+                <Input
+                  id="dataInicio"
+                  value={dataInicio}
+                  onChange={(e) => setDataInicio(e.target.value)}
+                  placeholder="dd/mm/aaaa"
+                  className={dataInicioError ? "border-red-300 focus:ring-red-500" : ""}
+                />
+                <Calendar className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              </div>
+              {dataInicioError && (
+                <p className="text-xs text-red-500">{dataInicioError}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="dataFim">Data Final</Label>
+              <div className="relative">
+                <Input
+                  id="dataFim"
+                  value={dataFim}
+                  onChange={(e) => setDataFim(e.target.value)}
+                  placeholder="dd/mm/aaaa"
+                  className={dataFimError ? "border-red-300 focus:ring-red-500" : ""}
+                />
+                <Calendar className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              </div>
+              {dataFimError && (
+                <p className="text-xs text-red-500">{dataFimError}</p>
+              )}
+            </div>
+          </div>
+          
+          {intervalError && (
+            <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start">
+              <AlertTriangle className="h-5 w-5 text-amber-500 mr-2 flex-shrink-0" />
+              <p className="text-sm text-amber-700">{intervalError}</p>
+            </div>
+          )}
+          
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={setCurrentPeriod}
+            className="mt-1"
+          >
+            Definir período de 30 dias
+          </Button>
+          
+          <p className="text-xs text-gray-500">
+            O intervalo entre as datas não pode exceder 30 dias. Formato: dd/mm/aaaa
+          </p>
+          
+          {testResult && (
+            <div className={`p-3 rounded-md ${testResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+              <div className="flex items-start">
+                {testResult.success ? 
+                  <CheckCircle className="h-5 w-5 mr-2 text-green-500 flex-shrink-0" /> : 
+                  <AlertCircle className="h-5 w-5 mr-2 text-red-500 flex-shrink-0" />
+                }
+                <div>
+                  <p className="font-medium">
+                    {testResult.success ? 'Conexão bem-sucedida' : 'Falha na conexão'}
+                  </p>
+                  {testResult.message && (
+                    <p className="text-sm mt-1">{testResult.message}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <div className="flex gap-4 pt-2">
+            <Button 
+              onClick={handleTest} 
+              variant="outline" 
+              disabled={isTesting}
+            >
+              {isTesting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Testar Conexão
+            </Button>
+            
+            <Button 
+              onClick={handleSave} 
+              disabled={isSaving}
+            >
+              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Salvar Configuração
+            </Button>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label>Data Início</Label>
-            <DatePicker
-              date={startDate}
-              onSelect={handleStartDateChange}
-              placeholder="Selecione a data inicial"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Data Fim</Label>
-            <DatePicker
-              date={endDate}
-              onSelect={handleEndDateChange}
-              placeholder="Selecione a data final"
-            />
-          </div>
-        </div>
-        
-        {testResult && (
-          <div className={`p-4 rounded-lg mt-4 flex items-center space-x-3 ${
-            testResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
-          }`}>
-            {testResult.success ? (
-              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
-            ) : (
-              <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
-            )}
-            <span>{testResult.message}</span>
-          </div>
-        )}
       </CardContent>
-      <CardFooter className="flex justify-between">
-        <Button
-          variant="outline"
-          onClick={handleTest}
-          disabled={isLoading || isTesting || isSaving || !config.empresa || !config.codigo || !config.chave}
-        >
-          {isTesting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Testando...
-            </>
-          ) : (
-            'Testar Conexão'
-          )}
-        </Button>
-        <Button
-          onClick={handleSave}
-          disabled={isLoading || isTesting || isSaving || !config.empresa || !config.codigo || !config.chave}
-        >
-          {isSaving ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Salvando...
-            </>
-          ) : (
-            'Salvar Configuração'
-          )}
-        </Button>
-      </CardFooter>
     </Card>
   );
 };

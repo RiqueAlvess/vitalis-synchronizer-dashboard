@@ -1,330 +1,158 @@
 
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { useApiConfig } from '@/hooks/use-api-config';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/components/ui/use-toast';
-import apiService, { EmployeeApiConfig as EmployeeApiConfigType } from '@/services/api';
-import { Loader2, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
-import PreviewModeIndicator from '@/components/ui-custom/PreviewModeIndicator';
-import { localStorageService } from '@/services/localStorageService';
-import { supabase } from '@/integrations/supabase/client';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useToast } from '@/components/ui/use-toast';
+import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 
 const EmployeeApiConfig = () => {
+  const { config, isLoading, saveConfig, testConnection } = useApiConfig('employee');
   const { toast } = useToast();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [isLoading, setIsLoading] = useState(false);
+  
+  // Estado local para os campos do formulário
+  const [empresa, setEmpresa] = useState('');
+  const [codigo, setCodigo] = useState('');
+  const [chave, setChave] = useState('');
+  const [ativo, setAtivo] = useState(false);
+  const [inativo, setInativo] = useState(false);
+  const [afastado, setAfastado] = useState(false);
+  const [pendente, setPendente] = useState(false);
+  const [ferias, setFerias] = useState(false);
+  
+  // Estado para controlar o teste de conexão
   const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{success?: boolean; message?: string} | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [showSecrets, setShowSecrets] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  const [isAtivo, setIsAtivo] = useState(false);
-  const [isInativo, setIsInativo] = useState(false);
-  const [isAfastado, setIsAfastado] = useState(false);
-  const [isPendente, setIsPendente] = useState(false);
-  const [isFerias, setIsFerias] = useState(false);
-
-  const initialConfig: EmployeeApiConfigType = {
-    type: 'employee',
-    empresa: '',
-    codigo: '',
-    chave: '',
-    tipoSaida: 'json',
-    ativo: '',
-    inativo: '',
-    afastado: '',
-    pendente: '',
-    ferias: '',
-    isConfigured: false
-  };
-
-  const [config, setConfig] = useState<EmployeeApiConfigType>(initialConfig);
-
-  // Check session on component mount
+  // Carregar configuração quando o componente montar
   useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.warn('Sem sessão válida no componente');
-        toast({
-          variant: 'destructive',
-          title: 'Autenticação necessária',
-          description: 'Faça login para acessar esta funcionalidade'
-        });
-        navigate('/login', { state: { from: location.pathname } });
-      }
-    };
-    
-    checkSession();
-  }, []);
-
-  useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        setIsLoading(true);
-        const data = await apiService.getApiConfig('employee');
-        if (data) {
-          const typedData = data as EmployeeApiConfigType;
-          
-          setIsAtivo(typedData.ativo === 'Sim');
-          setIsInativo(typedData.inativo === 'Sim');
-          setIsAfastado(typedData.afastado === 'Sim');
-          setIsPendente(typedData.pendente === 'Sim');
-          setIsFerias(typedData.ferias === 'Sim');
-          
-          setConfig({
-            ...typedData,
-            tipoSaida: 'json',
-            isConfigured: !!typedData.empresa && !!typedData.codigo && !!typedData.chave
-          });
-        }
-      } catch (error) {
-        console.error('Error loading employee API config:', error);
-        toast({
-          variant: 'destructive',
-          title: 'Erro ao carregar configurações',
-          description: 'Não foi possível carregar as configurações da API de funcionários.'
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    fetchConfig();
-  }, [toast]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setConfig(prev => ({ ...prev, [name]: value }));
-    if (testResult) {
-      setTestResult(null);
+    if (config) {
+      setEmpresa(config.empresa || '');
+      setCodigo(config.codigo || '');
+      setChave(config.chave || '');
+      setAtivo(config.ativo === 'Sim');
+      setInativo(config.inativo === 'Sim');
+      setAfastado(config.afastado === 'Sim');
+      setPendente(config.pendente === 'Sim');
+      setFerias(config.ferias === 'Sim');
     }
-    if (syncResult) {
-      setSyncResult(null);
+  }, [config]);
+
+  // Função para salvar a configuração
+  const handleSave = async () => {
+    if (!empresa || !codigo || !chave) {
+      toast({
+        variant: 'destructive',
+        title: 'Campos obrigatórios',
+        description: 'Empresa, Código e Chave são campos obrigatórios.'
+      });
+      return;
+    }
+    
+    try {
+      setIsSaving(true);
+      
+      const configData = {
+        type: 'employee',
+        empresa,
+        codigo,
+        chave,
+        tipoSaida: 'json',
+        ativo: ativo ? 'Sim' : '',
+        inativo: inativo ? 'Sim' : '',
+        afastado: afastado ? 'Sim' : '',
+        pendente: pendente ? 'Sim' : '',
+        ferias: ferias ? 'Sim' : ''
+      };
+      
+      await saveConfig(configData);
+      
+      toast({
+        title: 'Configuração salva',
+        description: 'Configuração da API de funcionários salva com sucesso.'
+      });
+    } catch (error) {
+      console.error('Erro ao salvar configuração:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao salvar',
+        description: error instanceof Error ? error.message : 'Erro desconhecido ao salvar configuração'
+      });
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleCheckboxChange = (name: string, checked: boolean) => {
-    setConfig(prev => ({ 
-      ...prev, 
-      [name]: checked ? 'Sim' : '' 
-    }));
-    
-    switch (name) {
-      case 'ativo':
-        setIsAtivo(checked);
-        break;
-      case 'inativo':
-        setIsInativo(checked);
-        break;
-      case 'afastado':
-        setIsAfastado(checked);
-        break;
-      case 'pendente':
-        setIsPendente(checked);
-        break;
-      case 'ferias':
-        setIsFerias(checked);
-        break;
-    }
-    
-    if (testResult) {
-      setTestResult(null);
-    }
-    if (syncResult) {
-      setSyncResult(null);
-    }
-  };
-
+  // Função para testar a conexão
   const handleTest = async () => {
+    if (!empresa || !codigo || !chave) {
+      toast({
+        variant: 'destructive',
+        title: 'Campos obrigatórios',
+        description: 'Empresa, Código e Chave são campos obrigatórios para testar a conexão.'
+      });
+      return;
+    }
+    
     try {
       setIsTesting(true);
       setTestResult(null);
       
-      const testConfig = {
-        ...config,
-        tipoSaida: 'json'
+      const configData = {
+        type: 'employee',
+        empresa,
+        codigo,
+        chave,
+        tipoSaida: 'json',
+        ativo: ativo ? 'Sim' : '',
+        inativo: inativo ? 'Sim' : '',
+        afastado: afastado ? 'Sim' : '',
+        pendente: pendente ? 'Sim' : '',
+        ferias: ferias ? 'Sim' : ''
       };
       
-      let result;
+      const result = await testConnection(configData);
+      setTestResult(result);
       
-      if (localStorageService.isPreviewEnvironment()) {
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        result = {
-          success: true,
-          message: 'Conexão simulada bem-sucedida no ambiente de prévia.'
-        };
+      if (result.success) {
+        toast({
+          title: 'Teste bem-sucedido',
+          description: 'Conexão com a API de funcionários estabelecida com sucesso.'
+        });
       } else {
-        result = await apiService.testApiConnection(testConfig);
+        toast({
+          variant: 'destructive',
+          title: 'Erro no teste',
+          description: result.message || 'Falha ao conectar com a API de funcionários.'
+        });
       }
-      
-      setTestResult({
-        success: result.success,
-        message: result.message || (result.success 
-          ? 'Conexão com a API de Funcionários estabelecida com sucesso!' 
-          : 'Falha ao conectar com a API de Funcionários.')
-      });
-      
-      toast({
-        title: result.success ? "Teste concluído" : "Erro no teste",
-        description: result.success 
-          ? "Conexão com a API de funcionários estabelecida com sucesso." 
-          : "Não foi possível conectar à API de funcionários. Verifique as configurações.",
-        variant: result.success ? "default" : "destructive"
-      });
     } catch (error) {
-      console.error('Error testing employee API connection:', error);
-      setTestResult({
-        success: false,
-        message: error instanceof Error ? error.message : 'Erro desconhecido ao testar conexão'
-      });
+      console.error('Erro ao testar conexão:', error);
+      setTestResult({ success: false, message: error instanceof Error ? error.message : 'Erro desconhecido' });
       
       toast({
-        title: "Erro no teste",
-        description: "Não foi possível conectar à API de funcionários. Verifique as configurações.",
-        variant: "destructive"
+        variant: 'destructive',
+        title: 'Erro no teste',
+        description: error instanceof Error ? error.message : 'Erro desconhecido ao testar conexão'
       });
     } finally {
       setIsTesting(false);
     }
   };
 
-  const handleSync = async () => {
-    try {
-      setIsSyncing(true);
-      setSyncResult(null);
-      
-      if (!config.isConfigured) {
-        await handleSave();
-      }
-      
-      const result = await apiService.employees.sync();
-      
-      setSyncResult({
-        success: result.success,
-        message: result.message || (result.success 
-          ? 'Sincronização de funcionários concluída com sucesso!' 
-          : 'Falha ao sincronizar dados de funcionários.')
-      });
-      
-      toast({
-        title: result.success ? "Sincronização concluída" : "Erro na sincronização",
-        description: result.success 
-          ? "Dados de funcionários sincronizados com sucesso." 
-          : "Não foi possível sincronizar dados de funcionários. Verifique as configurações.",
-        variant: result.success ? "default" : "destructive"
-      });
-    } catch (error) {
-      console.error('Error syncing employee data:', error);
-      setSyncResult({
-        success: false,
-        message: error instanceof Error ? error.message : 'Erro desconhecido ao sincronizar dados'
-      });
-      
-      toast({
-        title: "Erro na sincronização",
-        description: "Não foi possível sincronizar dados de funcionários. Verifique as configurações.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleSave = async () => {
-    try {
-      setIsSaving(true);
-      
-      // Verificar autenticação explicitamente antes de salvar
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) {
-        console.error("Sessão não encontrada antes de salvar, forçando login");
-        toast({
-          variant: 'destructive',
-          title: 'Erro de autenticação',
-          description: 'Sua sessão expirou. Redirecionando para login...',
-        });
-        
-        setTimeout(() => {
-          navigate('/login', { state: { from: '/settings' } });
-        }, 2000);
-        return;
-      }
-      
-      console.log("Sessão válida encontrada, token:", 
-                data.session.access_token?.substring(0, 10) + "...");
-      
-      const configToSave: EmployeeApiConfigType = {
-        type: 'employee',
-        empresa: config.empresa,
-        codigo: config.codigo,
-        chave: config.chave,
-        tipoSaida: 'json',
-        ativo: isAtivo ? 'Sim' : '',
-        inativo: isInativo ? 'Sim' : '',
-        afastado: isAfastado ? 'Sim' : '',
-        pendente: isPendente ? 'Sim' : '',
-        ferias: isFerias ? 'Sim' : '',
-        isConfigured: true
-      };
-      
-      const result = await apiService.saveApiConfig(configToSave);
-      
-      if (!result) {
-        throw new Error('Falha ao salvar configurações');
-      }
-      
-      toast({
-        title: "Configuração salva",
-        description: "As configurações da API de funcionários foram salvas com sucesso.",
-        variant: "default"
-      });
-      
-      const savedConfig = await apiService.getApiConfig('employee');
-      if (savedConfig) {
-        setConfig(savedConfig as EmployeeApiConfigType);
-      }
-    } catch (error) {
-      console.error('Error saving employee API config:', error);
-      
-      // Verificar se é erro de autenticação
-      if (error.message?.includes('Not authenticated') || 
-          error.response?.status === 401) {
-        toast({
-          variant: 'destructive',
-          title: 'Erro de autenticação',
-          description: 'Sua sessão expirou. Por favor, faça login novamente.',
-        });
-        
-        setTimeout(() => {
-          navigate('/login', { state: { from: '/settings' } });
-        }, 2000);
-      } else {
-        toast({
-          title: "Erro ao salvar",
-          description: "Não foi possível salvar as configurações da API de funcionários.",
-          variant: "destructive"
-        });
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="pt-6">
-          <div className="flex justify-center items-center h-40">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
+        <CardHeader>
+          <h3 className="text-lg font-medium">Configuração da API de Funcionários</h3>
+          <p className="text-sm text-gray-500">Carregando configurações...</p>
+        </CardHeader>
+        <CardContent className="flex justify-center items-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </CardContent>
       </Card>
     );
@@ -333,216 +161,133 @@ const EmployeeApiConfig = () => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Configuração da API de Funcionários</CardTitle>
-        <CardDescription>
-          Configure a integração com a API SOC para importar dados de funcionários.
-        </CardDescription>
+        <h3 className="text-lg font-medium">Configuração da API de Funcionários</h3>
+        <p className="text-sm text-gray-500">
+          Configure os parâmetros para integração com a API de funcionários do SOC
+        </p>
       </CardHeader>
-      
-      <PreviewModeIndicator />
-      
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="empresa">Empresa</Label>
+      <CardContent>
+        <div className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="empresa">Empresa*</Label>
             <Input
               id="empresa"
-              name="empresa"
-              value={config.empresa}
-              onChange={handleChange}
-              placeholder="Código da empresa"
-              required
+              value={empresa}
+              onChange={(e) => setEmpresa(e.target.value)}
+              placeholder="Código da empresa principal"
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="codigo">Código</Label>
+          
+          <div className="grid gap-2">
+            <Label htmlFor="codigo">Código*</Label>
             <Input
               id="codigo"
-              name="codigo"
-              value={config.codigo}
-              onChange={handleChange}
-              placeholder="Código de acesso"
-              type={showSecrets ? "text" : "password"}
-              required
+              value={codigo}
+              onChange={(e) => setCodigo(e.target.value)}
+              placeholder="Código de acesso à API"
             />
           </div>
-        </div>
-        
-        <div className="space-y-2">
-          <Label htmlFor="chave">Chave de API</Label>
-          <Input
-            id="chave"
-            name="chave"
-            value={config.chave}
-            onChange={handleChange}
-            placeholder="Chave de autenticação da API"
-            type={showSecrets ? "text" : "password"}
-            required
-          />
-        </div>
-        
-        <div className="flex items-center space-x-2 pt-2">
-          <Checkbox
-            id="showSecrets"
-            checked={showSecrets}
-            onCheckedChange={(checked) => setShowSecrets(!!checked)}
-          />
-          <label
-            htmlFor="showSecrets"
-            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-          >
-            Mostrar credenciais
-          </label>
-        </div>
-        
-        <div className="border rounded-md p-4 mt-4">
-          <h3 className="text-sm font-medium mb-3">Filtros de status</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="ativoCheck"
-                checked={isAtivo}
-                onCheckedChange={(checked) => handleCheckboxChange('ativo', !!checked)}
-              />
-              <label
-                htmlFor="ativoCheck"
-                className="text-sm font-medium leading-none"
-              >
-                Ativo
-              </label>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="inativoCheck"
-                checked={isInativo}
-                onCheckedChange={(checked) => handleCheckboxChange('inativo', !!checked)}
-              />
-              <label
-                htmlFor="inativoCheck"
-                className="text-sm font-medium leading-none"
-              >
-                Inativo
-              </label>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="afastadoCheck"
-                checked={isAfastado}
-                onCheckedChange={(checked) => handleCheckboxChange('afastado', !!checked)}
-              />
-              <label
-                htmlFor="afastadoCheck"
-                className="text-sm font-medium leading-none"
-              >
-                Afastado
-              </label>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="pendenteCheck"
-                checked={isPendente}
-                onCheckedChange={(checked) => handleCheckboxChange('pendente', !!checked)}
-              />
-              <label
-                htmlFor="pendenteCheck"
-                className="text-sm font-medium leading-none"
-              >
-                Pendente
-              </label>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="feriasCheck"
-                checked={isFerias}
-                onCheckedChange={(checked) => handleCheckboxChange('ferias', !!checked)}
-              />
-              <label
-                htmlFor="feriasCheck"
-                className="text-sm font-medium leading-none"
-              >
-                Férias
-              </label>
+          
+          <div className="grid gap-2">
+            <Label htmlFor="chave">Chave*</Label>
+            <Input
+              id="chave"
+              value={chave}
+              onChange={(e) => setChave(e.target.value)}
+              placeholder="Chave de acesso à API"
+              type="password"
+            />
+          </div>
+          
+          <div className="pt-2">
+            <Label className="mb-2 block">Situações dos funcionários a incluir:</Label>
+            <div className="grid gap-3">
+              <div className="flex items-center gap-2">
+                <Checkbox 
+                  id="ativo" 
+                  checked={ativo} 
+                  onCheckedChange={(checked) => setAtivo(checked === true)}
+                />
+                <Label htmlFor="ativo" className="text-sm font-normal">Ativos</Label>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Checkbox 
+                  id="inativo" 
+                  checked={inativo} 
+                  onCheckedChange={(checked) => setInativo(checked === true)}
+                />
+                <Label htmlFor="inativo" className="text-sm font-normal">Inativos</Label>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Checkbox 
+                  id="afastado" 
+                  checked={afastado} 
+                  onCheckedChange={(checked) => setAfastado(checked === true)}
+                />
+                <Label htmlFor="afastado" className="text-sm font-normal">Afastados</Label>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Checkbox 
+                  id="pendente" 
+                  checked={pendente} 
+                  onCheckedChange={(checked) => setPendente(checked === true)}
+                />
+                <Label htmlFor="pendente" className="text-sm font-normal">Pendentes</Label>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Checkbox 
+                  id="ferias" 
+                  checked={ferias} 
+                  onCheckedChange={(checked) => setFerias(checked === true)}
+                />
+                <Label htmlFor="ferias" className="text-sm font-normal">Em férias</Label>
+              </div>
             </div>
           </div>
+          
+          {testResult && (
+            <div className={`p-3 rounded-md ${testResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+              <div className="flex items-start">
+                {testResult.success ? 
+                  <CheckCircle className="h-5 w-5 mr-2 text-green-500 flex-shrink-0" /> : 
+                  <AlertCircle className="h-5 w-5 mr-2 text-red-500 flex-shrink-0" />
+                }
+                <div>
+                  <p className="font-medium">
+                    {testResult.success ? 'Conexão bem-sucedida' : 'Falha na conexão'}
+                  </p>
+                  {testResult.message && (
+                    <p className="text-sm mt-1">{testResult.message}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <div className="flex gap-4 pt-2">
+            <Button 
+              onClick={handleTest} 
+              variant="outline" 
+              disabled={isTesting}
+            >
+              {isTesting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Testar Conexão
+            </Button>
+            
+            <Button 
+              onClick={handleSave} 
+              disabled={isSaving}
+            >
+              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Salvar Configuração
+            </Button>
+          </div>
         </div>
-        
-        {testResult && (
-          <div className={`p-4 rounded-md ${testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'} flex items-center space-x-3`}>
-            {testResult.success ? (
-              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
-            ) : (
-              <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
-            )}
-            <span>{testResult.message}</span>
-          </div>
-        )}
-        
-        {syncResult && (
-          <div className={`p-4 rounded-md ${syncResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'} flex items-center space-x-3`}>
-            {syncResult.success ? (
-              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
-            ) : (
-              <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
-            )}
-            <span>{syncResult.message}</span>
-          </div>
-        )}
       </CardContent>
-      <CardFooter className="flex flex-col sm:flex-row gap-2">
-        <Button 
-          variant="outline" 
-          onClick={handleTest} 
-          disabled={isTesting || isLoading || isSaving || isSyncing || !config.empresa || !config.codigo || !config.chave}
-          className="w-full sm:w-auto"
-        >
-          {isTesting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Testando...
-            </>
-          ) : (
-            'Testar Conexão'
-          )}
-        </Button>
-        
-        <Button 
-          variant="outline"
-          onClick={handleSync}
-          disabled={isLoading || isTesting || isSaving || isSyncing || !config.empresa || !config.codigo || !config.chave}
-          className="w-full sm:w-auto flex items-center gap-2"
-        >
-          {isSyncing ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Sincronizando...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-4 w-4" />
-              Sincronizar Dados
-            </>
-          )}
-        </Button>
-        
-        <Button 
-          onClick={handleSave} 
-          disabled={isLoading || isTesting || isSaving || isSyncing || !config.empresa || !config.codigo || !config.chave}
-          className="w-full sm:w-auto"
-        >
-          {isSaving ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Salvando...
-            </>
-          ) : (
-            'Salvar Configurações'
-          )}
-        </Button>
-      </CardFooter>
     </Card>
   );
 };
